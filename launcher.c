@@ -19,6 +19,7 @@ typedef struct { unsigned long len, load; unsigned long long totalPhys, availPhy
 __declspec(dllimport) int __stdcall GlobalMemoryStatusEx(MemStatEx *);
 #else
 #include <unistd.h>
+#include <sys/stat.h>
 #endif
 static int systemRamMB(void) {
 #if defined(_WIN32)
@@ -90,6 +91,13 @@ static char updStatus[200] = "";
 static char updateUrl[512] = DEFAULT_UPDATE_URL;
 static char instUrl[600] = "", newsUrl[600] = "";   // from the manifest: the installer of the new version, and the news feed
 static volatile int updQuit = 0; static int autoInstallTried = 0;
+// ---- version selector: every released version can be played; older ones are downloaded into Versions/<ver>/ with their own data and saves
+#define VMAX 48
+typedef struct { char ver[24], channel[12], url[400], date[16], title[80]; } VerEntry;
+static VerEntry vers[VMAX]; static int nVers = 0;
+static char verSel[24] = "";          // "" = the installed (latest) version
+static volatile int verBusy = 0; static char verStatus[200] = ""; static char verPending[24] = ""; static volatile int verLaunch = 0;
+static bool verPopup = false; static Rectangle verPopR; static volatile int versReload = 0; static bool verHoldClick = false;
 static char lastUser[32] = "";
 static int closeOnPlay = 1;
 static volatile int updBusy = 0, updAvailable = 0, updDone = 0;
@@ -117,6 +125,7 @@ static void launcherIniLoad(void) {
         else if (!strcmp(k, "p_render")) pRender = atoi(v);
         else if (!strcmp(k, "p_seed")) snprintf(pSeed, sizeof pSeed, "%s", v);
         else if (!strcmp(k, "launch_args")) { snprintf(launchArgs, sizeof launchArgs, "%s", v); }
+        else if (!strcmp(k, "version")) { snprintf(verSel, sizeof verSel, "%s", v); }
     }
     fclose(f);
 }
@@ -131,6 +140,7 @@ static void launcherIniSave(void) {
     fprintf(f, "# ram_mb: memory reserved for the game process in MB (0 = automatic). Passed as --ram.\n");
     fprintf(f, "# launch_args: extra startup arguments passed to Zanko.exe.\n");
     fprintf(f, "update_url=%s\nlastUser=%s\ncloseOnPlay=%d\nram_mb=%d\nlaunch_args=%s\n", updateUrl, lastUser, closeOnPlay, ramMB, launchArgs);
+    fprintf(f, "# version: the game version PLAY starts (empty = the installed, newest version)\nversion=%s\n", verSel);
     fprintf(f, "# Parameters tab\np_windowed=%d\np_newgame=%d\np_nomods=%d\np_log=%d\np_novsync=%d\np_fps=%d\np_render=%d\np_seed=%s\n", pWindowed, pNewGame, pNoMods, pLog, pNoVsync, pFps, pRender, pSeed);
     fclose(f);
 }
@@ -156,6 +166,33 @@ static int download(const char *url, const char *path) { return URLDownloadToFil
 static int download(const char *url, const char *path) { char cmd[1400]; snprintf(cmd, sizeof cmd, "curl -fsSL \"%s\" -o \"%s\"", url, path); return system(cmd) == 0; }
 #endif
 
+static int verCmp(const char *a, const char *b);
+static void versLoad(void) {   // Data/versions.txt: one line per release, newest first:  version|channel|zip url|date|title
+    nVers = 0; char *t = LoadFileText(P("Data/versions.txt")); if (!t) return;
+    char *line = strtok(t, "\r\n");
+    while (line && nVers < VMAX) {
+        if (line[0] && line[0] != '#') { VerEntry *v = &vers[nVers]; memset(v, 0, sizeof *v);
+            if (sscanf(line, "%23[^|]|%11[^|]|%399[^|]|%15[^|]|%79[^\n]", v->ver, v->channel, v->url, v->date, v->title) >= 3) nVers++; }
+        line = strtok(NULL, "\r\n"); }
+    UnloadFileText(t);
+    for (int i = 0; i < nVers; i++) for (int j = i + 1; j < nVers; j++) if (verCmp(vers[j].ver, vers[i].ver) > 0) { VerEntry x = vers[i]; vers[i] = vers[j]; vers[j] = x; }
+}
+static void versFetch(void) {   // the list sits next to the update manifest: .../update/versions.txt
+    char base[600]; snprintf(base, sizeof base, "%s", updateUrl); char *sl = strrchr(base, '/'); if (!sl) return; sl[1] = 0;
+    char url[700], tmp[900]; snprintf(url, sizeof url, "%sversions.txt?v=%ld", base, (long)time(NULL)); snprintf(tmp, sizeof tmp, "%s.new", P("Data/versions.txt"));
+    if (download(url, tmp)) { remove(P("Data/versions.txt")); rename(tmp, P("Data/versions.txt")); }
+}
+static const char *verDir(char *b, const char *v) { snprintf(b, 300, "Versions/%s", v); return b; }   // caller buffer: used from the download thread too
+static bool verInstalled(const char *v) {
+    if (!v[0] || !strcmp(v, localVer)) return true;
+    char vb[300], rel[400]; snprintf(rel, sizeof rel, "%s/Zanko2006/Root/%s", verDir(vb, v),
+#if defined(_WIN32)
+        "Zanko.exe"
+#else
+        "zanko_linux"
+#endif
+    ); return FileExists(P(rel));
+}
 #if defined(_WIN32)
 static unsigned long __stdcall checkThread(void *arg)
 #else
@@ -167,6 +204,7 @@ static void *checkThread(void *arg)
     snprintf(url, sizeof url, "%s%sv=%ld", url0, strchr(url0, '?') ? "&" : "?", (long)time(NULL));   // skip the system download cache: always the live manifest
     const char *mf = P("Data/update_manifest.txt");
     if (!download(url, mf)) { snprintf(updStatus, sizeof updStatus, "Update check failed (could not reach update source)."); updBusy = 0; return 0; }
+    versFetch(); versReload = 1;
     char *t = LoadFileText(mf);
     remoteVer[0] = 0;
     instUrl[0] = newsUrl[0] = 0;
@@ -238,6 +276,37 @@ static void *installThread(void *arg)
 #if !defined(_WIN32)
 #include <pthread.h>
 #endif
+#if defined(_WIN32)
+static unsigned long __stdcall verThread(void *arg)
+#else
+static void *verThread(void *arg)
+#endif
+{
+    (void)arg;
+    VerEntry *v = NULL; for (int i = 0; i < nVers; i++) if (!strcmp(vers[i].ver, verPending)) v = &vers[i];
+    if (!v) { snprintf(verStatus, sizeof verStatus, "v%s is not in the version list.", verPending); verBusy = 0; return 0; }
+    ensureDir("Versions");
+    char vb[300], zip[700], dir[700]; snprintf(zip, sizeof zip, "%s.zip", P(verDir(vb, v->ver))); snprintf(dir, sizeof dir, "%s", P(verDir(vb, v->ver)));
+    snprintf(verStatus, sizeof verStatus, "Downloading v%s ...", v->ver);
+    if (!download(v->url, zip)) { snprintf(verStatus, sizeof verStatus, "Could not download v%s.", v->ver); remove(zip); verBusy = 0; return 0; }
+    snprintf(verStatus, sizeof verStatus, "Unpacking v%s ...", v->ver);
+    if (!DirectoryExists(dir)) MakeDirectory(dir);
+    int n = mzUnzipTo(zip, dir); remove(zip);
+#if !defined(_WIN32)
+    { char ex[800]; snprintf(ex, sizeof ex, "%s/Zanko2006/Root/zanko_linux", dir); chmod(ex, 0755); }
+#endif
+    if (n <= 0 || !verInstalled(v->ver)) { snprintf(verStatus, sizeof verStatus, "v%s could not be unpacked.", v->ver); verBusy = 0; return 0; }
+    snprintf(verStatus, sizeof verStatus, "v%s installed.", v->ver);
+    verLaunch = 1; verBusy = 0; return 0;
+}
+static void startVerThread(void) {
+    if (verBusy) return; verBusy = 1;
+#if defined(_WIN32)
+    CreateThread(NULL, 0, verThread, NULL, 0, NULL);
+#else
+    pthread_t th; pthread_create(&th, NULL, verThread, NULL); pthread_detach(th);
+#endif
+}
 static void startThread(int install) {
     if (updBusy) return;
     updBusy = 1;
@@ -312,12 +381,20 @@ static void buildArgs(char *args, int sz) {   // full command line from the Para
 static void play(void) {
     cfgSave();
     char args[512]; buildArgs(args, sizeof args);
+    char root[400] = "Root";
+    if (verSel[0] && strcmp(verSel, localVer)) {   // an older version: its own folder; download it first when it is not there yet
+        if (!verInstalled(verSel)) { snprintf(verPending, sizeof verPending, "%s", verSel); startVerThread(); snprintf(status, sizeof status, "Getting v%s ...", verSel); return; }
+        char vb[300]; snprintf(root, sizeof root, "%s/Zanko2006/Root", verDir(vb, verSel));
+    }
+    char rexe[460];
 #if defined(_WIN32)
-    const char *exe = P("Root/Zanko.exe");
-    if (!FileExists(exe)) { snprintf(status, sizeof status, "Root/Zanko.exe not found."); return; }
-    ShellExecuteA(NULL, "open", exe, args, P("Root"), 1);
+    snprintf(rexe, sizeof rexe, "%s/Zanko.exe", root);
+    const char *exe = P(rexe);
+    if (!FileExists(exe)) { snprintf(status, sizeof status, "%s not found.", rexe); return; }
+    ShellExecuteA(NULL, "open", exe, args, P(root), 1);
 #else
-    char cmd[1400]; snprintf(cmd, sizeof cmd, "\"%s\" %s &", P("Root/zanko_linux"), args);
+    snprintf(rexe, sizeof rexe, "%s/zanko_linux", root);
+    char cmd[1400]; snprintf(cmd, sizeof cmd, "\"%s\" %s &", P(rexe), args);
     if (system(cmd) != 0) { snprintf(status, sizeof status, "Could not start the game."); return; }
 #endif
     snprintf(status, sizeof status, "Game started.");
@@ -622,6 +699,9 @@ static void tabOptions(Rectangle c) {
 }
 static void drawLauncher(float W, float H) {
     float s = aU, sbw = 236 * s, bbh = 92 * s;
+    if (versReload) { versReload = 0; versLoad(); }
+    verHoldClick = verPopup && CheckCollisionPointRec(aMousePos(), verPopR);
+    if (verHoldClick) aClickUsed = true;   // the open list sits on top: widgets under it must not take the click
     // sidebar
     glassStrip((Rectangle){0, 0, sbw, H}, 236);
     aLine(sbw, 0, sbw, H, 1, (Color){8, 10, 10, 255}); aLine(sbw - 2 * s, 0, sbw - 2 * s, H, 1, (Color){200, 214, 210, 50});
@@ -642,7 +722,19 @@ static void drawLauncher(float W, float H) {
     // content
     Rectangle c = {sbw, 0, W - sbw, H - bbh};
     if (tab != TAB_PLAY) aRR((Rectangle){c.x, c.y, c.width, c.height}, 0, (Color){10, 14, 15, 150});
-    if (tab == TAB_PLAY) tabPlay(c); else if (tab == TAB_MODS) tabMods(c); else if (tab == TAB_SERVERS) tabServers(c); else if (tab == TAB_PARAMS) tabParams(c); else tabOptions(c);
+    Rectangle vb = {c.x + c.width - 40 * s - 270 * s, c.y + 40 * s, 270 * s, 36 * s};
+    if (tab == TAB_PLAY) {   // version picker: top right of the Play page
+        tabPlay(c);
+        aText("Version", vb.x, vb.y - 18 * s, 11, C_BONE2, false);
+        bool latest = !verSel[0] || !strcmp(verSel, localVer);
+        char lb[64]; snprintf(lb, sizeof lb, "v%s%s", latest ? localVer : verSel, latest ? "  (latest)" : "");
+        if (aButton(vb, lb, !verBusy)) verPopup = !verPopup;
+        float tx = vb.x + vb.width - 20 * s, ty = vb.y + vb.height / 2;   // the dropdown arrow
+        if (verPopup) DrawTriangle((Vector2){tx - 5 * s, ty + 3 * s}, (Vector2){tx + 5 * s, ty + 3 * s}, (Vector2){tx, ty - 3 * s}, (Color){20, 30, 40, 255});
+        else DrawTriangle((Vector2){tx - 5 * s, ty - 3 * s}, (Vector2){tx, ty + 3 * s}, (Vector2){tx + 5 * s, ty - 3 * s}, (Color){20, 30, 40, 255});
+        if (verBusy || verStatus[0]) aText(verStatus, vb.x, vb.y + vb.height + 6 * s, 11, C_CYAN, false);
+    } else verPopup = false;
+    if (tab == TAB_PLAY) {} else if (tab == TAB_MODS) tabMods(c); else if (tab == TAB_SERVERS) tabServers(c); else if (tab == TAB_PARAMS) tabParams(c); else tabOptions(c);
     // bottom bar
     Rectangle bb = {sbw, H - bbh, W - sbw, bbh};
     glassStrip(bb, 245);
@@ -661,7 +753,38 @@ static void drawLauncher(float W, float H) {
     // PLAY
     Rectangle pr = {bb.x + bb.width - 300 * s, bb.y + 16 * s, 272 * s, 60 * s};
     aRR(aGrow(pr, 4 * s), 34 * s, (Color){111, 214, 208, 70});
-    if (aButton(pr, "PLAY", true)) { if (modsDirty) modsWrite(); play(); if (closeOnPlay && !strcmp(status, "Game started.")) { profSave(); CloseWindow(); exit(0); } }
+    bool go = aButton(pr, verBusy ? "..." : "PLAY", !verBusy);
+    if (verLaunch) { verLaunch = 0; go = true; }   // an older version just finished downloading: start it
+    if (go) { if (modsDirty) modsWrite(); play(); if (closeOnPlay && !strcmp(status, "Game started.")) { profSave(); launcherIniSave(); CloseWindow(); exit(0); } }
+    // the version list pops up above the picker
+    if (verPopup) {
+        if (verHoldClick) aClickUsed = false;
+        int rows = 1; for (int i = 0; i < nVers; i++) if (strcmp(vers[i].ver, localVer) && (!strcmp(vers[i].channel, "stable") || !strcmp(cfg.channel, "beta"))) rows++;
+        float rh = 40 * s, pw = 380 * s, ph = rows * rh + 46 * s; if (ph > H - 140 * s) ph = H - 140 * s;
+        Rectangle pp = {vb.x + vb.width - pw, vb.y + vb.height + 8 * s, pw, ph}; verPopR = pp;
+        aRR(aGrow(pp, 2 * s), 10 * s, (Color){8, 11, 12, 255}); aRR(pp, 9 * s, (Color){22, 30, 32, 255});   // solid: nothing behind shows through
+        aLine(pp.x + 9 * s, pp.y + 1.5f * s, pp.x + pp.width - 9 * s, pp.y + 1.5f * s, 1, (Color){200, 214, 210, 160});
+        aText("Choose the version PLAY starts", pp.x + 16 * s, pp.y + 14 * s, 12, C_BONE2, false);
+        float y = pp.y + 38 * s; Vector2 m = aMousePos(); int pick = -2;
+        for (int i = -1; i < nVers && y + rh <= pp.y + pp.height - 4 * s; i++) {
+            const char *v = i < 0 ? localVer : vers[i].ver;
+            if (i >= 0 && (!strcmp(v, localVer) || (strcmp(vers[i].channel, "stable") && strcmp(cfg.channel, "beta")))) continue;
+            Rectangle r = {pp.x + 8 * s, y, pp.width - 16 * s, rh - 4 * s};
+            bool sel = i < 0 ? (!verSel[0] || !strcmp(verSel, localVer)) : !strcmp(verSel, v), hov = CheckCollisionPointRec(m, r);
+            if (sel || hov) aRR(r, 6 * s, sel ? (Color){47, 93, 94, 220} : (Color){60, 80, 84, 150});
+            const char *title = i < 0 ? "Installed" : vers[i].title;
+            aText(TextFormat("v%s", v), r.x + 12 * s, r.y + 5 * s, 15, (Color){236, 230, 216, 255}, true);
+            aText(title, r.x + 88 * s, r.y + 7 * s, 12, C_BONE2, false);
+            const char *tag = i < 0 ? "latest" : verInstalled(v) ? "installed" : "downloads on PLAY";
+            Vector2 tm = aMeasure(tag, 11, false); aText(tag, r.x + r.width - tm.x - 10 * s, r.y + 9 * s, 11, i < 0 ? C_CYAN : verInstalled(v) ? C_BONE : (Color){150, 146, 136, 230}, false);
+            if (i >= 0 && vers[i].date[0]) aText(vers[i].date, r.x + 88 * s, r.y + 22 * s, 10, (Color){130, 126, 118, 230}, false);
+            if (hov && !aClickUsed && aMPressed()) { aClickUsed = true; pick = i; }
+            y += rh;
+        }
+        if (nVers == 0) aText("No version list yet. It loads with the update check.", pp.x + 16 * s, y + 4 * s, 11, C_BONE2, false);
+        if (pick >= -1) { if (pick < 0) verSel[0] = 0; else snprintf(verSel, sizeof verSel, "%s", vers[pick].ver); verPopup = false; verStatus[0] = 0; launcherIniSave(); }
+        else if (aMPressed() && !aClickUsed && !CheckCollisionPointRec(m, pp)) verPopup = false;
+    }
 }
 
 int main(void) {
@@ -688,6 +811,7 @@ int main(void) {
     snprintf(tbSeed.buf, sizeof tbSeed.buf, "%s", pSeed); tbSeed.len = (int)strlen(tbSeed.buf);
     if (vidOn) lastUser[0] = 0;
     if (lastUser[0]) { snprintf(tbUser.buf, sizeof tbUser.buf, "%s", lastUser); tbUser.len = (int)strlen(lastUser); tbPass.active = true; } else tbUser.active = true;
+    versLoad();
     if (cfg.autoUpdate) checkUpdates(); else snprintf(updStatus, sizeof updStatus, "Automatic update check is off.");
     modsReload();
     const char *shot = getenv("KIRI_SHOT"); int frame = 0;
@@ -723,7 +847,12 @@ int main(void) {
             if (frame == 90) TakeScreenshot("launcher_options.png");
             if (frame == 91) tab = TAB_SERVERS;
             if (frame == 100) TakeScreenshot("launcher_servers.png");
-            if (frame == 101) break;
+            if (frame == 101) { tab = TAB_PLAY; verPopup = true; }
+            if (frame == 110) TakeScreenshot("launcher_versions.png");
+            if (frame == 111 && getenv("KIRI_VERTEST")) { verPopup = false; snprintf(verSel, sizeof verSel, "%s", getenv("KIRI_VERTEST")); play(); }
+            if (frame > 111 && frame < 600 && getenv("KIRI_VERTEST") && (verBusy || verLaunch)) { if (verLaunch) { verLaunch = 0; play(); TraceLog(LOG_INFO, "VERTEST: %s | %s", verStatus, status); } continue; }
+            if (frame == 112 && getenv("KIRI_VERTEST")) TraceLog(LOG_INFO, "VERTEST end: %s | %s", verStatus, status);
+            if (frame >= 112) break;
         }
     }
     if (modsDirty) modsWrite();

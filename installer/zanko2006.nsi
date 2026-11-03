@@ -116,6 +116,7 @@ FunctionEnd
 
 Section "Uninstall"
   RMDir /r "$INSTDIR\Root"
+  RMDir /r "$INSTDIR\Versions"
   RMDir /r "$INSTDIR\Textures"
   RMDir /r "$INSTDIR\Mods"
   RMDir /r "$INSTDIR\Data\Models"

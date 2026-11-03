@@ -1,5 +1,17 @@
-ZANKO 2006 - Afterglow  (v0.6.0, The town as drawn)
+ZANKO 2006 - Afterglow  (v0.6.1, Coast road, weapon moves, versions)
 
+- 0.6.1: version selector.
+  * The launcher's Play page has a Version list: pick any released
+    version and press PLAY. Older versions download once into the
+    Versions folder and keep their own saves (save files change
+    between versions). "Latest" is always the installed version.
+  * Coast road: no more blocks under the road. The land side is
+    paved up to the grid and lined with rows of houses and shops
+    facing the water, with planters, bollards and trees.
+  * Weapon moves: katana draw from the hip, alternating slashes and
+    a blood flick after a kill; knife stab; bat, pipe and crowbar
+    sweep; two-handed overhead chop for the axe and sledgehammer;
+    revolver recoil with the hammer falling back, spin on equip.
 - 0.6.0: Zanko 2006. The town as drawn.
   * New name: Zanko 2006. The story is now set in 2006.
   * Windows installer (no administrator rights needed). The

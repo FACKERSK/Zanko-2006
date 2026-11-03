@@ -28,7 +28,20 @@ static float polyEdgeDist(const float (*p)[2], int n, float x, float z) {
         float t = L2 > 0 ? clampf(((x - ax) * dx + (z - az) * dz) / L2, 0, 1) : 0, qx = ax + dx * t - x, qz = az + dz * t - z; best = fminf(best, qx * qx + qz * qz); }
     return sqrtf(best);
 }
-static bool inCore(float x, float z) { return inPoly(dCore, DCORE_N, x, z); }   // inside the town's outline (paved, flat)
+static unsigned char *townMask; static bool townReady = false;   // baked per heightfield cell: 1 = town ground (paved, flat)
+static float coastSigned(float x, float z);
+static bool seaSide(float x, float z);
+static bool inTownRaw(float x, float z) {   // the drawn outline, plus the land side of the coast road where it passes the town
+    if (inPoly(dCore, DCORE_N, x, z)) return true;
+    float cs = coastSigned(x, z); if (cs > -4.5f || cs < -48) return false;
+    return polyEdgeDist(dCore, DCORE_N, x, z) < 46 && !seaSide(x, z);
+}
+static bool inCore(float x, float z) {
+    if (!townReady) return inTownRaw(x, z);
+    int i = (int)((x - HF_X0) / HF_S + 0.5f), j = (int)((z - HF_X0) / HF_S + 0.5f);
+    if (i < 0 || j < 0 || i >= HF_N || j >= HF_N) return false;
+    return townMask[j * HF_N + i] != 0;
+}
 #define MAX_EXT 96
 static Rectangle extR[MAX_EXT]; static int nExt;   // street ends carried on to the ring road / avenue / coast road
 static float pathDist(const Vector3 *p, int n, float x, float z, float *yOut);
@@ -111,6 +124,16 @@ static void boreLocal(Bore *b, float x, float z, float *a, float *l) {
     *l = (b->dir < 2) ? z - b->pz : x - b->px;
 }
 static bool seaSide(float x, float z) { return inPoly(dSea, DSEA_N, x, z); }
+static float coastSigned(float x, float z) {   // distance to the coast road centre line; negative on the land side
+    float best = 1e9f; int bi = 0; float bt = 0;
+    for (int i = 0; i + 1 < nCoast; i++) { float ax = coastP[i].x, az = coastP[i].z, dx = coastP[i + 1].x - ax, dz = coastP[i + 1].z - az, L2 = dx * dx + dz * dz;
+        float t = L2 > 0 ? clampf(((x - ax) * dx + (z - az) * dz) / L2, 0, 1) : 0, qx = ax + dx * t - x, qz = az + dz * t - z, d = qx * qx + qz * qz;
+        if (d < best) { best = d; bi = i; bt = t; } }
+    if (nCoast < 2) return 1e9f;
+    float dx = coastP[bi + 1].x - coastP[bi].x, dz = coastP[bi + 1].z - coastP[bi].z, px = x - (coastP[bi].x + dx * bt), pz = z - (coastP[bi].z + dz * bt);
+    float side = dx * pz - dz * px;   // >0: left of travel (the +normal side, the sea side)
+    return side >= 0 ? sqrtf(best) : -sqrtf(best);
+}
 
 // ---------------------------------------------------------------- layout definition
 static void layoutInit(void) {
@@ -118,6 +141,10 @@ static void layoutInit(void) {
     nBore = 0; nPad = 0;
     // coast road: from the west tunnel, south along the hills, around the bay past the old town and the fish market, into the east tunnel
     nCoast = loadPath(dCoast, DCOAST_N, coastP);
+    for (int i = 0; i < NB; i++) for (int j = 0; j < NB; j++) if (blockKindA[i][j] != BK_GONE) {   // no block may sit on the coast road or its sidewalk
+        float x0 = ROADW + i * PITCH, z0 = ROADW + j * PITCH, best = 1e9f;
+        for (int k = 0; k < nCoast; k++) { float dx = fmaxf(fmaxf(x0 - coastP[k].x, 0), coastP[k].x - (x0 + BLOCK)), dz = fmaxf(fmaxf(z0 - coastP[k].z, 0), coastP[k].z - (z0 + BLOCK)); best = fminf(best, dx * dx + dz * dz); }
+        if (sqrtf(best) < 7.0f) blockKindA[i][j] = BK_GONE; }
     addBore(WEST_PX, WEST_PZ, 0, 3, 0, 84);    // west: heads north into the hills, collapses after 84 m
     addBore(EAST_PX, EAST_PZ, 0, 0, 0, 110);   // east: heads east
     {   Vector2 cp[2] = {{NORTH_X, NORTH_Z0}, {NORTH_X, NORTH_PORTAL_Z}}; nNorth = resample(cp, 2, northP, MAX_PATH, 2.0f); for (int i = 0; i < nNorth; i++) northP[i].y = 0; }
@@ -148,6 +175,9 @@ static void layoutInit(void) {
 static void bakeHeightfield(void) {
     int N = HF_N;
     if (!hf) { hf = malloc(sizeof(float) * N * N); hfd = malloc(sizeof(float) * N * N); }
+    townReady = false; if (!townMask) townMask = malloc((size_t)N * N);
+    for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) townMask[j * N + i] = inTownRaw(HF_X0 + i * HF_S, HF_X0 + j * HF_S);
+    townReady = true;
     // distance to city land: two-pass chamfer transform
     for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) { float x = HF_X0 + i * HF_S, z = HF_X0 + j * HF_S; hfd[j * N + i] = (cityLand(x, z) || inCore(x, z)) ? 0 : 1e9f; }
     const float A = HF_S, B = HF_S * 1.4142f;
@@ -459,6 +489,27 @@ static void genLayoutWorld(void) {
             if (!pointFree(x, z, 0.3f, 0.1f)) continue;
             box(T_METAL, V3(x - 0.1f, 0, z - 0.1f), V3(x + 0.1f, 7.5f, z + 0.1f), rgb(110, 115, 120), true, ALL);
             if ((i / 12 + (sg > 0)) % 2 == 0) addLight(V3(x - nn.x * 1.2f * sg, 7.2f, z - nn.y * 1.2f * sg), V3(0.9f, 0.95f, 1.0f), 13, ri(3)); }
+    }
+    // the coast road is lined with houses and shops on its land side: a front row facing the road behind the sidewalk,
+    // then rows behind it with 2.5 m alleys, until the grid or the edge of town
+    for (int row = 0; row < 4; row++) {
+        float acc = 99, depth0 = 6.6f + row * 12.5f;
+        for (int k = 0; k + 1 < nCoast; k++) {
+            acc += Vector3Distance(coastP[k], coastP[k + 1]); if (acc < 12.5f) continue;
+            Vector2 nn = pnorm(coastP, nCoast, k); bool alongX = fabsf(nn.x) > fabsf(nn.y);
+            float w = fr(9, 11.5f), d = 10, off = depth0 + d / 2;
+            float cx = coastP[k].x - nn.x * off, cz = coastP[k].z - nn.y * off;
+            Rectangle r = {cx - (alongX ? d : w) / 2, cz - (alongX ? w : d) / 2, alongX ? d : w, alongX ? w : d};
+            bool ok = true;
+            for (int q = 0; q < 9 && ok; q++) { float x = r.x + r.width * (q % 3) / 2, z = r.y + r.height * (q / 3) / 2;
+                if (!inCore(x, z) || cityLand(x, z) || roadAt(x, z) || seaSide(x, z) || coast_d(x, z) < 6.3f) ok = false; }
+            for (int q = 0; q < 4 && ok; q++) { float x = q & 1 ? r.x - 2.6f : r.x + r.width + 2.6f, z = q & 2 ? r.y - 2.6f : r.y + r.height + 2.6f; if (cityLand(x, z) && !roadAt(x, z)) { float dd = 0; (void)dd; } }
+            if (!ok || !boxFree(r.x - 1.2f, r.y - 1.2f, r.x + r.width + 1.2f, r.y + r.height + 1.2f, SIDEH)) continue;
+            acc = 0;
+            int face = alongX ? (nn.x > 0 ? 1 : 3) : (nn.y > 0 ? 2 : 0);   // toward the road
+            nFoot = 0; building(r, row == 0 ? (ri(3) ? 2 : 0) : (ri(3) ? 0 : 1), row == 0 ? 1 + ri(2) : 2 + ri(2), face);
+            for (int f = 0; f < nFoot && nMapFoot < MAX_MAPFOOT; f++) { mapFootH[nMapFoot] = footH[f]; mapFootY[nMapFoot] = 0; mapFoot[nMapFoot++] = foots[f]; }
+        }
     }
     // north approach + tunnels
     ribbon(T_ASPHALT, northP, nNorth, -4.4f, 4.4f, 0.05f, 0.05f, asp, NULL); dashes(northP, nNorth, 0, 0.065f, 0.15f, 2, 2, rgb(235, 235, 225));

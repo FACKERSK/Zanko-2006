@@ -15,4 +15,5 @@ if [ "$1" = "installer" ]; then   # Windows binaries into pkg/Zanko2006/Root, th
 cp Zanko.exe Launcher.exe pkg/Zanko2006/Root/
 V=$(cat pkg/Zanko2006/Data/version.txt)
 (cd installer && makensis -V2 -DVER="$V" zanko2006.nsi)
+(cd pkg && rm -f "Zanko2006_v$V.zip" && zip -qr "Zanko2006_v$V.zip" Zanko2006 -x "Zanko2006/Data/Userdata/*")   # the version selector downloads this
 fi

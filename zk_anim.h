@@ -105,10 +105,32 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     float dur = pl.swingDur > 0 ? pl.swingDur : 0.6f, s = pl.swingT > 0 ? 1 - pl.swingT / dur : 0;
     float wu = ez(s / 0.3f), st = ezOut((s - 0.3f) / 0.15f), rc = ez((s - 0.45f) / 0.55f);
     float shakeHit = pl.hitStopT > 0 ? fr(-0.03f, 0.03f) : 0;
+    // weapon styles: 0 blade (alternating diagonal slashes), 1 knife (stab), 2 blunt (horizontal sweep), 3 heavy (two-handed overhead chop)
+    int style = ht == IT_KATANA ? 0 : ht == IT_KNIFE ? 1 : (ht == IT_AXE || ht == IT_SLEDGE) ? 3 : 2;
+    static float prevSw = 0; static int swingN = 0, lastKills = -1;
+    if (pl.swingT > prevSw + 0.02f) swingN++;   // a new swing started: combos alternate direction
+    prevSw = pl.swingT;
+    if (lastKills >= 0 && pl.kills > lastKills && ht == IT_KATANA && A == ANIM_NONE) animPlay(ANIM_FLOURISH);   // chiburi: flick the blood off after a kill
+    lastKills = pl.kills;
+    float sd = (swingN & 1) ? -1.0f : 1.0f;
     if (melee && !pl.build && pl.swingT > 0) {
-        R.r.x = -0.95f + wu * (1.35f + heavy * 0.6f) - st * (2.4f + heavy * 0.4f) + rc * (1.6f + heavy * 0.4f) * (st >= 1 ? 1 : 0);
-        R.r.z = -0.3f - wu * 0.65f + st * 1.6f - rc * 1.2f * (st >= 1 ? 1 : 0);
-        R.p.x = 0.22f + wu * 0.08f - st * 0.32f + rc * 0.24f * (st >= 1 ? 1 : 0) + shakeHit; R.p.y = -0.25f + wu * 0.1f - st * 0.12f + rc * 0.12f * (st >= 1 ? 1 : 0);
+        float post = st >= 1 ? 1 : 0, sw = sinf(s * PI);
+        if (style == 0) {   // katana: wind up high on one side, cut down across to the other, settle
+            R.p.x = 0.22f + sd * (wu * 0.06f - st * 0.36f + rc * 0.3f * post) + shakeHit; R.p.y = -0.25f + wu * 0.16f - st * 0.14f + rc * 0.1f * post;
+            R.p.z = -0.44f - st * 0.08f + rc * 0.08f * post;
+            R.r.x = -0.95f + wu * 1.5f - st * 2.3f + rc * 1.7f * post; R.r.z = -0.3f + sd * (-wu * 0.9f + st * 1.9f - rc * 1.0f * post); R.r.y = sd * (wu * 0.3f - st * 0.5f + rc * 0.2f * post);
+        } else if (style == 1) {   // knife: draw back, stab, twist out
+            float stab = bell(s, 0.25f, 0.6f); R.p = Vector3Add(R.p, V3(-stab * 0.07f + shakeHit, stab * 0.03f - wu * 0.03f, -stab * 0.3f + wu * 0.05f));
+            R.r.x += -0.6f * stab; R.r.z += bell(s, 0.45f, 0.8f) * 0.6f;
+        } else if (style == 2) {   // bat, pipe, crowbar: cock behind the right shoulder, sweep flat across
+            R.p.x = 0.24f + wu * 0.12f - st * 0.5f + rc * 0.38f * post + shakeHit; R.p.y = -0.24f + wu * 0.1f - st * 0.04f; R.p.z = -0.42f + wu * 0.06f - st * 0.1f + rc * 0.1f * post;
+            R.r.x = -0.95f + wu * 0.4f + st * 0.25f; R.r.y = wu * 0.9f - st * 2.0f + rc * 1.1f * post; R.r.z = -0.3f - wu * 0.4f + st * 1.3f - rc * 0.9f * post;
+        } else {   // axe, sledge: both hands, lifted over the head, brought straight down
+            L.vis = true;
+            R.p.x = 0.14f - st * 0.06f + rc * 0.06f * post + shakeHit; R.p.y = -0.25f + wu * 0.3f - st * 0.36f + rc * 0.06f * post; R.p.z = -0.4f + wu * 0.1f - st * 0.12f + rc * 0.02f * post;
+            R.r.x = -0.95f + wu * 1.9f - st * 2.6f + rc * 0.7f * post; R.r.z = -0.15f + 0.1f * sw;
+        }
+        (void)sw;
     } else if (!melee && !gun && !pl.build && pl.swingT > 0) {
         float jab = bell(s, 0.15f, 0.7f); R.p.z -= jab * 0.26f; R.p.x -= jab * 0.09f; R.p.y += jab * 0.05f; R.r.x += jab * 0.25f; L.p.z += jab * 0.04f; R.p.x += shakeHit;
     }
@@ -121,7 +143,23 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     }
     // ---- one-shot animations
     switch (A) {
-    case ANIM_EQUIP: { float e = ezBack(u2); R.p.y -= (1 - e) * 0.38f; R.r.x += (1 - e) * 1.1f; R.r.z -= (1 - e) * 0.5f; L.p.y -= (1 - e) * 0.38f; break; }
+    case ANIM_EQUIP:
+        if (ht == IT_KATANA) {   // iaido: the hand starts at the left hip and draws up and out in one fast arc
+            float d = ezOut((u2 - 0.15f) / 0.45f), hold = ph(u2, 0, 0.15f), set = ph(u2, 0.65f, 1);
+            Vector3 hip = V3(-0.12f, -0.42f, -0.3f), out = V3(0.3f, -0.12f, -0.52f);
+            Vector3 p = Vector3Lerp(hip, out, d); R.p = Vector3Lerp(Vector3Lerp(V3(-0.1f, -0.55f, -0.28f), hip, hold), R.p, set); if (u2 > 0.15f && u2 < 0.65f) R.p = p; else if (u2 >= 0.65f) R.p = Vector3Lerp(out, R.p, set);
+            float rx = Lerp(0.9f, -1.3f, d), rz = Lerp(1.4f, -0.6f, d); R.r.x = u2 < 0.65f ? rx : Lerp(-1.3f, R.r.x, set); R.r.z = u2 < 0.65f ? rz : Lerp(-0.6f, R.r.z, set);
+        } else if (gun) {   // flip the revolver up into the hand with a short spin
+            float e = ezBack(u2); R.p.y -= (1 - e) * 0.3f; spinX = (1 - ez(u2)) * 2 * PI;
+        } else if (melee && style == 2) {   // light weapons: tossed up and caught
+            float e = ezBack(u2); R.p.y -= (1 - e) * 0.32f; spinX = -(1 - ez(u2 * 1.2f)) * 2 * PI; R.p.y += bell(u2, 0.2f, 0.7f) * 0.05f;
+        } else { float e = ezBack(u2); R.p.y -= (1 - e) * 0.38f; R.r.x += (1 - e) * 1.1f; R.r.z -= (1 - e) * 0.5f; L.p.y -= (1 - e) * 0.38f; }
+        break;
+    case ANIM_FLOURISH: if (ht == IT_KATANA) {   // chiburi: a sharp downward flick to the side, then a slow return
+        float f1 = ezOut(u2 / 0.25f), back = ph(u2, 0.45f, 1);
+        R.p = Vector3Add(R.p, Vector3Scale(V3(0.08f, -0.08f, 0.03f), f1 * (1 - back))); R.r.z += (1.2f * f1) * (1 - back); R.r.x += (-0.6f * f1) * (1 - back);
+        R.p.x += bell(u2, 0.2f, 0.3f) * 0.015f;
+    } break;
     case ANIM_HOLSTER: { float e = ez(u2); R.p.y -= e * 0.4f; R.r.x += e * 0.9f; L.p.y -= e * 0.4f; break; }
     case ANIM_INSPECT:
         if (melee) {
@@ -193,16 +231,18 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         else if (gun) {
             // a .38 revolver: wooden grip in the fist, steel frame above it, cylinder, barrel with front sight, hammer, trigger guard
             Matrix P = MatrixMultiply(MatrixMultiply(MatrixTranslate(0, -0.085f, 0.05f), MatrixRotateX(spinX)), MatrixTranslate(0, 0.085f, -0.05f));   // spin about the cylinder axis line
-            Matrix G = MatrixMultiply(P, MatrixMultiply(MatrixTranslate(0, -0.01f, pl.kick * 0.05f), MatrixMultiply(MatrixRotateX(pl.kick * 0.3f), H)));
+            float kk = pl.kick * pl.kick;   // recoil: snap back and the muzzle rises, then eases down
+            Matrix G = MatrixMultiply(P, MatrixMultiply(MatrixTranslate(pl.kick * 0.01f, -0.01f + kk * 0.03f, pl.kick * 0.08f), MatrixMultiply(MatrixRotateX(pl.kick * 0.55f), H)));
             ADRAW("viewmodels/revolver3", G, WHITE,
                   BX(T_WOOD, 0, -0.005f, 0.012f, 0.03f, 0.11f, 0.045f, ((Color){110, 70, 42, 255})),          // grip
                   BX(T_METAL, 0, 0.065f, -0.005f, 0.026f, 0.04f, 0.075f, ((Color){62, 64, 70, 255})),          // frame
                   BX(T_METAL, 0, 0.09f, -0.135f, 0.018f, 0.02f, 0.17f, ((Color){50, 52, 58, 255})),            // barrel
                   BX(T_METAL, 0, 0.076f, -0.13f, 0.012f, 0.008f, 0.15f, ((Color){44, 46, 52, 255})),           // ejector rod housing
                   BX(T_METAL, 0, 0.106f, -0.212f, 0.004f, 0.012f, 0.012f, ((Color){40, 40, 44, 255})),         // front sight
-                  BX(T_METAL, 0, 0.1f, 0.03f, 0.01f, 0.025f, 0.02f, ((Color){40, 40, 46, 255})),               // hammer
                   BX(T_METAL, 0, 0.03f, -0.035f, 0.008f, 0.03f, 0.045f, ((Color){50, 50, 56, 255})),           // trigger guard
                   BX(T_METAL, 0, 0.04f, -0.03f, 0.004f, 0.02f, 0.006f, ((Color){30, 30, 34, 255})));           // trigger
+            ADRAW("viewmodels/revolver3_hammer", MatrixMultiply(MatrixMultiply(MatrixTranslate(0, -0.1f, -0.03f), MatrixRotateX(-0.7f * pl.kick)), MatrixMultiply(MatrixTranslate(0, 0.1f, 0.03f), G)), WHITE,
+                  BX(T_METAL, 0, 0.1f, 0.03f, 0.01f, 0.025f, 0.02f, ((Color){40, 40, 46, 255})));   // the hammer falls back as it fires
             float cylOut = A == ANIM_RELOAD ? ph(u2, 0.15f, 0.25f) * (1 - ph(u2, 0.8f, 0.86f)) : 0;
             ADRAW("viewmodels/revolver3_cyl", MatrixMultiply(MatrixTranslate(-cylOut * 0.05f, 0.083f, -0.05f), G), WHITE, BX(T_METAL, 0, 0, 0, 0.044f, 0.044f, 0.05f, ((Color){78, 80, 86, 255})),
                   BX(T_METAL, 0, 0, 0, 0.05f, 0.03f, 0.044f, ((Color){70, 72, 78, 255})));

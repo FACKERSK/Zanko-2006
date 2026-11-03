@@ -15,3 +15,4 @@ pkg/Zanko2006/Data/Userdata/*
 pkg/Zanko2006/Data/update_manifest.txt
 test/
 !releases/*.exe
+!releases/*.zip

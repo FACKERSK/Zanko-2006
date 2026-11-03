@@ -2273,7 +2273,22 @@ int main(int argc, char **argv) {
             if (frame == 1112) TakeScreenshot("shot_bat_idle.png");
             if (frame == 1113) { pl.hands = (Slot){IT_KATANA, 1, 0}; pl.flash = true; }
             if (frame == 1118) TakeScreenshot("shot_katana_phone.png");
-            if (frame == 1120) break;
+            for (int q = 0; q < 3; q++) { int F = 1121 + q * 7, i = nCoast * (q + 1) / 4; Vector2 nn = pnorm(coastP, nCoast, i);
+                if (frame == F) { for (int c2 = 0; c2 < nCr; c2++) crs[c2].on = false; pl.tod = 12; pl.flash = false; pl.hands = (Slot){-1, 0, 0};
+                    pl.pos = V3(coastP[i].x + nn.x * 2.5f, 0.1f, coastP[i].z + nn.y * 2.5f); pl.tyaw = pl.yaw = atan2f(-nn.x, -nn.y) + 0.7f; pl.tpitch = pl.pitch = 0.02f; pl.vy = 0; }
+                if (frame == F + 5) { char nm[40]; snprintf(nm, sizeof nm, "shot_coastfront%d.png", q); TakeScreenshot(nm); } }
+            if (frame == 1143) { pl.mapOpen = true; pl.tod = 12; }
+            if (frame == 1149) TakeScreenshot("shot_map3.png");
+            {   // weapon animation stills: each held at a fixed point of its curve
+                struct { int it, anim; float sw, at; const char *nm; } W[] = {
+                    {IT_KATANA, -1, 0.18f, 0, "shot_w_katana_windup.png"}, {IT_KATANA, -1, 0.40f, 0, "shot_w_katana_cut.png"}, {IT_KATANA, ANIM_EQUIP, 0, 0.35f, "shot_w_katana_draw.png"},
+                    {IT_KATANA, ANIM_FLOURISH, 0, 0.2f, "shot_w_katana_chiburi.png"}, {IT_BAT, -1, 0.22f, 0, "shot_w_bat_windup.png"}, {IT_BAT, -1, 0.42f, 0, "shot_w_bat_sweep.png"},
+                    {IT_AXE, -1, 0.25f, 0, "shot_w_axe_raise.png"}, {IT_AXE, -1, 0.42f, 0, "shot_w_axe_chop.png"}, {IT_KNIFE, -1, 0.45f, 0, "shot_w_knife_stab.png"}};
+                for (int q = 0; q < 9; q++) { int F = 1151 + q * 4;
+                    if (frame == F) { pl.mapOpen = false; pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0; pl.flash = false; pl.hands = (Slot){(short)W[q].it, 1, 0}; animId = ANIM_NONE; }
+                    if (frame == F + 2) { if (W[q].anim >= 0) { animPlay(W[q].anim); animT = animDur * W[q].at; pl.swingT = 0; } else { animId = ANIM_NONE; pl.swingDur = meleeCd(); pl.swingT = pl.swingDur * (1 - W[q].sw); } }
+                    if (frame == F + 3) TakeScreenshot(W[q].nm); } }
+            if (frame == 1190) break;
         }
     }
     if (gameActive) saveGame();

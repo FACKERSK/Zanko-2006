@@ -251,8 +251,7 @@ static void renderMapScene(float t) {
             g = mpLerp(g, MP_FOREST, (h[q] - 14) / 14); g = mpLerp(g, MP_ROCK, (h[q] - 46) / 12);
             if (h[q] < 1.2f) g = mpLerp((Color){226, 208, 160, 255}, g, h[q] / 1.2f);   // sand at the waterline
             cc[q] = aMul(g, shade); h[q] *= 0.5f; }
-        if (cityLand(x0 + st, z0 + st)) continue;
-        for (int q = 0; q < 4; q++) { float qx = q == 1 || q == 2 ? x1 : x0, qz = q >= 2 ? z1 : z0; if (inCore(qx, qz)) { cc[q] = MP_WALK; h[q] = 0.05f; } }
+        for (int q = 0; q < 4; q++) { float qx = q == 1 || q == 2 ? x1 : x0, qz = q >= 2 ? z1 : z0; if (inCore(qx, qz) || cityLand(qx, qz)) { cc[q] = MP_WALK; h[q] = 0.0f; } }
         mapQuadC(V3(x0, h[0], z0), V3(x1, h[1], z0), V3(x1, h[2], z1), V3(x0, h[3], z1), cc[0], cc[1], cc[2], cc[3]);
     }
     Color road = MP_ROAD;
