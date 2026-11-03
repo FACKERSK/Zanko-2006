@@ -8,7 +8,7 @@
 #include <math.h>
 #include "raymath.h"
 
-#define GAME_VERSION "0.6.1"
+#define GAME_VERSION "0.6.2"
 #if defined(PLATFORM_WEB)
 #define GLSL_HEAD "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #include <emscripten/emscripten.h>
@@ -37,7 +37,7 @@ static void aeroInitPaths(void) {
     else snprintf(gBase, sizeof gBase, "%s", app);
 }
 static const char *P(const char *rel) {
-    static char buf[6][800]; static int k = 0;
+    static _Thread_local char buf[6][800]; static _Thread_local int k = 0;   // per thread: the launcher's update threads build paths while the UI does too
     k = (k + 1) % 6;
     snprintf(buf[k], 800, "%s%s", gBase, rel);
     return buf[k];

@@ -1,3 +1,4 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.6.2|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.6.2.zip|2026-11-03|Update fix
 0.6.1|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.6.1.zip|2026-11-03|Coast road, weapon moves, versions
 0.6.0|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.6.0.zip|2026-11-03|The town as drawn

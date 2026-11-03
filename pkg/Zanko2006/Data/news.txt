@@ -1,5 +1,8 @@
-ZANKO 2006 - Afterglow  (v0.6.1, Coast road, weapon moves, versions)
+ZANKO 2006 - Afterglow  (v0.6.2, Update fix)
 
+- 0.6.2: launcher fix.
+  * Fixed "Update manifest unreadable": the update check could
+    read the wrong file while the launcher window was drawing.
 - 0.6.1: version selector.
   * The launcher's Play page has a Version list: pick any released
     version and press PLAY. Older versions download once into the
