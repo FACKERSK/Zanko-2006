@@ -380,7 +380,7 @@ static bool loadGame(void) {
     memset(splats, 0, sizeof splats);
     say(TextFormat("Day %d. You are where you left off.", pl.day));
     TraceLog(LOG_INFO, "SAVE: loaded (day %d %.1fh, %d builds, %d creatures)", pl.day, pl.tod, nBuild, nCr);
-    return true;
+    cheatsReset(); return true;
 }
 
 // ============================================================ the per-frame tick for all of the above

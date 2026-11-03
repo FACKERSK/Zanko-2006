@@ -272,7 +272,7 @@ static void drawHUD(Vector2 cross, float t) {
     float wk = wildK(pl.pos);
     // ==== 3D HUD: every gadget is a glass slab on the panel sphere, turned to face you; the set swings with your head
     float Wr = 720.0f * W / H;   // screen width in 720p reference px
-    bool hud3 = !pl.invOpen && !pl.mapOpen;   // the inventory and the map take the whole view
+    bool hud3 = !pl.invOpen && !pl.mapOpen && !cht.menu;   // the inventory, the map and the cheat menu take the whole view
     p3Hud = true; p3Fov = 54; p3HudLook = (Vector2){-pl.swayX * 0.5f, pl.swayY * 0.5f - pl.landK * 0.04f};
     float f = p3HudScale * tanf(22.5f * DEG2RAD) / tanf(p3Fov / 2 * DEG2RAD), mg = 30;   // slab size on screen per reference px; edge margin
     if (hud3) {

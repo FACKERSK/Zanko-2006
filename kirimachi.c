@@ -1112,6 +1112,9 @@ static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
 // ============================================================ game reset
 #include "zk_animdef.h"
 #include "zk_inv.h"
+enum { CH_GOD, CH_STAM, CH_NEEDS, CH_AMMO, CH_WEAR, CH_ONEHIT, CH_NOCLIP, CH_PEACE, CH_TIME, CH_LIGHT, CH_N };
+static struct { bool avail, menu, on[CH_N]; int key; float speed, frozenTod; char mod[64]; } cht = {.speed = 1, .key = KEY_F8};   // cheat menu state (zk_cheat.h)
+static void cheatsReset(void);
 #include "zk_player.h"
 
 // ============================================================ sanity
@@ -1608,6 +1611,7 @@ static void updateFX(float dt, Vector3 eye) {
 // ============================================================ UI
 static float sw, shh;
 #include "zk_ui.h"
+#include "zk_cheat.h"
 static int menuPanel(const char *title, const char **labels, int n, bool *enabled) {
     Rectangle lg = p3Panel(0, -16, 16.5f, 560, 140, false);
     aLogo(lg.width / 2, 22 * aU, 62, "A F T E R G L O W");
@@ -1903,7 +1907,7 @@ int main(int argc, char **argv) {
     genSounds(); musicInit(); textInit();
     aeroLoadFont();
     profLoad(user);
-    loadMods();
+    loadMods(); cheatsLoad();
     loadTextures();
     sh = LoadShaderFromMemory(VS, FS);
     locView = GetShaderLocation(sh, "viewPos"); locFlashDir = GetShaderLocation(sh, "flashDir"); locFlashOn = GetShaderLocation(sh, "flashOn");
@@ -1986,7 +1990,10 @@ int main(int argc, char **argv) {
         // ---- update
         Vector3 eye, aim;
         if (state == ST_PLAY) {
-            if (KP(KEY_ESCAPE)) { if (pl.mapOpen) { pl.mapOpen = false; DisableCursor(); } else if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; } }
+            if (cht.avail && KP(cht.key) && !pl.invOpen && !pl.mapOpen) { cht.menu = !cht.menu; if (cht.menu) EnableCursor(); else DisableCursor(); }
+            if (KP(KEY_ESCAPE) && cht.menu) { cht.menu = false; DisableCursor(); }
+            else if (KP(KEY_ESCAPE)) { if (pl.mapOpen) { pl.mapOpen = false; DisableCursor(); } else if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; } }
+            if (cht.menu) { eye = Vector3Add(pl.pos, V3(0, 1.6f, 0)); aim = dirOf(pl.tyaw, pl.tpitch); } else {   // the cheat menu pauses the world
 #if defined(PLATFORM_WEB)
             {   // browser pointer lock: request on click, pause when the browser releases it (Esc)
                 static bool webLocked = false;
@@ -2005,6 +2012,7 @@ int main(int argc, char **argv) {
             updatePlayer(dt);
             updateSanity(dt, dirOf(pl.tyaw, pl.tpitch));
             survivalTick(dt);
+            cheatTick(dt);
             if (pl.turned && pl.hp > 0) { pl.hp = 0; say("You have become one of them."); }
             eye = Vector3Add(pl.pos, V3(0, 1.6f + (pl.ground ? sinf(pl.bob * 2) * 0.035f : 0), 0));
             aim = dirOf(pl.tyaw, pl.tpitch);
@@ -2012,6 +2020,7 @@ int main(int argc, char **argv) {
             if (evacOn) { evacT -= dt; if (evacT <= 0) { state = ST_WIN; EnableCursor(); prof.wins++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; } }
             if (pl.hp <= 0 && shotMode) TraceLog(LOG_INFO, "SHOT: died at frame %d pos %.1f %.1f %.1f", frame, pl.pos.x, pl.pos.y, pl.pos.z);
             if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
+            }
         } else {
             float tt = t * 0.05f;
             eye = gameActive ? Vector3Add(pl.pos, V3(0, 1.6f, 0)) : V3(SPAWN_X + sinf(tt) * 1.5f, 2.2f, fmodf(t * 1.2f, 300) + 40);
@@ -2085,7 +2094,7 @@ int main(int argc, char **argv) {
         ClearBackground(BLACK);
         if (backdrop) saBackdrop(t, 0, 0, 0, 1.0f);
         else DrawTexturePro(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
-        if (state == ST_PLAY) drawHUD(cross, t);
+        if (state == ST_PLAY) { drawHUD(cross, t); if (cht.menu) cheatMenu(t); }
         else {
             if (!backdrop) aBackground(state == ST_PAUSE ? 0.75f : 0.85f);
             aCorrupt = gameActive ? pl.stage : 0;
@@ -2343,6 +2352,13 @@ int main(int argc, char **argv) {
                     if (frame == F) { pl.mapOpen = false; pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0; pl.flash = false; pl.hands = (Slot){(short)W[q].it, 1, 0}; animId = ANIM_NONE; }
                     if (frame == F + 2) { if (W[q].anim >= 0) { animPlay(W[q].anim); animT = animDur * W[q].at; pl.swingT = 0; } else { animId = ANIM_NONE; pl.swingDur = meleeCd(); pl.swingT = pl.swingDur * (1 - W[q].sw); } }
                     if (frame == F + 3) TakeScreenshot(W[q].nm); } }
+            if (frame == 1160) { pl.hands = (Slot){IT_REVOLVER, 1, 50}; pl.mag = 2; cht.on[CH_GOD] = cht.on[CH_AMMO] = cht.on[CH_WEAR] = cht.on[CH_NEEDS] = true; pl.food = 10; hurtPlayer(60, 1); }
+            if (frame == 1163) { TraceLog(LOG_INFO, "T_CHEAT avail %d mod '%s' key %d | god hp %.0f wounds %d | ammo %d | wear %d | food %.0f", cht.avail, cht.mod, cht.key, pl.hp, pl.wounds, pl.mag, pl.hands.w, pl.food);
+                cht.on[CH_NOCLIP] = true; vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_SPACE] = true; cht.menu = false; }
+            if (frame == 1164) cht.on[CH_NOCLIP] = true;
+            if (frame == 1170) { TraceLog(LOG_INFO, "T_CHEAT noclip y after 6 frames rising: %.2f", pl.pos.y); vin.down[KEY_SPACE] = false; vin.on = false; cht.on[CH_NOCLIP] = false; cht.menu = true; EnableCursor(); }
+            if (frame == 1175) TakeScreenshot("shot_cheats.png");
+            if (frame == 1176) { cht.menu = false; for (int i = 0; i < CH_N; i++) cht.on[i] = false; }
             if (frame == 1190) break;
         }
     }

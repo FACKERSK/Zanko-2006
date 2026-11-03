@@ -24,7 +24,7 @@ static void newGame(void) {
     spawnUnderground();
     spawnTunnels();
     evacOn = false; evacT = -1;
-    gameActive = true;
+    gameActive = true; cheatsReset();
     prof.sessions++; profSave();
     memset(splats, 0, sizeof splats);
     say("Japan, 2006. No rescue arrives. Search furniture for supplies [hold E].");
@@ -39,6 +39,7 @@ static float crHeight(int type) {
 static Vector3 crCenter(Cr *c) { return Vector3Add(c->pos, V3(0, c->hanging ? -1.0f : crHeight(c->type), 0)); }
 // creature damage: blood loss plus a chance of an open wound
 static void hurtPlayer(float dmg, float bleed) {
+    if (cht.on[CH_GOD]) return;   // cheat
     if (pl.blocking && pl.stam > 2) {   // guard: only what comes at you from the front
         Vector3 fw = V3(sinf(pl.yaw), 0, cosf(pl.yaw)); Cr *att = NULL; float bd = 3.4f;
         for (int i = 0; i < nCr; i++) { Cr *c = &crs[i]; if (!c->on || c->state == CS_DEAD || c->phantom || c->type == 4) continue;
@@ -118,7 +119,8 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
     if (best >= 0) {
         Cr *c = &crs[best];
         float dmg = meleeDmg();
-        if (c->type == 7) dmg *= 1.4f;   // mannequins crack easily
+        if (c->type == 7) dmg *= 1.4f;
+        if (cht.on[CH_ONEHIT]) dmg = 9999;   // mannequins crack easily
         c->hp -= dmg; c->hurt = 0.18f; c->wind = 0; c->atkCd = fmaxf(c->atkCd, 0.7f);
         Vector3 push = Vector3Normalize(V3(c->pos.x - pl.pos.x, 0, c->pos.z - pl.pos.z));
         if (c->type == 9) heavy *= 0.4f;   // the attendant barely flinches
@@ -204,7 +206,7 @@ static void shoot(Vector3 eye, Vector3 aim) {
     }
     if (hitC >= 0) {
         Cr *c = &crs[hitC];
-        c->hp -= head ? 7 : 3.5f; c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
+        c->hp -= cht.on[CH_ONEHIT] ? 9999 : (head ? 7 : 3.5f); c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
         if (c->hanging) { c->hanging = false; c->pos.y = groundAt(c->pos, 0.3f, 4.0f); }
         impactFX(c, 0.7f, c->state == CS_DEAD, aim);
         if (c->state == CS_DEAD) { c->deadT = 0; pl.kills++; playAt(sScreech, c->pos, 40, 0.6f); }
@@ -422,7 +424,7 @@ static void updatePlayer(float dt) {
     if (moving) mv = Vector3Normalize(mv);
     bool sneak = KD(KEY_LEFT_CONTROL);
     bool sprint = KD(KEY_LEFT_SHIFT) && moving && !pl.exhausted && pl.stam > 0 && !pl.invOpen && pl.fracture == 0 && !pl.blocking;
-    float spd = (sprint ? 6.6f : sneak ? 1.7f : 3.8f) * encSpeed();
+    float spd = (sprint ? 6.6f : sneak ? 1.7f : 3.8f) * encSpeed() * cht.speed;
     if (pl.swingT > 0) spd *= 1.0f - 0.45f * clampf(weaponDef()->weight / 5.0f, 0.15f, 1);
     if (pl.stage >= 2) spd *= 0.9f;
     if (pl.hp < 30) spd *= 0.85f;
@@ -436,6 +438,15 @@ static void updatePlayer(float dt) {
     if (sneak && moving) { bool near = false; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state == CS_WANDER && Vector3Distance(crs[i].pos, pl.pos) < 14) near = true; if (near) skGain(SK_STEALTH, dt * 0.35f); }
     if (pl.exhausted && pl.stam > 30) pl.exhausted = false;
     if (pl.food <= 0 || pl.water <= 0) spd *= 0.85f;
+    if (cht.on[CH_NOCLIP]) {   // cheat: fly through everything where you look
+        Vector3 f3 = dirOf(pl.tyaw, pl.tpitch), v = {0};
+        if (KD(KEY_W)) v = Vector3Add(v, f3); if (KD(KEY_S)) v = Vector3Subtract(v, f3);
+        if (KD(KEY_D)) v = Vector3Add(v, right); if (KD(KEY_A)) v = Vector3Subtract(v, right);
+        if (KD(KEY_SPACE)) v.y += 1; if (KD(KEY_LEFT_CONTROL)) v.y -= 1;
+        if (Vector3Length(v) > 0.01f) pl.pos = Vector3Add(pl.pos, Vector3Scale(Vector3Normalize(v), (KD(KEY_LEFT_SHIFT) ? 26.0f : 9.0f) * cht.speed * dt));
+        pl.vy = 0; pl.ground = false; moving = false;
+        goto cheatMoved;
+    }
     pl.pos.x += mv.x * spd * dt; pl.pos.z += mv.z * spd * dt;
     resolve(&pl.pos, 0.3f, 1.7f, 0.42f);
     pl.vy -= 18.0f * dt;
@@ -450,6 +461,7 @@ static void updatePlayer(float dt) {
     if (pl.pos.y < -60) { pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.vy = 0; }
     float ceil = ceilAt(pl.pos, 0.3f);
     if (pl.pos.y + 1.75f > ceil && pl.vy > 0) { pl.vy = 0; pl.pos.y = ceil - 1.75f; }
+    cheatMoved:
     if (moving && pl.ground) {
         pl.bob += dt * spd * 1.6f; pl.stepAcc += spd * dt;
         if (pl.stepAcc > (sprint ? 2.2f : 1.7f)) { pl.stepAcc = 0; play(sStep, sprint ? 0.5f : sneak ? 0.12f : 0.3f); }
