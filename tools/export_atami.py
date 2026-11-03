@@ -32,7 +32,6 @@ out.append("#define DS_PLAZA 6\n#define SUB_ROW 0\n#define SUB_X0 0.0f\n#define 
 water = unary_union([c.sea] + c.water_extra)
 town = c.city.difference(c.sea)
 town = max(town.geoms, key=lambda g: g.area) if town.geom_type == "MultiPolygon" else town
-out.append(arr("dCore", [W(x, y) for x, y in town.simplify(0.6).exterior.coords]))
 sea = c.sea.intersection(box(-150, -150, 750, 750)); sea = max(sea.geoms, key=lambda g: g.area) if sea.geom_type == "MultiPolygon" else sea
 out.append(arr("dSea", [W(x, y) for x, y in sea.simplify(0.6).exterior.coords]))
 riv = c.water_extra[0]
@@ -85,8 +84,6 @@ out.append(arr("dTownShrines", [W(*s) for s in tshr]))
 out.append(f"#define CASTLE_X {W(*castle)[0]:.1f}f\n#define CASTLE_Z {W(*castle)[1]:.1f}f\n")
 parks = [p for p in c.parks]
 out.append("static const float dParks[][3] = {" + ", ".join("{%.1ff, %.1ff, %.1ff}" % (W(p.centroid.x, p.centroid.y) + (math.sqrt(p.area / math.pi),)) for p in parks) + "};\n#define DPARKS_N %d\n" % len(parks))
-# ---- buildings: every drawn lot, as the largest axis-aligned rectangle inside it
-roads_u = unary_union([LineString(p).buffer(w / 2) for p, w, k in streets] + [LineString(hp).buffer(4.5)])
 def aa_rect(poly):
     if poly.is_empty or poly.area < 20: return None
     try: cpt = polylabel(poly, 0.3)
@@ -102,33 +99,103 @@ def aa_rect(poly):
         w2, h2 = (lo, lo / ar) if ar >= 1 else (lo * ar, lo)
         if best is None or w2 * h2 > best[2] * best[3]: best = (cpt.x - w2 / 2, cpt.y - h2 / 2, w2, h2)
     return best
-lots = []
+# ---- buildings: rows along every street (fronts 1 m off the kerb, stepped where a street runs at an angle), then the back land
+roads_u = unary_union([LineString(p).buffer(w / 2) for p, w, k in streets] + [LineString(hp).buffer(4.5)])
+ROADS_D = unary_union([LineString([(x - TX, y - TZ) for x, y in p]).buffer(w / 2) for p, w, k in streets])
+COAST_D = LineString([(x - TX, y - TZ) for x, y in hp]).buffer(10.2)   # road, sidewalk and the planted verge
+RAIL_D = rl.buffer(5.5)
 keep_out = unary_union([Point(s).buffer(7) for s in c.shrines] + [Point(castle).buffer(18)] + [p.buffer(1) for p in parks] + [box(stn[0] - 24, stn[1] - 10, stn[0] + 24, stn[1] + 34)])
-for lp in rec:
-    bld = lp.buffer(-1.1, join_style=2)
-    if bld.is_empty: continue
-    left = bld.difference(keep_out).difference(water)
-    for k in range(4):   # fill the lot with up to 4 straight buildings, largest first (stepped along curved and slanted lots)
-        pieces = sorted(left.geoms, key=lambda g: -g.area) if hasattr(left, "geoms") else [left]
-        placed = False
-        for g in pieces:
-            r = aa_rect(g)
-            if r is None or r[2] < 3.4 or r[3] < 3.4: continue
-            lots.append(r); left = left.difference(box(r[0] - 1.0, r[1] - 1.0, r[0] + r[2] + 1.0, r[1] + r[3] + 1.0)); placed = True; break
-        if not placed or left.is_empty: break
+# the town's ground: the drawn town, closed over narrow notches, plus every street that leaves it (so no street runs over grass)
+tg = unary_union([town, ROADS_D.buffer(3.0)]).buffer(6, join_style=2).buffer(-6, join_style=2)
+tg = tg.difference(c.sea)
+tg = max(tg.geoms, key=lambda g: g.area) if tg.geom_type == "MultiPolygon" else tg
+tg = Polygon(tg.exterior)
+BUILD = tg.buffer(-1.0).difference(ROADS_D.buffer(1.0)).difference(COAST_D).difference(RAIL_D).difference(keep_out).difference(water.buffer(4.5)).difference(c.sea.buffer(16))
+rngb = np.random.default_rng(1103)
+from shapely import affinity
+placed, grid = [], {}
+def cells(g):
+    x0, y0, x1, y1 = g.bounds
+    return [(i, j) for i in range(int(x0 // 16), int(x1 // 16) + 1) for j in range(int(y0 // 16), int(y1 // 16) + 1)]
+def free(r):
+    if not BUILD.contains(r): return False
+    seen = set()
+    for c2 in cells(r):
+        for k in grid.get(c2, ()):
+            if k in seen: continue
+            seen.add(k)
+            if r.intersects(placed[k]): return False
+    return True
+def put(r):
+    k = len(placed); placed.append(r.buffer(0.3, join_style=2))
+    for c2 in cells(placed[k]): grid.setdefault(c2, []).append(k)
+def orect(px, py, tx, ty, nx, ny, u0, u1, v0, v1):   # a rectangle in street coordinates: u along the street, v away from it
+    return Polygon([(px + tx * u + nx * v, py + ty * u + ny * v) for u, v in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))])
+rows = []   # (polygon, centre x, centre y, width along the street, depth, tangent x, tangent y, normal x, normal y, row index)
+def try_row(line, side, row, v_start, fwr=(6.5, 11.5)):   # one row of buildings along one side of a street, fronts facing it
+    L = line.length; t = 0.5; placed_any = False
+    while t < L - 1.0:
+        p = line.interpolate(t); p2 = line.interpolate(min(L, t + 1.0)); dx, dy = p2.x - p.x, p2.y - p.y; ln = math.hypot(dx, dy) or 1
+        tx, ty = dx / ln, dy / ln; nx, ny = -ty * side, tx * side   # away from the street
+        fw = float(rngb.uniform(*fwr)); dp = float(rngb.uniform(7.5, 12.0)); ok = None
+        for back in (0.0, 0.5, 1.2):
+            for f in (1.0, 0.8, 0.62):
+                for d in (dp, dp * 0.8, 6.5, 5.6):
+                    w2 = fw * f
+                    if w2 < 5.0: continue
+                    r = orect(p.x, p.y, tx, ty, nx, ny, 0, w2, v_start + back, v_start + back + d)
+                    if free(r): ok = (r, w2, d, v_start + back); break
+                if ok: break
+            if ok: break
+        if ok:
+            r, w2, d, v0 = ok; put(r); placed_any = True
+            c = r.centroid; rows.append((r, c.x, c.y, w2, d, tx, ty, nx, ny, row))
+            t += w2 + float(rngb.uniform(0.35, 0.8))
+        else: t += 0.6
+    return placed_any
+order = sorted(range(len(streets)), key=lambda i: (-streets[i][2], -len(streets[i][0])))   # avenues first
+base = []
+for i in order:
+    p, w, k = streets[i]
+    if k == 3: continue   # bridges
+    ln = LineString([(x - TX, y - TZ) for x, y in p])
+    base.append((ln, w / 2 + 1.0, k))
+cl = LineString([(x - TX, y - TZ) for x, y in hp])
+base.insert(0, (cl, 10.6, 9))   # the coast road: behind its sidewalk and planted verge
+for row in range(5):   # front rows, then the rows behind them reached by 2.5 m alleys, until the blocks are full
+    vs = 0.0 if row == 0 else row * 11.0
+    for ln, off, k in base:
+        for side in (1, -1):
+            e = ln.offset_curve(side * off)
+            for g in (e.geoms if hasattr(e, "geoms") else [e]):
+                if g.length > 4: try_row(g, side, row, vs)
+    if row == 0:
+        for ln, off, k in base:
+            for side in (1, -1):
+                e = ln.offset_curve(side * off)
+                for g in (e.geoms if hasattr(e, "geoms") else [e]):
+                    if g.length > 4: try_row(g, side, 0, 0.0, (5.0, 7.0))
+print("rows", {r: sum(1 for q in rows if q[9] == r) for r in range(5)})
+out.append(arr("dCore", [W(x, y) for x, y in tg.simplify(0.6).exterior.coords]))
 rng = np.random.default_rng(2006)
-def face_of(r):
-    x, y, w, h = r; cands = [(0, (x + w / 2, y - 3)), (2, (x + w / 2, y + h + 3)), (3, (x - 3, y + h / 2)), (1, (x + w + 3, y + h / 2))]
-    return min(cands, key=lambda f: roads_u.distance(Point(W(*f[1]))))[0]
 L2 = []
-for r in lots:
-    cx, cy = r[0] + r[2] / 2, r[1] + r[3] / 2; ds = math.hypot(cx - stn[0], cy - stn[1]); area = r[2] * r[3]
-    near_coast = hw.distance(Point(cx, cy)) < 40; shop_st = any(LineString(p).distance(Point(W(cx, cy))) < 14 for p, w, k in streets if k == 1)
-    if ds < 70 and area > 90: kind, fl = 6, int(rng.integers(4, 8))
-    elif cy < 230 and cx > 300 and area > 70: kind, fl = 1, int(rng.integers(3, 7))   # hotels and apartments on the slope
-    elif near_coast or shop_st: kind, fl = 2, int(rng.integers(1, 4))
-    else: kind, fl = (0, int(rng.integers(1, 3))) if rng.uniform() < 0.7 else (1, int(rng.integers(2, 4)))
-    L2.append([*W(r[0], r[1]), r[2], r[3], kind, fl, face_of(r)])
+for r, cx, cy, w2, d, tx, ty, nx, ny, row in rows:
+    # local frame: +x along the street, rotated by phi about the centre (world = C + RotY(phi)(local - C), RotY(phi): x' = x cos + z sin, z' = -x sin + z cos)
+    phi = math.atan2(-ty, tx); lw, ld = w2, d
+    # the street lies toward -n; in local coordinates -n is (-nx, -ny) rotated back by -phi
+    c, s_ = math.cos(phi), math.sin(phi); lx = -nx * c + ny * s_; lz = -nx * s_ - ny * c
+    # keep the frame within 45 degrees of the world axes (fewer near-90 rotations, same building)
+    while phi > math.pi / 4: phi -= math.pi / 2; lw, ld = ld, lw; lx, lz = lz, -lx
+    while phi <= -math.pi / 4: phi += math.pi / 2; lw, ld = ld, lw; lx, lz = -lz, lx
+    face = (1 if lx > 0 else 3) if abs(lx) > abs(lz) else (2 if lz > 0 else 0)
+    ds = math.hypot(cx - stn[0], cy - stn[1]); area = w2 * d; front = row == 0
+    near_coast = hw.distance(Point(cx, cy)) < 30; shop_st = front and any(LineString(p).distance(Point(W(cx, cy))) < 14 for p, w, k in streets if k == 1)
+    if ds < 80 and area > 80 and front: kind, fl = 6, int(rng.integers(3, 7))
+    elif cy < 230 and cx > 300 and area > 70: kind, fl = 1, int(rng.integers(3, 6))   # hotels and apartments on the slope
+    elif front and (near_coast or shop_st): kind, fl = 2, int(rng.integers(2, 4))
+    else: kind, fl = (0, int(rng.integers(1, 3))) if rng.uniform() < 0.75 else (1, int(rng.integers(2, 4)))
+    wx, wz = W(cx, cy)
+    L2.append([wx - lw / 2, wz - ld / 2, lw, ld, kind, fl, face, phi])
 # five konbini spread over the town, a koban by the station square, the station itself
 cand = [i for i, l in enumerate(L2) if l[4] in (0, 2) and l[2] * l[3] > 55 and min(l[2], l[3]) > 6.5]
 picked = []
@@ -138,8 +205,8 @@ for i in sorted(cand, key=lambda i: -(L2[i][2] * L2[i][3])):
 for i in picked: L2[i][4], L2[i][5] = 3, 1
 ks = min(range(len(L2)), key=lambda i: math.hypot(L2[i][0] + L2[i][2] / 2 - sx, L2[i][1] + L2[i][3] / 2 - (sz + 30)))
 L2[ks][4], L2[ks][5] = 4, 1
-L2.append([sx - 20, sz - 6, 40, 12, 5, 2, 2])   # the station, facing its square
-out.append("static const float dLots[][7] = {" + ", ".join("{%.2ff, %.2ff, %.2ff, %.2ff, %d, %d, %d}" % tuple(l) for l in L2) + "};\n#define DLOTS_N %d\n" % len(L2))
+L2.append([sx - 20, sz - 6, 40, 12, 5, 2, 2, 0.0])   # the station, facing its square
+out.append("static const float dLots[][8] = {" + ", ".join("{%.2ff, %.2ff, %.2ff, %.2ff, %d, %d, %d, %.4ff}" % tuple(l) for l in L2) + "};\n#define DLOTS_N %d\n" % len(L2))
 sp = W(stn[0], stn[1] + 30); out.append(f"#define SPAWN_X {sp[0]:.1f}f\n#define SPAWN_Z {sp[1]:.1f}f\n")
 # legacy symbols the old 5b code still names
 out.append("static const float dRing0[1][2] = {{0, 0}};\n#define DRING0_N 0\nstatic const float dRing1[1][2] = {{0, 0}};\n#define DRING1_N 0\nstatic const float dRing2[1][2] = {{0, 0}};\n#define DRING2_N 0\nstatic const float dRing3[1][2] = {{0, 0}};\n#define DRING3_N 0\nstatic const float dAvenue[1][2] = {{0, 0}};\n#define DAVENUE_N 0\n")

@@ -138,7 +138,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
     Vector3 tip = Vector3Add(eye, Vector3Scale(aim, 1.6f));
     for (int i = 0; i < nDeb; i++) {
         Debris *d = &debs[i]; if (!d->alive) continue;
-        Vector3 c = Vector3Scale(Vector3Add(d->mn, d->mx), 0.5f);
+        Vector3 c = xfP(d->f, Vector3Scale(Vector3Add(d->mn, d->mx), 0.5f));
         if (Vector3Distance(c, tip) > 1.6f) continue;
         float dm = meleeDmg() * (handsType() == IT_CROWBAR || handsType() == IT_SLEDGE ? 2.2f : 1.0f);
         d->hp -= dm; play(sWood, 0.9f); spawnParts(c, 6, T_WOOD, WHITE, 1.6f, 0.08f); alertAll(c, 14); weaponWear(0.5f);
@@ -160,13 +160,13 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
     }
     for (int i = 0; i < nVend; i++) {
         Vend *v = &vends[i]; if (v->broken) continue;
-        Vector3 c = Vector3Scale(Vector3Add(v->mn, v->mx), 0.5f);
+        Vector3 c = xfP(v->f, Vector3Scale(Vector3Add(v->mn, v->mx), 0.5f));
         if (Vector3Distance(c, tip) > 1.3f) continue;
         v->hp -= meleeDmg(); play(sClang, 0.8f); alertAll(c, 20); pl.hitStopT = 0.03f; weaponWear(0.8f);
         spawnParts(c, 5, T_GLASS, rgb(200, 220, 255), 1.6f, 0.05f);
         if (v->hp <= 0) {
             v->broken = true; if (v->light >= 0) lights[v->light].mode = 2;
-            Vector3 out = v->face == 0 ? V3(0, 0, -1) : v->face == 2 ? V3(0, 0, 1) : v->face == 1 ? V3(1, 0, 0) : V3(-1, 0, 0);
+            Vector3 out = xfD(v->f, v->face == 0 ? V3(0, 0, -1) : v->face == 2 ? V3(0, 0, 1) : v->face == 1 ? V3(1, 0, 0) : V3(-1, 0, 0));
             Vector3 dp = Vector3Add(V3(c.x, v->mn.y, c.z), Vector3Scale(out, 0.9f));
             addItem(dp, fr(0, 1) < 0.5f ? IT_DRINK : IT_WATER, 1 + ri(2));
             playAt(sGlass, c, 30, 0.8f);
@@ -186,8 +186,8 @@ static void shoot(Vector3 eye, Vector3 aim) {
     float best = 120; int hitC = -1; bool head = false;
     query(fminf(eye.x, eye.x + aim.x * 120), fminf(eye.z, eye.z + aim.z * 120), fmaxf(eye.x, eye.x + aim.x * 120), fmaxf(eye.z, eye.z + aim.z * 120));
     for (int k = 0; k < qn; k++) {
-        Solid *s = &sol[qb[k]];
-        RayCollision rc = GetRayCollisionBox(ray, (BoundingBox){s->mn, s->mx});
+        Solid *s = &sol[qb[k]]; Ray lr = s->f ? (Ray){solL(s, eye), xfDI(s->f, aim)} : ray;
+        RayCollision rc = GetRayCollisionBox(lr, (BoundingBox){s->mn, s->mx});
         if (rc.hit && rc.distance < best) best = rc.distance;
     }
     for (int i = 0; i < nCr; i++) {
@@ -201,7 +201,7 @@ static void shoot(Vector3 eye, Vector3 aim) {
     }
     for (int i = 0; i < nOps; i++) {
         Open *o = &ops[i]; if (o->type != OP_WINDOW || o->state != 0) continue;
-        RayCollision rc = GetRayCollisionBox(ray, (BoundingBox){o->mn, o->mx});
+        RayCollision rc = GetRayCollisionBox(o->f ? (Ray){xfI(o->f, eye), xfDI(o->f, aim)} : ray, (BoundingBox){o->mn, o->mx});
         if (rc.hit && rc.distance <= best + 0.01f) breakWindow(o);
     }
     if (hitC >= 0) {
@@ -265,7 +265,9 @@ static bool buildGhost(Vector3 *mn, Vector3 *mx) {
     for (int k = 0; k < qn; k++) {
         Solid *s = &sol[qb[k]];
         if (s->mx.y <= mn->y + 0.05f || s->mn.y >= mx->y) continue;
-        if (mn->x < s->mx.x && mx->x > s->mn.x && mn->z < s->mx.z && mx->z > s->mn.z) return false;
+        float a0 = mn->x, a1 = mx->x, b0 = mn->z, b1 = mx->z;
+        if (s->f) { a0 = b0 = 1e9f; a1 = b1 = -1e9f; for (int q = 0; q < 4; q++) { Vector3 L = solL(s, V3(q & 1 ? mx->x : mn->x, 0, q & 2 ? mx->z : mn->z)); a0 = fminf(a0, L.x); a1 = fmaxf(a1, L.x); b0 = fminf(b0, L.z); b1 = fmaxf(b1, L.z); } }
+        if (a0 < s->mx.x && a1 > s->mn.x && b0 < s->mx.z && b1 > s->mn.z) return false;
     }
     float pr = 0.35f;
     if (K != BK_FLOOR && pl.pos.x + pr > mn->x && pl.pos.x - pr < mx->x && pl.pos.z + pr > mn->z && pl.pos.z - pr < mx->z) return false;
@@ -537,7 +539,7 @@ static void updatePlayer(float dt) {
                 invTake(IT_PLANKS, cost); o->state = 2; o->hp = (o->type == OP_WINDOW ? 6 : 8) * (1 + 0.12f * skLvl(SK_CARP));
                 Vector3 mn = o->mn, mx = o->mx;
                 if (o->type == OP_DOOR) { if (o->axis == 1) { float c = (mn.z + mx.z) / 2; mn.z = c - 0.06f; mx.z = c + 0.06f; } else { float c = (mn.x + mx.x) / 2; mn.x = c - 0.06f; mx.x = c + 0.06f; } }
-                o->bsid = addSolid(mn, mx); o->mn = mn; o->mx = mx;
+                o->bsid = addSolidF(mn, mx, o->f); o->mn = mn; o->mx = mx;
                 play(sPlace, 0.9f); say("Barricaded."); skGain(SK_CARP, 2);
             } else say("Not enough wood planks.");
         } else if (myWall >= 0) {
