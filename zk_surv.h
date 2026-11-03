@@ -192,7 +192,9 @@ static Camera3D mapCamera(void) {
     Vector3 tgt = V3(220, 0, 280); float d = 520 * mapZoom;   // the city and the east mountain
     return (Camera3D){Vector3Add(tgt, V3(sinf(mapYaw) * cosf(mapPitch) * d, sinf(mapPitch) * d, cosf(mapYaw) * cosf(mapPitch) * d)), tgt, V3(0, 1, 0), 38, CAMERA_PERSPECTIVE};
 }
+static int mapXf = 0;   // frame of the building being drawn on the map
 static void mapQuadC(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color ca, Color cb, Color cc, Color cd) {
+    if (mapXf) { a = xfP(mapXf, a); b = xfP(mapXf, b); c = xfP(mapXf, c); d = xfP(mapXf, d); }
     rlColor4ub(ca.r, ca.g, ca.b, 255); rlVertex3f(a.x, a.y, a.z); rlColor4ub(cb.r, cb.g, cb.b, 255); rlVertex3f(b.x, b.y, b.z); rlColor4ub(cc.r, cc.g, cc.b, 255); rlVertex3f(c.x, c.y, c.z);
     rlColor4ub(ca.r, ca.g, ca.b, 255); rlVertex3f(a.x, a.y, a.z); rlColor4ub(cc.r, cc.g, cc.b, 255); rlVertex3f(c.x, c.y, c.z); rlColor4ub(cd.r, cd.g, cd.b, 255); rlVertex3f(d.x, d.y, d.z);
 }
@@ -275,7 +277,7 @@ static void renderMapScene(float t) {
     for (int e = 0; e < nExt; e++) { Rectangle r = extR[e]; mapQuadC(V3(r.x, 0.25f, r.y), V3(r.x + r.width, 0.25f, r.y), V3(r.x + r.width, 0.25f, r.y + r.height), V3(r.x, 0.25f, r.y + r.height), road, road, road, road); }
     if (nAvenue > 1) { mapRibbon(avenueP, nAvenue, 7.0f, 0.32f, road); mapDashes(avenueP, nAvenue, 0.35f, 0.4f, 4, 4, MP_TUN); }
     mapDashes(coastP, nCoast, 0.35f, 0.38f, 4, 4, MP_DASH); mapDashes(northP, nNorth, 0.35f, 0.38f, 4, 4, MP_DASH); mapDashes(tougeP, nTouge, 0.3f, 0.48f, 3, 3, MP_DASH);
-    for (int i = 0; i < nMapFoot; i++) { Rectangle r = mapFoot[i]; float y0 = mapFootY[i] > 0.5f ? mapFootY[i] * 0.5f : 0.1f; mapBlock(r.x + 0.3f, r.y + 0.3f, r.x + r.width - 0.3f, r.y + r.height - 0.3f, y0, mapFootH[i]); }
+    for (int i = 0; i < nMapFoot; i++) { Rectangle r = mapFoot[i]; float y0 = mapFootY[i] > 0.5f ? mapFootY[i] * 0.5f : 0.1f; mapXf = mapFootF[i]; mapBlock(r.x + 0.3f, r.y + 0.3f, r.x + r.width - 0.3f, r.y + r.height - 0.3f, y0, mapFootH[i]);  mapXf = 0; }
     rlEnd(); rlEnableBackfaceCulling();
     for (int b = 0; b < nBore; b++) { Bore *br = &bores[b];   // tunnels: yellow-on-black dashes, ending in a red cross
         for (float a = 0; a < br->len; a += 6) { Vector3 p0 = boreAt(br, a, 0, br->fy * 0.5f + 1), p1 = boreAt(br, fminf(a + 6, br->len), 0, br->fy * 0.5f + 1);
@@ -338,7 +340,7 @@ static bool saveGame(void) {
     ensureDir("Data"); ensureDir("Data/Userdata");
     { char rel[128]; snprintf(rel, sizeof rel, "Data/Userdata/%s", prof.name[0] ? prof.name : "Guest"); ensureDir(rel); }
     FILE *f = fopen(savePath(), "wb"); if (!f) return false;
-    unsigned int magic = SAVE_MAGIC, ver = 4; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
+    unsigned int magic = SAVE_MAGIC, ver = 5; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
     Player p = pl; p.invOpen = false; p.mapOpen = false; p.openC = -1; p.searchC = -1; p.dragFrom = -1; p.drag.t = -1; p.build = false; WR(p);
     unsigned char *bits = calloc((size_t)worldSolids, 1); for (int i = 0; i < worldSolids; i++) bits[i] = sol[i].off; fwrite(bits, 1, (size_t)worldSolids, f); free(bits);
     WRA(ops, nOps); WRA(debs, nDeb); WRA(crates, nCrate); WRA(vends, nVend); WRA(builds, nBuild); WRA(conts, nCont); WRA(crs, nCr); WRA(wards, nWard); WRA(fires, nFire); WRA(marks, nMark);
@@ -355,7 +357,7 @@ static bool rdArr(FILE *f, void *a, size_t el, int max, int *n, bool exact) {
 static bool loadGame(void) {
     FILE *f = fopen(savePath(), "rb"); if (!f) return false;
     unsigned int magic, ver, seed; int ws;
-    if (!RD(magic) || magic != SAVE_MAGIC || !RD(ver) || ver != 4 || !RD(seed) || !RD(ws)) { fclose(f); return false; }
+    if (!RD(magic) || magic != SAVE_MAGIC || !RD(ver) || ver != 5 || !RD(seed) || !RD(ws)) { fclose(f); return false; }
     genWorld(seed);
     if (ws != worldSolids) { fclose(f); TraceLog(LOG_WARNING, "SAVE: world mismatch"); return false; }
     Player p; if (!RD(p)) { fclose(f); return false; }
@@ -371,7 +373,7 @@ static bool loadGame(void) {
     pl = p;
     // rebuild what lives on top of the generated world
     for (int i = 0; i < nVend; i++) if (vends[i].broken && vends[i].light >= 0) lights[vends[i].light].mode = 2;
-    for (int i = 0; i < nOps; i++) if (ops[i].state == 2) ops[i].bsid = addSolid(ops[i].mn, ops[i].mx); else ops[i].bsid = -1;
+    for (int i = 0; i < nOps; i++) if (ops[i].state == 2) ops[i].bsid = addSolidF(ops[i].mn, ops[i].mx, ops[i].f); else ops[i].bsid = -1;
     for (int i = 0; i < nBuild; i++) { Build *b = &builds[i]; b->sid = -1;
         if (b->alive && b->kind != BK_SHRINE && b->kind != BK_WARD && b->kind != BK_GARDEN && b->kind != BK_SPIKES && b->kind != BK_ALARM) { b->sid = addSolid(b->mn, b->mx); if (b->kind == BK_DOOR && b->open) sol[b->sid].off = true; } }
     for (int i = 0; i < nFire; i++) fires[i].light = fires[i].on ? addLight(V3(fires[i].pos.x, fires[i].pos.y + 0.8f, fires[i].pos.z), V3(1.0f, 0.55f, 0.2f), 10, 1) : -1;

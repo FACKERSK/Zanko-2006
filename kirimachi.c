@@ -30,7 +30,7 @@
 #define MAX_CRATE 140
 #define MAX_ASH 220
 #define GCELL 8.0f
-#define GN 40
+#define GN 112   // broadphase grid: 8 m cells from -170 m, covering the whole map
 
 enum { T_ASPHALT, T_SIDEWALK, T_CONCRETE, T_FACADE, T_FACADE2, T_TILEWALL, T_BLOCKWALL, T_SHUTTER, T_ROOF, T_GLASS,
        T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_COUNT };
@@ -288,8 +288,29 @@ static Vector2 uvOf(int t, Vector3 p, Vector3 n) {
     if (fabsf(n.x) > 0.5f) return (Vector2){p.z / su, -p.y / sv};
     return (Vector2){p.x / su, -p.y / sv};
 }
+// ---- building frames: a building is generated in its own straight (local) coordinates, then turned to face its street.
+// Frame 0 is the world. world = C + RotY(phi)(local - C) with RotY(phi): x' = x cos + z sin, z' = -x sin + z cos (raylib MatrixRotateY).
+#define MAX_XF 1400
+typedef struct { float cx, cz, c, s; } Xf;
+static Xf xfs[MAX_XF] = {{0, 0, 1, 0}}; static int nXf = 1, curXf = 0;
+static int newXf(float cx, float cz, float phi) { if (fabsf(phi) < 1e-4f || nXf >= MAX_XF) return 0; xfs[nXf] = (Xf){cx, cz, cosf(phi), sinf(phi)}; return nXf++; }
+static Vector3 xfP(int f, Vector3 p) { if (!f) return p; Xf *x = &xfs[f]; float dx = p.x - x->cx, dz = p.z - x->cz; return (Vector3){x->cx + dx * x->c + dz * x->s, p.y, x->cz - dx * x->s + dz * x->c}; }
+static Vector3 xfI(int f, Vector3 p) { if (!f) return p; Xf *x = &xfs[f]; float dx = p.x - x->cx, dz = p.z - x->cz; return (Vector3){x->cx + dx * x->c - dz * x->s, p.y, x->cz + dx * x->s + dz * x->c}; }
+static Vector3 xfD(int f, Vector3 d) { if (!f) return d; Xf *x = &xfs[f]; return (Vector3){d.x * x->c + d.z * x->s, d.y, -d.x * x->s + d.z * x->c}; }
+static Vector3 xfDI(int f, Vector3 d) { if (!f) return d; Xf *x = &xfs[f]; return (Vector3){d.x * x->c - d.z * x->s, d.y, d.x * x->s + d.z * x->c}; }
+static float xfYaw(int f) { return f ? atan2f(xfs[f].s, xfs[f].c) : 0; }
+static Matrix xfM(int f) { if (!f) return MatrixIdentity(); Xf *x = &xfs[f]; return MatrixMultiply(MatrixMultiply(MatrixTranslate(-x->cx, 0, -x->cz), MatrixRotateY(atan2f(x->s, x->c))), MatrixTranslate(x->cx, 0, x->cz)); }
+static void xfPush(int f) { rlDrawRenderBatchActive(); rlPushMatrix(); if (f) rlMultMatrixf(MatrixToFloat(xfM(f))); }
+static void xfPop(void) { rlDrawRenderBatchActive(); rlPopMatrix(); }
+static void xfBox(int f, Vector3 mn, Vector3 mx, Vector3 *wmn, Vector3 *wmx) {   // world AABB of a framed box
+    if (!f) { *wmn = mn; *wmx = mx; return; }
+    *wmn = (Vector3){1e9f, mn.y, 1e9f}; *wmx = (Vector3){-1e9f, mx.y, -1e9f};
+    for (int k = 0; k < 4; k++) { Vector3 q = xfP(f, (Vector3){k & 1 ? mx.x : mn.x, 0, k & 2 ? mx.z : mn.z});
+        wmn->x = fminf(wmn->x, q.x); wmn->z = fminf(wmn->z, q.z); wmx->x = fmaxf(wmx->x, q.x); wmx->z = fmaxf(wmx->z, q.z); }
+}
 static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color col) {
     Vector3 q[6] = {a, b, c, a, c, d};
+    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[t], xfP(curXf, q[i]), uvOf(t, q[i], n), wn, col); return; }   // texture follows the walls
     for (int i = 0; i < 6; i++) mbPush(&mb[t], q[i], uvOf(t, q[i], n), n, col);
 }
 static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
@@ -305,22 +326,25 @@ static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
 #define ALLB 63
 
 // ============================================================ world data
-typedef struct { Vector3 mn, mx; bool off; } Solid;
+typedef struct { Vector3 mn, mx; bool off; short f; } Solid;   // mn/mx in the frame f (0 = world)
 static Solid sol[MAX_SOLID]; static int nSol;
 static int *cellL[GN * GN]; static int cellN[GN * GN], cellCap[GN * GN];
 static int qb[16384], qn; static unsigned int qs[MAX_SOLID], qstamp;
-static int cellOf(float v) { int c = (int)floorf((v + 12) / GCELL); return c < 0 ? 0 : (c >= GN ? GN - 1 : c); }
-static int addSolid(Vector3 mn, Vector3 mx) {
+static int cellOf(float v) { int c = (int)floorf((v + 170) / GCELL); return c < 0 ? 0 : (c >= GN ? GN - 1 : c); }
+static int addSolidF(Vector3 mn, Vector3 mx, int f) {
     if (nSol >= MAX_SOLID) return -1;
     int id = nSol++;
-    sol[id] = (Solid){mn, mx, false};
-    for (int cx = cellOf(mn.x); cx <= cellOf(mx.x); cx++) for (int cz = cellOf(mn.z); cz <= cellOf(mx.z); cz++) {
+    sol[id] = (Solid){mn, mx, false, (short)f};
+    Vector3 wmn, wmx; xfBox(f, mn, mx, &wmn, &wmx);
+    for (int cx = cellOf(wmn.x); cx <= cellOf(wmx.x); cx++) for (int cz = cellOf(wmn.z); cz <= cellOf(wmx.z); cz++) {
         int c = cz * GN + cx;
         if (cellN[c] >= cellCap[c]) { cellCap[c] = cellCap[c] ? cellCap[c] * 2 : 32; cellL[c] = realloc(cellL[c], cellCap[c] * sizeof(int)); }
         cellL[c][cellN[c]++] = id;
     }
     return id;
 }
+static int addSolid(Vector3 mn, Vector3 mx) { return addSolidF(mn, mx, curXf); }
+static Vector3 solL(const Solid *s, Vector3 p) { return s->f ? xfI(s->f, p) : p; }   // a world point in the solid's own frame
 static void query(float x0, float z0, float x1, float z1) {
     qstamp++; qn = 0;
     for (int cx = cellOf(x0); cx <= cellOf(x1); cx++) for (int cz = cellOf(z0); cz <= cellOf(z1); cz++) {
@@ -338,19 +362,19 @@ static int box(int t, Vector3 mn, Vector3 mx, Color c, bool solid, int mask) {
 #define V3(a, b, c) ((Vector3){(a), (b), (c)})
 
 enum { OP_WINDOW, OP_DOOR };
-typedef struct { Vector3 mn, mx; int type, axis, sid, bsid, state; float hp, side, fy; } Open;
-typedef struct { Vector3 mn, mx; int sid; float hp; bool alive; int seed; } Debris;   // junk piles (chairs, tables) blocking stairs and doorways
+typedef struct { Vector3 mn, mx; int type, axis, sid, bsid, state; float hp, side, fy; short f; } Open;   // mn/mx in frame f
+typedef struct { Vector3 mn, mx; int sid; float hp; bool alive; int seed; short f; } Debris;   // junk piles (chairs, tables) blocking stairs and doorways
 #define MAX_DEB 1400
 static Debris debs[MAX_DEB]; static int nDeb;
 typedef struct { Vector3 bot, top; } Stair;   // walkable stair runs (creature navigation between floors)
 #define MAX_STAIR 2400
 static Stair stairs[MAX_STAIR]; static int nStair;   // window: 0 intact 1 broken 2 barricaded; door: 0 open 1 locked 2 barricaded
 static Open ops[MAX_OPEN]; static int nOps;
-typedef struct { Vector3 mn, mx; int face, sid, light; float hp; bool broken; Color body; } Vend;
+typedef struct { Vector3 mn, mx; int face, sid, light; float hp; bool broken; Color body; short f; } Vend;
 static Vend vends[MAX_VEND]; static int nVend;
 typedef struct { Vector3 pos, col; float range, cur, seed; int mode; } Light;   // mode 0 steady 1 flicker 2 off
 static Light lights[MAX_LIGHT]; static int nLight;
-typedef struct { Vector3 mn, mx; Color tint; int light, tex, text, face; bool plate; } Sign;   // text: index into the sign atlas; face 0 -z 1 +x 2 +z 3 -x
+typedef struct { Vector3 mn, mx; Color tint; int light, tex, text, face; bool plate; short f; } Sign;   // text: index into the sign atlas; face 0 -z 1 +x 2 +z 3 -x
 static Sign signs[MAX_SIGN]; static int nSign;
 typedef struct { Vector3 pos; int light; } Lamp;
 static Lamp lamps[MAX_LAMP]; static int nLamp;
@@ -500,7 +524,7 @@ static void playAt(Sound s, Vector3 p, float range, float vol) {
 // ============================================================ generation helpers
 static int addLight(Vector3 p, Vector3 col, float range, int mode) {
     if (nLight >= MAX_LIGHT) return -1;
-    lights[nLight] = (Light){p, col, range, 1, fr(0, 100), mode};
+    lights[nLight] = (Light){xfP(curXf, p), col, range, 1, fr(0, 100), mode};
     return nLight++;
 }
 #include "zk_cont.h"
@@ -509,7 +533,7 @@ static void addScreen(Vector3 c, float w, float h, float ang, bool kiosk) {
     if (nScreen >= MAX_SCREEN) return;
     Vector3 out = V3(sinf(ang), 0, cosf(ang));
     int li = fr(0, 1) < 0.15f ? -1 : addLight(Vector3Add(c, Vector3Scale(out, 1.5f)), V3(0.35f, 0.85f, 0.9f), kiosk ? 5 : 11, ri(3) == 0 ? 1 : 0);
-    screens[nScreen++] = (Screen){c, w, h, ang, li, kiosk};
+    screens[nScreen++] = (Screen){xfP(curXf, c), w, h, ang + xfYaw(curXf), li, kiosk};
 }
 static int randomLoot(int kind) {   // kind 0 house 1 apartment 2 shop 3 konbini
     float r = fr(0, 1);
@@ -519,13 +543,15 @@ static int randomLoot(int kind) {   // kind 0 house 1 apartment 2 shop 3 konbini
     return r < 0.20f ? IT_FOOD : r < 0.36f ? IT_DRINK : r < 0.48f ? IT_BANDAGE : r < 0.57f ? IT_BATTERY : r < 0.70f ? IT_PLANKS : r < 0.76f ? IT_OFUDA : r < 0.80f ? IT_SALT : r < 0.88f ? IT_MANGA : r < 0.93f ? IT_VHS : IT_RAMEN;
 }
 static int lootAmount(int t) { return t == IT_PLANKS ? 2 + ri(3) : t == IT_AMMO ? 2 + ri(2) : t == IT_OFUDA ? 1 + ri(2) : 1; }
-static bool pointFree(float x, float z, float r, float yTop) {
-    query(x - r, z - r, x + r, z + r);
+static bool pointFree(float x, float z, float r, float yTop) {   // (x, z) in the current building frame while generating
+    Vector3 W = xfP(curXf, (Vector3){x, 0, z});
+    query(W.x - r * 1.5f, W.z - r * 1.5f, W.x + r * 1.5f, W.z + r * 1.5f);
     for (int k = 0; k < qn; k++) {
         Solid *s = &sol[qb[k]];
         if (s->mx.y <= yTop) continue;
         if (s->mn.y >= yTop + 1.8f) continue;   // ceilings / overhangs don't block floor space
-        if (x + r > s->mn.x && x - r < s->mx.x && z + r > s->mn.z && z - r < s->mx.z) return false;
+        Vector3 L = solL(s, W);
+        if (L.x + r > s->mn.x && L.x - r < s->mx.x && L.z + r > s->mn.z && L.z - r < s->mx.z) return false;
     }
     return true;
 }
@@ -563,7 +589,7 @@ static void addOpening(int s, float u0, float u1, float y0, float y1, int type, 
     else mn = sideMn(s, u0, u1, y0, y1, &mx, 0);
     o->mn = mn; o->mx = mx; o->type = type; o->axis = (s == 0 || s == 2) ? 1 : 0;
     o->side = (s == 0 || s == 3) ? -1.0f : 1.0f;
-    o->state = stt; o->bsid = -1; o->hp = 0; o->sid = -1; o->fy = curFY;
+    o->state = stt; o->bsid = -1; o->hp = 0; o->sid = -1; o->fy = curFY; o->f = (short)curXf;
     if (type == OP_WINDOW) { o->sid = addSolid(mn, mx); }
     else if (stt == 1) {
         Vector3 dmx, dmn = sideMn(s, u0, u1, y0, y1, &dmx, 0.06f);
@@ -629,7 +655,7 @@ static void addCrate(Vector3 p) {
     if (nCrate >= MAX_CRATE || inHole(p.x, p.z)) return;
     float s = fr(0.7f, 1.0f);
     Crate *c = &crates[nCrate++];
-    c->pos = p; c->s = s; c->hp = 3; c->alive = true;
+    c->pos = xfP(curXf, p); c->s = s; c->hp = 3; c->alive = true;
     c->sid = addSolid(V3(p.x - s / 2, p.y, p.z - s / 2), V3(p.x + s / 2, p.y + s, p.z + s / 2));
 }
 static void vending(float x, float z, int face) {
@@ -639,7 +665,7 @@ static void vending(float x, float z, int face) {
     if (face == 0 || face == 2) { mn = V3(x - w / 2, SIDEH, z - d / 2); mx = V3(x + w / 2, SIDEH + 1.85f, z + d / 2); }
     else { mn = V3(x - d / 2, SIDEH, z - w / 2); mx = V3(x + d / 2, SIDEH + 1.85f, z + w / 2); }
     if (!pointFree(x, z, 0.6f, SIDEH + 0.05f)) return;
-    v->mn = mn; v->mx = mx; v->face = face; v->hp = 3; v->broken = false;
+    v->mn = mn; v->mx = mx; v->face = face; v->hp = 3; v->broken = false; v->f = (short)curXf;
     Color bodies[4] = {{230, 230, 235, 255}, {200, 40, 40, 255}, {40, 90, 190, 255}, {235, 235, 120, 255}};
     v->body = bodies[ri(4)];
     v->sid = addSolid(mn, mx);
@@ -855,7 +881,7 @@ static void freeWorld(void) {
     }
     for (int c = 0; c < GN * GN; c++) cellN[c] = 0;
     nSol = nOps = nVend = nLight = nSign = nLamp = nCrate = nBuild = nItem = nCr = nWard = nScreen = nFire = nTV = nCar = 0;
-    nCont = nDeb = nStair = nHole = 0; baseShrine = -1; nMapFoot = 0; nWs = 0;
+    nCont = nDeb = nStair = nHole = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
     memset(parts, 0, sizeof parts);
 }
 static void finalizeMeshes(void) {
@@ -902,6 +928,7 @@ static int streetOfKind(int k, float minW) {   // shot tests: the longest street
 static Vector3 seaSidePt(int i, float d) {   // shot tests: a point d metres off the coast road, on the side towards the sea
     Vector2 nn = pnorm(coastP, nCoast, i); Vector3 a = V3(coastP[i].x + nn.x * d, 0, coastP[i].z + nn.y * d), b = V3(coastP[i].x - nn.x * d, 0, coastP[i].z - nn.y * d);
     return terrainH(a.x, a.z) < terrainH(b.x, b.z) ? a : b; }
+static Vector3 opCenter(Open *o); static Vector3 opNormal(Open *o);
 static void genWorld(unsigned int seed) {
     freeWorld();
     hfReady = false; layoutInit();
@@ -945,7 +972,7 @@ static void genWorld(unsigned int seed) {
         else if (bk == BK_OLD) genOldTown(x0, z0, bi, bj);
         else if (bk == BK_MARKET) genMarket(x0, z0);
         else genBlock(x0, z0, bi, bj);
-        for (int f = 0; f < nFoot && nMapFoot < MAX_MAPFOOT; f++) { mapFootH[nMapFoot] = footH[f]; mapFootY[nMapFoot] = 0; mapFoot[nMapFoot++] = foots[f]; }
+        for (int f = 0; f < nFoot && nMapFoot < MAX_MAPFOOT; f++) { mapFootH[nMapFoot] = footH[f]; mapFootY[nMapFoot] = 0; mapFootF[nMapFoot] = 0; mapFoot[nMapFoot++] = foots[f]; }
         {   // visible sidewalk: tiles, cut around subway holes and building floors
             Rectangle cut[MAX_FOOT + MAX_HOLE]; int nc = 0;
             for (int i = 0; i < nFoot; i++) cut[nc++] = foots[i];
@@ -971,8 +998,8 @@ static void genWorld(unsigned int seed) {
             int o = ri(nOps > 0 ? nOps : 1);
             if (nOps == 0) break;
             Open *op = &ops[o];
-            Vector3 c = Vector3Scale(Vector3Add(op->mn, op->mx), 0.5f);
-            Vector3 inward = op->axis == 1 ? V3(0, 0, -op->side) : V3(-op->side, 0, 0);
+            Vector3 c = opCenter(op);
+            Vector3 inward = Vector3Negate(opNormal(op));
             Vector3 p = Vector3Add(c, Vector3Scale(inward, 1.6f));
             if (Vector3Distance(p, V3(SPAWN_X, 0, SPAWN_Z)) < 60 && want[w] != IT_AMMO) continue;
             if (!pointFree(p.x, p.z, 0.25f, SIDEH + 0.05f)) continue;
@@ -996,15 +1023,17 @@ static void resolve(Vector3 *p, float r, float h, float step) {
         Solid *s = &sol[qb[k]];
         if (s->mx.y <= p->y + step) continue;
         if (s->mn.y >= p->y + h) continue;
-        float cx = clampf(p->x, s->mn.x, s->mx.x), cz = clampf(p->z, s->mn.z, s->mx.z);
-        float dx = p->x - cx, dz = p->z - cz, d2 = dx * dx + dz * dz;
+        Vector3 L = solL(s, *p);   // push out in the solid's own frame, then back to the world
+        float cx = clampf(L.x, s->mn.x, s->mx.x), cz = clampf(L.z, s->mn.z, s->mx.z);
+        float dx = L.x - cx, dz = L.z - cz, d2 = dx * dx + dz * dz;
         if (d2 < r * r) {
-            if (d2 > 1e-8f) { float d = sqrtf(d2); p->x += dx / d * (r - d); p->z += dz / d * (r - d); }
+            if (d2 > 1e-8f) { float d = sqrtf(d2); L.x += dx / d * (r - d); L.z += dz / d * (r - d); }
             else {
-                float l = p->x - s->mn.x, rr = s->mx.x - p->x, t = p->z - s->mn.z, b = s->mx.z - p->z;
+                float l = L.x - s->mn.x, rr = s->mx.x - L.x, t = L.z - s->mn.z, b = s->mx.z - L.z;
                 float m = fminf(fminf(l, rr), fminf(t, b));
-                if (m == l) p->x = s->mn.x - r; else if (m == rr) p->x = s->mx.x + r; else if (m == t) p->z = s->mn.z - r; else p->z = s->mx.z + r;
+                if (m == l) L.x = s->mn.x - r; else if (m == rr) L.x = s->mx.x + r; else if (m == t) L.z = s->mn.z - r; else L.z = s->mx.z + r;
             }
+            Vector3 Wp = s->f ? xfP(s->f, L) : L; p->x = Wp.x; p->z = Wp.z;
         }
     }
     if (p->y > -6 && hfReady && !cityLand(p->x, p->z) && !inBore(p->x, p->z, p->y) && seaDepth(p->x, p->z) > 0.05f) {   // the sea and the river push you back to shore
@@ -1018,8 +1047,8 @@ static float groundAt(Vector3 p, float r, float step) {
     float g = p.y > b - 1.2f ? b : -1e9f; float rr = r * 0.7f;
     query(p.x - rr, p.z - rr, p.x + rr, p.z + rr);
     for (int k = 0; k < qn; k++) {
-        Solid *s = &sol[qb[k]];
-        if (p.x > s->mn.x - rr && p.x < s->mx.x + rr && p.z > s->mn.z - rr && p.z < s->mx.z + rr)
+        Solid *s = &sol[qb[k]]; Vector3 L = solL(s, p);
+        if (L.x > s->mn.x - rr && L.x < s->mx.x + rr && L.z > s->mn.z - rr && L.z < s->mx.z + rr)
             if (s->mx.y <= p.y + step && s->mx.y > g) g = s->mx.y;
     }
     return g;
@@ -1028,8 +1057,8 @@ static float ceilAt(Vector3 p, float r) {
     float c = 1e9f; float rr = r * 0.7f;
     query(p.x - rr, p.z - rr, p.x + rr, p.z + rr);
     for (int k = 0; k < qn; k++) {
-        Solid *s = &sol[qb[k]];
-        if (p.x > s->mn.x - rr && p.x < s->mx.x + rr && p.z > s->mn.z - rr && p.z < s->mx.z + rr)
+        Solid *s = &sol[qb[k]]; Vector3 L = solL(s, p);
+        if (L.x > s->mn.x - rr && L.x < s->mx.x + rr && L.z > s->mn.z - rr && L.z < s->mx.z + rr)
             if (s->mn.y >= p.y + 0.4f && s->mn.y < c) c = s->mn.y;
     }
     return c;
@@ -1039,8 +1068,8 @@ static bool findLedge(Vector3 p, Vector3 f, Vector3 *dest) {
         float x = p.x + f.x * d, z = p.z + f.z * d; float best = -1; bool blocked = false;
         query(x - 0.05f, z - 0.05f, x + 0.05f, z + 0.05f);
         for (int k = 0; k < qn; k++) {
-            Solid *s = &sol[qb[k]];
-            if (x < s->mn.x || x > s->mx.x || z < s->mn.z || z > s->mx.z) continue;
+            Solid *s = &sol[qb[k]]; Vector3 L = solL(s, (Vector3){x, 0, z});
+            if (L.x < s->mn.x || L.x > s->mx.x || L.z < s->mn.z || L.z > s->mx.z) continue;
             float dh = s->mx.y - p.y;
             if (dh > 0.45f && dh <= 2.45f) { if (s->mx.y > best) best = s->mx.y; }
             else if (dh > 2.45f && s->mn.y < p.y + 2.45f) blocked = true;
@@ -1050,8 +1079,8 @@ static bool findLedge(Vector3 p, Vector3 f, Vector3 *dest) {
             bool ok = true;
             query(x - 0.28f, z - 0.28f, x + 0.28f, z + 0.28f);
             for (int k = 0; k < qn; k++) {
-                Solid *s = &sol[qb[k]];
-                if (x + 0.25f < s->mn.x || x - 0.25f > s->mx.x || z + 0.25f < s->mn.z || z - 0.25f > s->mx.z) continue;
+                Solid *s = &sol[qb[k]]; Vector3 L = solL(s, (Vector3){x, 0, z});
+                if (L.x + 0.25f < s->mn.x || L.x - 0.25f > s->mx.x || L.z + 0.25f < s->mn.z || L.z - 0.25f > s->mx.z) continue;
                 if (s->mn.y < best + 1.7f && s->mx.y > best + 0.02f) { ok = false; break; }
             }
             if (ok) { *dest = V3(x, best, z); return true; }
@@ -1059,8 +1088,8 @@ static bool findLedge(Vector3 p, Vector3 f, Vector3 *dest) {
     }
     return false;
 }
-static Vector3 opCenter(Open *o) { return Vector3Scale(Vector3Add(o->mn, o->mx), 0.5f); }
-static Vector3 opNormal(Open *o) { return o->axis == 1 ? V3(0, 0, o->side) : V3(o->side, 0, 0); }
+static Vector3 opCenter(Open *o) { return xfP(o->f, Vector3Scale(Vector3Add(o->mn, o->mx), 0.5f)); }   // world
+static Vector3 opNormal(Open *o) { return xfD(o->f, o->axis == 1 ? V3(0, 0, o->side) : V3(o->side, 0, 0)); }
 static int facingOpening(Vector3 eyeP, Vector3 f, float maxD, int wantType, int wantState) {
     int best = -1; float bd = maxD;
     for (int i = 0; i < nOps; i++) {
@@ -1414,7 +1443,12 @@ static void drawCreature(Cr *c) {
         for (int s2 = -1; s2 <= 1; s2 += 2) { Matrix Am = frameM(Tm, V3(0.27f * s2, 1.4f, 0.02f), -0.15f + w[4] * 0.2f, 0, 0.06f * s2);
             ADRAW("creatures/spirit/arm", Am, WHITE, BX(T_CLOTH, 0, -0.4f, 0, 0.13f, 0.8f, 0.13f, ((Color){140, 185, 225, 255})), BX(T_FLESH, 0, -0.88f, 0, 0.08f, 0.16f, 0.06f, ((Color){175, 215, 240, 255}))); }
         Matrix Hm = frameM(Tm, V3(0, 1.5f, 0.02f), 0.35f + w[0] * 0.3f, w[1] * 0.4f, w[5] * 0.4f);
-        ADRAW("creatures/spirit/head", Hm, WHITE, BX(T_FLESH, 0, 0.15f, 0, 0.24f, 0.3f, 0.24f, ((Color){175, 215, 240, 255})), BX(T_PLAIN, 0, 0.08f, 0.04f, 0.3f, 0.62f, 0.3f, ((Color){8, 8, 10, 255})), BX(T_PLAIN, 0, -0.15f, 0.13f, 0.26f, 0.5f, 0.06f, ((Color){8, 8, 10, 255})));
+        ADRAW("creatures/spirit/face", Hm, WHITE, BX(T_FLESH, 0, 0.15f, 0, 0.24f, 0.3f, 0.24f, ((Color){205, 222, 232, 255})),   // pale face framed by long black hair
+              BX(T_PLAIN, 0, 0.08f, -0.06f, 0.3f, 0.62f, 0.22f, ((Color){8, 8, 10, 255})), BX(T_PLAIN, -0.135f, -0.04f, 0.05f, 0.05f, 0.5f, 0.15f, ((Color){8, 8, 10, 255})), BX(T_PLAIN, 0.135f, -0.04f, 0.05f, 0.05f, 0.5f, 0.15f, ((Color){8, 8, 10, 255})),
+              BX(T_PLAIN, 0, 0.285f, 0.09f, 0.27f, 0.05f, 0.08f, ((Color){8, 8, 10, 255})),
+              BX(T_PLAIN, -0.055f, 0.185f, 0.121f, 0.055f, 0.03f, 0.01f, ((Color){4, 4, 6, 255})), BX(T_PLAIN, 0.055f, 0.185f, 0.121f, 0.055f, 0.03f, 0.01f, ((Color){4, 4, 6, 255})),
+              BX(T_PLAIN, -0.055f, 0.185f, 0.127f, 0.016f, 0.016f, 0.004f, ((Color){230, 235, 240, 255})), BX(T_PLAIN, 0.055f, 0.185f, 0.127f, 0.016f, 0.016f, 0.004f, ((Color){230, 235, 240, 255})),
+              BX(T_PLAIN, 0, 0.075f, 0.121f, 0.08f, 0.022f, 0.01f, ((Color){70, 20, 24, 255})), BX(T_FLESH, 0, 0.13f, 0.124f, 0.025f, 0.05f, 0.012f, ((Color){180, 200, 215, 255})));
         setEmis(0);
     } else {   // crawler
         Matrix Rm = frameM(base, V3(0, 0.45f, 0), w[2] * 0.15f, 0, w[3] * 0.2f);
@@ -1467,17 +1501,19 @@ static void drawWorld(Vector3 eye, float t) {
     float R2 = 62 * 62;
     for (int i = 0; i < nOps; i++) {
         Open *o = &ops[i];
-        if (Vector3DistanceSqr(o->mn, eye) > R2) continue;
+        if (Vector3DistanceSqr(opCenter(o), eye) > R2) continue;
+        if (o->f) xfPush(o->f);
         if (o->type == OP_WINDOW && o->state == 0) drawBox(T_GLASS, o->mn, o->mx, rgb(150, 165, 185));
         else if (o->state == 2) drawPlanks(o->mn, o->mx, o->axis);
         else if (o->type == OP_DOOR && o->state == 1) drawBox(T_WOOD, o->mn, o->mx, rgb(170, 140, 120));
+        if (o->f) xfPop();
     }
     for (int i = 0; i < nCrate; i++) if (crates[i].alive && Vector3DistanceSqr(crates[i].pos, eye) < R2) {
         Crate *k = &crates[i]; ADRAW("props/crate", TRS(k->pos, 0, V3(k->s, k->s, k->s)), WHITE, BX(T_WOOD, 0, 0.5f, 0, 1, 1, 1, ((Color){200, 170, 130, 255}))); }
     for (int i = 0; i < nBuild; i++) if (builds[i].alive && Vector3DistanceSqr(builds[i].mn, eye) < R2) drawBuildPiece(&builds[i]);
     drawWater(eye, t);
     for (int i = 0; i < nCont; i++) if (conts[i].on && Vector3DistanceSqr(conts[i].pos, eye) < 46 * 46) drawCont(&conts[i], t);
-    for (int i = 0; i < nDeb; i++) if (debs[i].alive && Vector3DistanceSqr(debs[i].mn, eye) < R2) drawDebris(&debs[i]);
+    for (int i = 0; i < nDeb; i++) if (debs[i].alive && Vector3DistanceSqr(xfP(debs[i].f, debs[i].mn), eye) < R2) { if (debs[i].f) xfPush(debs[i].f); drawDebris(&debs[i]); if (debs[i].f) xfPop(); }
     for (int i = 0; i < nCar; i++) {
         Car *k = &cars[i]; if (Vector3DistanceSqr(k->pos, eye) > R2 * 1.3f) continue;
         Matrix M = TRS(k->pos, k->yaw, V3(1, 1, 1)); setEmis(0);
@@ -1494,7 +1530,8 @@ static void drawWorld(Vector3 eye, float t) {
         }
     }
     for (int i = 0; i < nVend; i++) {
-        Vend *v = &vends[i]; if (Vector3DistanceSqr(v->mn, eye) > R2) continue;
+        Vend *v = &vends[i]; if (Vector3DistanceSqr(xfP(v->f, v->mn), eye) > R2) continue;
+        if (v->f) xfPush(v->f);
         Vector3 vc = V3((v->mn.x + v->mx.x) / 2, v->mn.y, (v->mn.z + v->mx.z) / 2);
         float vy = v->face == 0 ? PI : v->face == 2 ? 0 : v->face == 1 ? PI / 2 : -PI / 2;
         Matrix VM = TRS(vc, vy, V3(1, 1, 1));
@@ -1502,14 +1539,16 @@ static void drawWorld(Vector3 eye, float t) {
         float on = v->broken ? 0 : (v->light >= 0 ? lights[v->light].cur : 1);
         setEmis(on > 0.5f ? 1 : 0);
         ADRAW("props/vending_panel", VM, on > 0.5f ? WHITE : rgb(90, 90, 100), BX(T_VEND, 0, 1.0f, 0.41f, 0.9f, 1.7f, 0.03f, CWH));
+        if (v->f) xfPop();
     }
     for (int i = 0; i < nSign; i++) {
-        Sign *s = &signs[i]; if (Vector3DistanceSqr(s->mn, eye) > 80 * 80) continue;
+        Sign *s = &signs[i]; if (Vector3DistanceSqr(xfP(s->f, s->mn), eye) > 80 * 80) continue;
         float on = s->light >= 0 ? lights[s->light].cur : 0;
-        if (s->plate) { setEmis(0); drawBox(T_PLAIN, s->mn, s->mx, s->tint); drawSignText(s, s->text == SGN_SEAL ? rgb(200, 30, 25) : rgb(235, 235, 230)); continue; }
+        if (s->f) xfPush(s->f);
+        if (s->plate) { setEmis(0); drawBox(T_PLAIN, s->mn, s->mx, s->tint); drawSignText(s, s->text == SGN_SEAL ? rgb(200, 30, 25) : rgb(235, 235, 230)); if (s->f) xfPop(); continue; }
         if (on > 0.5f) { setEmis(1); drawBox(T_PLAIN, s->mn, s->mx, (Color){(unsigned char)(s->tint.r * 0.35f), (unsigned char)(s->tint.g * 0.35f), (unsigned char)(s->tint.b * 0.35f), 255}); drawSignText(s, s->tint); }
         else { setEmis(0); drawBox(T_PLAIN, s->mn, s->mx, (Color){(unsigned char)(s->tint.r / 6), (unsigned char)(s->tint.g / 6), (unsigned char)(s->tint.b / 6), 255}); drawSignText(s, (Color){(unsigned char)(s->tint.r / 2), (unsigned char)(s->tint.g / 2), (unsigned char)(s->tint.b / 2), 255}); }
-        setEmis(0);
+        setEmis(0); if (s->f) xfPop();
     }
     for (int i = 0; i < nLamp; i++) {
         Lamp *l = &lamps[i]; if (Vector3DistanceSqr(l->pos, eye) > 90 * 90) continue;
@@ -1539,7 +1578,7 @@ static void drawWorld(Vector3 eye, float t) {
         drawM(&cube[T_PLAIN], F, rgb(215, 228, 232));
     }
     for (int i = 0; i < nTV; i++) { TV *tv = &tvs[i]; if (Vector3DistanceSqr(tv->pos, eye) > 40 * 40) continue;
-        setEmis(0); ADRAW("props/crt_tv", TRS(V3(tv->pos.x, tv->pos.y - 0.3f, tv->pos.z - 0.26f), tv->ang, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 0.3f, 0, 0.8f, 0.6f, 0.5f, ((Color){60, 58, 55, 255})), BX(T_PLAIN, 0.3f, 0.12f, 0.252f, 0.08f, 0.06f, 0.01f, ((Color){150, 150, 150, 255})));
+        setEmis(0); ADRAW("props/crt_tv", TRS(V3(tv->pos.x - sinf(tv->ang) * 0.26f, tv->pos.y - 0.3f, tv->pos.z - cosf(tv->ang) * 0.26f), tv->ang, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 0.3f, 0, 0.8f, 0.6f, 0.5f, ((Color){60, 58, 55, 255})), BX(T_PLAIN, 0.3f, 0.12f, 0.252f, 0.08f, 0.06f, 0.01f, ((Color){150, 150, 150, 255})));
         setEmis(1); drawM(&scrQuad, MatrixMultiply(MatrixMultiply(MatrixScale(0.62f, 0.44f, 1), MatrixRotateY(tv->ang)), MatrixTranslate(tv->pos.x, tv->pos.y, tv->pos.z)), rgb(200, 210, 210)); }
     for (int i = 0; i < nFire; i++) if (fires[i].on) {
         Fire *f = &fires[i]; Vector3 c = f->pos;
@@ -1951,25 +1990,26 @@ int main(int argc, char **argv) {
                     bool thinX = sz.x < 0.35f && sz.z > 1.5f, thinZ = sz.z < 0.35f && sz.x > 1.5f; if (!thinX && !thinZ) continue;
                     Vector3 c = Vector3Scale(Vector3Add(s->mn, s->mx), 0.5f);
                     Vector3 a = thinX ? V3(s->mn.x - 0.5f, c.y, c.z) : V3(c.x, c.y, s->mn.z - 0.5f), b = thinX ? V3(s->mx.x + 0.5f, c.y, c.z) : V3(c.x, c.y, s->mx.z + 0.5f);
-                    tested++; if (!lineOfSight(a, b)) blocked++; }
+                    a = xfP(s->f, a); b = xfP(s->f, b); tested++; if (!lineOfSight(a, b)) blocked++; }   // (turned buildings too)
                 TraceLog(LOG_INFO, "LOSTEST: %d of %d thin walls block sight", blocked, tested); }
             if (frame == 39) gameActive = true;
             if (frame == 38) TraceLog(LOG_INFO, "EXTTEST %d street ends carried to a main road", nExt);
             if (frame == 38 && getenv("KIRI_TOWNDUMP")) {   // town coverage dump: 2 m cells
                 FILE *f = fopen("town.ppm", "wb"); int N = HF_N; fprintf(f, "P6 %d %d 255\n", N, N);
-                for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) { float x = HF_X0 + i * HF_S + 1, z = HF_X0 + j * HF_S + 1; unsigned char c[3] = {40, 90, 40};
-                    if (seaSide(x, z)) { c[0] = 30; c[1] = 70; c[2] = 140; }
-                    if (inCore(x, z)) { c[0] = 200; c[1] = 196; c[2] = 186; }
-                    if (cityLand(x, z)) { c[0] = 150; c[1] = 150; c[2] = 150; }
-                    if (roadAt(x, z) || (cityLand(x, z) && (fmodf(x, PITCH) < ROADW || fmodf(z, PITCH) < ROADW))) { c[0] = 60; c[1] = 60; c[2] = 64; }
-                    for (int m = 0; m < nMapFoot; m++) { Rectangle r = mapFoot[m]; if (x >= r.x && x <= r.x + r.width && z >= r.y && z <= r.y + r.height) { c[0] = 170; c[1] = 90; c[2] = 60; break; } }
+                for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) { float x = HF_X0 + i * HF_S + 1, z = HF_X0 + j * HF_S + 1, h = terrainH(x, z); int hv = (int)clampf(60 + h * 6, 30, 200); unsigned char c[3] = {20, (unsigned char)hv, 30};
+                    if (seaDepth(x, z) > 0) { c[0] = 30; c[1] = 70; c[2] = 140; }
+                    if (inCore(x, z)) { c[0] = 190; c[1] = 186; c[2] = 176; }
+                    bool rd = mainRoadAt(x, z, 0);
+                    if (rd) { c[0] = 60; c[1] = 60; c[2] = 64; if (!inCore(x, z)) { c[0] = 255; c[1] = 0; c[2] = 255; } }
+                    for (int m = 0; m < nMapFoot; m++) { Rectangle r = mapFoot[m]; if (x >= r.x && x <= r.x + r.width && z >= r.y && z <= r.y + r.height) { c[0] = 170; c[1] = 90; c[2] = 60; if (rd) { c[0] = 255; c[1] = 255; c[2] = 0; } break; } }
+                    if (!inCore(x, z) && h > SIDEH + 0.4f && (rd || cityDist(x, z) < 3)) { c[0] = 255; c[1] = 40; c[2] = 40; }
                     fwrite(c, 1, 3, f); }
                 fclose(f); }
             if (frame == 39) {   // overlap audit: every solid furniture piece against every other solid it intersects (5 cm inset)
                 int bad = 0, shown = 0;
                 for (int i = 0; i < nCont; i++) { Cont *c = &conts[i]; if (!c->on || c->sid < 0) continue; Solid *a = &sol[c->sid];
-                    query(a->mn.x + 0.05f, a->mn.z + 0.05f, a->mx.x - 0.05f, a->mx.z - 0.05f);
-                    for (int q = 0; q < qn; q++) { int id = qb[q]; if (id == c->sid) continue; Solid *b = &sol[id];
+                    { Vector3 wmn, wmx; xfBox(a->f, a->mn, a->mx, &wmn, &wmx); query(wmn.x + 0.05f, wmn.z + 0.05f, wmx.x - 0.05f, wmx.z - 0.05f); }
+                    for (int q = 0; q < qn; q++) { int id = qb[q]; if (id == c->sid) continue; Solid *b = &sol[id]; if (b->f != a->f) continue;
                         if (b->mx.y <= a->mn.y + 0.06f || b->mn.y >= a->mx.y - 0.05f) continue;
                         if (a->mn.x + 0.05f < b->mx.x && a->mx.x - 0.05f > b->mn.x && a->mn.z + 0.05f < b->mx.z && a->mx.z - 0.05f > b->mn.z) {
                             bad++; if (shown < 12) { shown++; TraceLog(LOG_INFO, "OVERLAP cont kind %d region %d at %.2f %.2f %.2f yaw %.2f  vs solid %d [%.2f %.2f %.2f]-[%.2f %.2f %.2f]", c->kind, c->region, c->pos.x, c->pos.y, c->pos.z, c->yaw, id, b->mn.x, b->mn.y, b->mn.z, b->mx.x, b->mx.y, b->mx.z); } break; } } }
@@ -2174,8 +2214,10 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_WARDROBE) { Cont *c = &conts[i]; pl.pos = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.2f, 0, cosf(c->yaw) * 1.2f));
                     pl.tyaw = pl.yaw = c->yaw + PI; pl.tpitch = pl.pitch = -0.2f; lootFill(c); slotsAdd(c->s, CSLOTS, IT_HIKEPACK, 1); slotsAdd(c->s, CSLOTS, IT_CROWBAR, 1); openInventory(i); break; } }
             if (frame == 198) TakeScreenshot("shot_inv.png");
+            if (frame == 196) SetMousePosition(1180, 330);
+            if (frame == 197) TakeScreenshot("shot_inv_hover.png");
             if (frame == 199) { pl.invOpen = false; pl.openC = -1;
-                for (int i = 0; i < nStair; i++) if (stairs[i].top.y > 5 && stairs[i].top.y < 8) { pl.pos = stairs[i].top; Vector3 d = Vector3Subtract(stairs[i].top, stairs[i].bot); pl.tyaw = pl.yaw = atan2f(-d.x, -d.z); pl.tpitch = pl.pitch = -0.35f; break; } }
+                for (int i = 0; i < nStair; i++) if (stairs[i].top.y > 5 && stairs[i].top.y < 8) { pl.pos = stairs[i].top; Vector3 d = Vector3Subtract(stairs[i].top, stairs[i].bot); pl.tyaw = pl.yaw = atan2f(-d.x, -d.z); pl.tpitch = pl.pitch = -0.35f; pl.vy = 0; break; } }
             if (frame == 205) TakeScreenshot("shot_floor.png");
             if (frame == 206) { pl.pos = V3(ROADW + 2 * PITCH + 30, SUBY + 0.9f, TUN_Z1 - 1.7f); pl.tyaw = pl.yaw = PI / 2 + 0.25f; pl.tpitch = pl.pitch = 0; pl.flash = true; pl.batt = 100; spawnUnderground(); }
             if (frame == 212) TakeScreenshot("shot_subway.png");
@@ -2185,12 +2227,13 @@ int main(int argc, char **argv) {
             if (frame == 226) TakeScreenshot("shot_edge.png");
             if (frame == 227) {   // walk up a flight of stairs with simulated input
                 vin.on = true; memset(vin.down, 0, sizeof vin.down);
-                for (int i = 0; i < nStair; i++) if (stairs[i].bot.y < 1 && stairs[i].top.y > 3 && stairs[i].top.y < 4) { stTest = i; break; }
-                if (stTest >= 0) { Stair *s = &stairs[stTest]; pl.pos = s->bot; Vector3 d = Vector3Subtract(s->top, s->bot); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = 0; vin.down[KEY_W] = 1; }
+                for (int i = 0; i < nStair; i++) if (stairs[i].bot.y < 1 && stairs[i].top.y > 3 && stairs[i].top.y < 4) { stTest = i; Vector3 d_ = Vector3Subtract(stairs[i].top, stairs[i].bot); if (fabsf(d_.x) > 0.5f && fabsf(d_.z) > 0.5f) break; }   // prefer a turned building
+                if (stTest >= 0) { Vector3 d_ = Vector3Subtract(stairs[stTest].top, stairs[stTest].bot); TraceLog(LOG_INFO, "STAIRTEST stair dir %.2f %.2f (turned building: %s)", d_.x, d_.z, fabsf(d_.x) > 0.5f && fabsf(d_.z) > 0.5f ? "yes" : "no"); }
+                if (stTest >= 0) { Stair *s = &stairs[stTest]; pl.pos = s->bot; Vector3 d = Vector3Subtract(s->top, s->bot); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = 0; pl.vy = 0; pl.hp = 100; vin.down[KEY_W] = 1; }
             }
             if (frame == 300) { if (stTest >= 0) TraceLog(LOG_INFO, "STAIRTEST: start %.2f top %.2f reached y %.2f", stairs[stTest].bot.y, stairs[stTest].top.y, pl.pos.y); TakeScreenshot("shot_upstairs.png"); vin.on = false; }
             if (frame == 301 && stTest >= 0) { vin.on = false; Stair *s = &stairs[stTest]; pl.pos = Vector3Add(s->top, Vector3Scale(Vector3Normalize(V3(s->top.x - s->bot.x, 0, s->top.z - s->bot.z)), 0.6f));
-                Vector3 d = Vector3Subtract(s->bot, s->top); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.55f; pl.flash = true; pl.batt = 100; }
+                Vector3 d = Vector3Subtract(s->bot, s->top); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.55f; pl.flash = true; pl.batt = 100; pl.vy = 0; }
             if (frame == 306) TakeScreenshot("shot_stairs_down.png");
             if (frame == 307) { vin.on = true; memset(vin.pressed, 0, sizeof vin.pressed); vin.pressed[KEY_ESCAPE] = 1; }
             if (frame == 308) { memset(vin.pressed, 0, sizeof vin.pressed); }
@@ -2306,8 +2349,8 @@ int main(int argc, char **argv) {
                 for (int b2 = 0; b2 < nBore; b2++) { Bore *bb = &bores[b2]; Vector3 mid = boreAt(bb, bb->len / 2, 0, 0); TraceLog(LOG_INFO, "T_BORE %d floor %.1f terrain above mid %.1f (ceiling %.1f)", b2, bb->fy, terrainH(mid.x, mid.z), bb->fy + bb->h + 0.5f); } }
             if (frame == 924) {   // a lit shop sign, head-on, at night
                 pl.tod = 21; int best = -1;
-                for (int i = 0; i < nSign; i++) if (!signs[i].plate && signs[i].tex == T_SIGNH && signs[i].text < JP_NSHOP + 1) { best = i; if (signs[i].text == SGN_KONBINI) break; }
-                if (best >= 0) { Sign *s = &signs[best]; Vector3 c = Vector3Scale(Vector3Add(s->mn, s->mx), 0.5f); float yw[4] = {0, -PI / 2, PI, PI / 2}; Vector3 off[4] = {V3(0, 0, -7), V3(7, 0, 0), V3(0, 0, 7), V3(-7, 0, 0)};
+                for (int i = 0; i < nSign; i++) if (!signs[i].plate && !signs[i].f && signs[i].tex == T_SIGNH && signs[i].text < JP_NSHOP + 1) { best = i; if (signs[i].text == SGN_KONBINI) break; }
+                if (best >= 0) { Sign *s = &signs[best]; Vector3 c = xfP(s->f, Vector3Scale(Vector3Add(s->mn, s->mx), 0.5f)); float yw[4] = {0, -PI / 2, PI, PI / 2}; Vector3 off[4] = {V3(0, 0, -7), V3(7, 0, 0), V3(0, 0, 7), V3(-7, 0, 0)};
                     pl.pos = V3(c.x + off[s->face & 3].x, 0.05f, c.z + off[s->face & 3].z); pl.tyaw = pl.yaw = yw[s->face & 3]; pl.tpitch = pl.pitch = atan2f(c.y - 1.6f, 7); pl.vy = 0;
                     TraceLog(LOG_INFO, "T_SIGN text %d face %d at %.1f %.1f %.1f", s->text, s->face, c.x, c.y, c.z); }
                 for (int i = 0; i < nCr; i++) crs[i].on = false; }
@@ -2359,6 +2402,15 @@ int main(int argc, char **argv) {
             if (frame == 1170) { TraceLog(LOG_INFO, "T_CHEAT noclip y after 6 frames rising: %.2f", pl.pos.y); vin.down[KEY_SPACE] = false; vin.on = false; cht.on[CH_NOCLIP] = false; cht.menu = true; EnableCursor(); }
             if (frame == 1175) TakeScreenshot("shot_cheats.png");
             if (frame == 1176) { cht.menu = false; for (int i = 0; i < CH_N; i++) cht.on[i] = false; }
+            static int wtS = -1; static float wtSide = 0;
+            if (frame == 1177) {   // walk into the wall of a turned building: the player must stay on his side of it
+                wtS = -1; for (int i = 0; i < nSol; i++) { Solid *s = &sol[i]; Vector3 sz = Vector3Subtract(s->mx, s->mn); if (!s->f || s->off || s->mn.y > 0.3f || sz.y < 2.5f || !(sz.x < 0.35f && sz.z > 3.0f)) continue;
+                    if (fabsf(xfs[s->f].s) < 0.3f) continue; wtS = i; break; }
+                if (wtS >= 0) { Solid *s = &sol[wtS]; Vector3 c = Vector3Scale(Vector3Add(s->mn, s->mx), 0.5f); Vector3 L = V3(s->mn.x - 0.7f, SIDEH, c.z); Vector3 W = xfP(s->f, L); Vector3 dir = xfD(s->f, V3(1, 0, 0));
+                    pl.pos = W; pl.vy = 0; pl.tyaw = pl.yaw = atan2f(dir.x, dir.z); pl.tpitch = pl.pitch = 0; wtSide = -1; vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_W] = 1; for (int i = 0; i < nCr; i++) crs[i].on = false; } }
+            if (frame > 1177 && frame < 1188 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
+            if (frame == 1188 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
+                TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
             if (frame == 1190) break;
         }
     }

@@ -1,5 +1,15 @@
-ZANKO 2006 - Afterglow  (v0.7.1, Cheat Menu mod)
+ZANKO 2006 - Afterglow  (v0.7.2, Streets lined with houses)
 
+- 0.7.2: the town, rebuilt along its streets.
+  * Houses and shops now line every street and turn to face it,
+    with more rows behind them; the empty blocks are filled.
+  * No more grass strips or hills inside town; every street sits
+    on paved ground.
+  * Roads, paving and markings no longer flicker into each other.
+  * The seawall is solid down to the beach: no more falling under
+    the road from the bank.
+  * Spirits have faces.
+  * Old saves do not load in this version.
 - 0.7.1: cheat menu support.
   * Mods can now switch on an in-game cheat menu by shipping a
     cheats.ini. The Cheat Menu mod (CheatMenu.zip, separate

@@ -28,7 +28,7 @@ static int addCont(int kind, Vector3 p, float yaw, int region, bool solid) {
     for (int i = 0; i < nCont; i++) if (!conts[i].on) { slot = i; break; }
     if (slot < 0) { if (nCont >= MAX_CONT) return -1; slot = nCont++; }
     Cont *c = &conts[slot]; memset(c, 0, sizeof *c);
-    c->pos = p; c->yaw = yaw; c->kind = kind; c->region = region; c->on = true; c->sid = -1;
+    c->pos = xfP(curXf, p); c->yaw = yaw + xfYaw(curXf); c->kind = kind; c->region = region; c->on = true; c->sid = -1;   // stored in the world; the solid stays in the building's frame
     slotsClear(c->s, CSLOTS);
     if (kind == CK_PILE || kind == CK_CHEST) c->filled = true;
     if (solid) {
@@ -40,11 +40,13 @@ static int addCont(int kind, Vector3 p, float yaw, int region, bool solid) {
 }
 // floor items no longer exist: anything "dropped" in the world goes into a pile container
 static void addItem(Vector3 p, int type, int amount) {
+    int sv = curXf; p = xfP(sv, p); curXf = 0;   // piles live in the world
     int c = contAt(p, 1.2f, CK_PILE);
     if (c < 0) c = addCont(CK_PILE, p, 0, 0, false);
-    if (c < 0) return;
+    if (c < 0) { curXf = sv; return; }
     int left = slotsAdd(conts[c].s, CSLOTS, type, amount);
     if (left > 0) { int c2 = addCont(CK_PILE, Vector3Add(p, V3(0.6f, 0, 0)), 0, 0, false); if (c2 >= 0) slotsAdd(conts[c2].s, CSLOTS, type, left); }
+    curXf = sv;
 }
 static bool contEmpty(Cont *c) { for (int i = 0; i < CSLOTS; i++) if (c->s[i].t >= 0) return false; return true; }
 

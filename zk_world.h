@@ -109,13 +109,17 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
         if (a >= -0.5f && a <= b->len + 2 && fabsf(l) <= b->w / 2 + 0.6f) return i + 1; }
     return 0;
 }
+static float coast_d(float x, float z); static float coastSigned(float x, float z);
 static float baseGroundY(float x, float z, float y) {
     if (cityLand(x, z)) return inHole(x, z) ? -1e9f : SIDEH;
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
-    return terrainH(x, z);
+    float h = terrainH(x, z);
+    if (h > -4.0f && h < SIDEH + 0.5f && coast_d(x, z) < 12 && coastSigned(x, z) > 5.0f) return fminf(h, -3.64f);   // the apron at the foot of the seawall is flat
+    return h;
 }
 static float baseGround(float x, float z) { return baseGroundY(x, z, 1e9f); }
 static bool inRiverRaw(float x, float z);
+static float coastSigned(float x, float z);
 static float seaDepth(float x, float z) { if (cityLand(x, z)) return 0; if (inRiverRaw(x, z)) return 1.0f; return fmaxf(0, -4.0f - terrainH(x, z)); }   // SEA_Y
 static float touge_d(float x, float z);   // distance to the mountain pass road (zk_layout.h)
 static bool inCore(float x, float z);
@@ -282,20 +286,25 @@ static void extFloor(Rectangle r, int kind, int street, float y0, float yTop, bo
 static void addDebris(Vector3 mn, Vector3 mx) {
     if (nDeb >= MAX_DEB) return;
     Debris *d = &debs[nDeb++];
-    d->mn = mn; d->mx = mx; d->hp = 7; d->alive = true; d->seed = ri(1000);
+    d->mn = mn; d->mx = mx; d->hp = 7; d->alive = true; d->seed = ri(1000); d->f = (short)curXf;
     d->sid = addSolid(mn, mx);
 }
-static bool boxFree(float x0, float z0, float x1, float z1, float y) {   // no solid overlaps this footprint between y and y+1.8
-    query(x0, z0, x1, z1);
+static bool boxFree(float x0, float z0, float x1, float z1, float y) {   // no solid overlaps this footprint between y and y+1.8 (footprint in the current building frame)
+    Vector3 wmn, wmx; xfBox(curXf, V3(x0, 0, z0), V3(x1, 0, z1), &wmn, &wmx);
+    query(wmn.x, wmn.z, wmx.x, wmx.z);
     for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->off || s->mx.y <= y + 0.05f || s->mn.y >= y + 1.8f) continue;
-        if (x0 < s->mx.x && x1 > s->mn.x && z0 < s->mx.z && z1 > s->mn.z) return false; }
+        float a0 = x0, b0 = z0, a1 = x1, b1 = z1;
+        if (s->f != curXf) {   // the footprint's corners in the solid's frame (a slightly larger box: conservative)
+            a0 = b0 = 1e9f; a1 = b1 = -1e9f;
+            for (int q = 0; q < 4; q++) { Vector3 L = solL(s, xfP(curXf, V3(q & 1 ? x1 : x0, 0, q & 2 ? z1 : z0))); a0 = fminf(a0, L.x); a1 = fmaxf(a1, L.x); b0 = fminf(b0, L.z); b1 = fmaxf(b1, L.z); } }
+        if (a0 < s->mx.x && a1 > s->mn.x && b0 < s->mx.z && b1 > s->mn.z) return false; }
     return true;
 }
 // place a searchable piece of furniture against an inside wall of `in` at floor y
 static Rectangle keepClear[8]; static int nKeep;   // doorways on the floor being furnished
 static bool blocksDoor(float x0, float z0, float x1, float z1, float y) {
     for (int k = 0; k < nKeep; k++) { Rectangle c = keepClear[k]; if (x0 < c.x + c.width && x1 > c.x && z0 < c.y + c.height && z1 > c.y) return true; }
-    for (int i = 0; i < nOps; i++) { Open *o = &ops[i]; if (o->type != OP_DOOR || fabsf(o->mn.y - y) > 0.6f) continue;   // keep 1.2 m clear around every door
+    for (int i = 0; i < nOps; i++) { Open *o = &ops[i]; if (o->type != OP_DOOR || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue;   // keep 1.2 m clear around every door
         if (x0 < o->mx.x + 1.2f && x1 > o->mn.x - 1.2f && z0 < o->mx.z + 1.2f && z1 > o->mn.z - 1.2f) return true; }
     return false;
 }
@@ -524,7 +533,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
             float midC = c0 + SW / 2, uBot = even ? uL - 0.45f : uH + 0.45f, uTop = even ? uH + 0.45f : uL - 0.45f;
             Vector3 bot = runX ? V3(uBot, y0, midC) : V3(midC, y0, uBot);
             Vector3 topP = runX ? V3(uTop, y0 + FH, midC) : V3(midC, y0 + FH, uTop);
-            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){bot, topP};
+            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, bot), xfP(curXf, topP)};
             // railings on the floor above: both long edges of the opening, and across its low end
             float yU = y0 + FH, ry = yU + 1.0f, ue = even ? uL - 0.05f : uH - 0.01f;
             Color rc = rgb(150, 155, 150);
@@ -585,7 +594,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
             if (pointFree(tx, tz, 0.6f, y0 + 0.05f)) {
                 box(T_WOOD, V3(tx - 0.55f, y0, tz - 0.3f), V3(tx + 0.55f, y0 + 0.5f, tz + 0.3f), rgb(150, 120, 100), true, ALL);
                 addSolid(V3(tx - 0.4f, y0 + 0.5f, tz - 0.25f), V3(tx + 0.4f, y0 + 1.1f, tz + 0.25f));
-                tvs[nTV++] = (TV){V3(tx, y0 + 0.8f, tz + 0.26f), 0};
+                tvs[nTV++] = (TV){xfP(curXf, V3(tx, y0 + 0.8f, tz + 0.26f)), xfYaw(curXf)};
             }
         }
     }
@@ -627,7 +636,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
             Vector3 out = (street == 0) ? V3(0, 0, -1) : (street == 2) ? V3(0, 0, 1) : (street == 1) ? V3(1, 0, 0) : V3(-1, 0, 0);
             float rr = fr(0, 1);
             int li = rr < 0.2f ? -1 : addLight(Vector3Add(c, Vector3Scale(out, 1.0f)), V3(tc.r / 255.0f * 0.9f, tc.g / 255.0f * 0.9f, tc.b / 255.0f * 0.9f), 8, rr < 0.5f ? 1 : 0);
-            signs[nSign++] = (Sign){mn, mx, tc, li, T_SIGNH, kind == 3 ? SGN_KONBINI : kind == 4 ? SGN_KOBAN : kind == 5 ? SGN_STATION : ri(JP_NSHOP), street, false};
+            signs[nSign++] = (Sign){mn, mx, tc, li, T_SIGNH, kind == 3 ? SGN_KONBINI : kind == 4 ? SGN_KOBAN : kind == 5 ? SGN_STATION : ri(JP_NSHOP), street, false, (short)curXf};
         }
     }
     if (kind == 6) {   // public-information screen on the street face
@@ -650,7 +659,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
         Color tc = tints[ri(4)];
         Vector3 c = Vector3Scale(Vector3Add(mn, mx), 0.5f);
         int li = fr(0, 1) < 0.35f ? -1 : addLight(c, V3(tc.r / 255.0f * 0.8f, tc.g / 255.0f * 0.8f, tc.b / 255.0f * 0.8f), 9, ri(2));
-        signs[nSign++] = (Sign){mn, mx, tc, li, T_SIGN, ri(JP_NSHOP), street, false};
+        signs[nSign++] = (Sign){mn, mx, tc, li, T_SIGN, ri(JP_NSHOP), street, false, (short)curXf};
     }
 }
 
@@ -753,7 +762,7 @@ static void spawnUnderground(void) {
 
 // ---------------------------------------------------------------- v0.4: map footprints, water sources, day light
 #define MAX_MAPFOOT 2400
-static Rectangle mapFoot[MAX_MAPFOOT]; static float mapFootH[MAX_MAPFOOT], mapFootY[MAX_MAPFOOT]; static int nMapFoot;
+static Rectangle mapFoot[MAX_MAPFOOT]; static float mapFootH[MAX_MAPFOOT], mapFootY[MAX_MAPFOOT]; static short mapFootF[MAX_MAPFOOT]; static int nMapFoot;   // footprints in their building's frame
 typedef struct { Vector3 pos; int kind; } WSrc;   // kind 0 rain barrel, 1 park fountain, 2 hill spring
 #define MAX_WS 200
 static WSrc wsrc[MAX_WS]; static int nWs;
@@ -761,13 +770,14 @@ static int worldSolids, worldLights;              // counts right after generati
 static void genWater(void) {
     nWs = 0;
     for (int f = 0; f < nMapFoot && nWs < MAX_WS - 12; f += 3) {   // rain barrels beside the houses
-        Rectangle r = mapFoot[f]; if (mapFootY[f] > 1) continue;
+        Rectangle r = mapFoot[f]; if (mapFootY[f] > 1) continue; curXf = mapFootF[f];   // test and place in the building's own frame
         for (int tries = 0; tries < 24; tries++) { int s = (f + tries) % 4; float u = 0.15f + 0.7f * ((tries / 4) % 6) / 5.0f, off = tries < 12 ? 0.75f : 1.4f;
             float x = s == 1 ? r.x + r.width + off : s == 3 ? r.x - off : r.x + r.width * u, z = s == 2 ? r.y + r.height + off : s == 0 ? r.y - off : r.y + r.height * u;
             if (!cityLand(x, z) || !pointFree(x, z, 0.4f, SIDEH + 0.05f)) continue;
-            bool near = false; for (int k = 0; k < nWs; k++) if (Vector3Distance(wsrc[k].pos, V3(x, SIDEH, z)) < 9) near = true;
+            bool near = false; for (int k = 0; k < nWs; k++) if (Vector3Distance(wsrc[k].pos, xfP(curXf, V3(x, SIDEH, z))) < 9) near = true;
             if (near) continue;
-            wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 0}; addSolid(V3(x - 0.32f, SIDEH, z - 0.32f), V3(x + 0.32f, SIDEH + 0.95f, z + 0.32f)); break; }
+            wsrc[nWs++] = (WSrc){xfP(curXf, V3(x, SIDEH, z)), 0}; addSolid(V3(x - 0.32f, SIDEH, z - 0.32f), V3(x + 0.32f, SIDEH + 0.95f, z + 0.32f)); break; }
+        curXf = 0;
     }
     if (DPARKS_N > 0 && nWs < MAX_WS) {   // the fountain in the waterfront park
         float x = dParks[0][0], z = dParks[0][1];

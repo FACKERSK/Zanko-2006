@@ -2,7 +2,7 @@
 // types: 0 bound, 1 long-neck, 2 crawler, 3 dog, 4 spirit, 5 stalker, 6 screamer, 7 mannequin, 8 hanger, 9 station attendant
 static bool solidAt(Vector3 p) {
     query(p.x - 0.01f, p.z - 0.01f, p.x + 0.01f, p.z + 0.01f);
-    for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (p.x > s->mn.x && p.x < s->mx.x && p.y > s->mn.y && p.y < s->mx.y && p.z > s->mn.z && p.z < s->mx.z) return true; }
+    for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; Vector3 L = solL(s, p); if (L.x > s->mn.x && L.x < s->mx.x && p.y > s->mn.y && p.y < s->mx.y && L.z > s->mn.z && L.z < s->mx.z) return true; }
     return false;
 }
 // exact segment test against every solid along the way (sampling could step straight over a 12 cm wall)
@@ -25,7 +25,7 @@ static bool lineOfSight(Vector3 a, Vector3 b) {
     for (int ch = 0; ch < chunks; ch++) {
         Vector3 p0 = Vector3Add(a, Vector3Scale(d, (float)ch / chunks)), p1 = Vector3Add(a, Vector3Scale(d, (float)(ch + 1) / chunks)), sd = Vector3Subtract(p1, p0);
         query(fminf(p0.x, p1.x) - 0.05f, fminf(p0.z, p1.z) - 0.05f, fmaxf(p0.x, p1.x) + 0.05f, fmaxf(p0.z, p1.z) + 0.05f);
-        for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->off) continue; if (segHitsBox(p0, sd, s->mn, s->mx)) return false; }
+        for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->off) continue; if (segHitsBox(solL(s, p0), s->f ? xfDI(s->f, sd) : sd, s->mn, s->mx)) return false; }
     }
     return true;
 }
@@ -63,7 +63,7 @@ static void attackStructureNear(Cr *c) {
     }
     for (int i = 0; i < nDeb; i++) {
         Debris *d = &debs[i]; if (!d->alive) continue;
-        Vector3 cc = Vector3Scale(Vector3Add(d->mn, d->mx), 0.5f);
+        Vector3 cc = xfP(d->f, Vector3Scale(Vector3Add(d->mn, d->mx), 0.5f));
         if (Vector3Distance(V3(cc.x, 0, cc.z), V3(c->pos.x, 0, c->pos.z)) > r + 0.5f || fabsf(cc.y - c->pos.y) > 2.0f) continue;
         d->hp -= dmg * 0.5f; playAt(sWood, cc, 25, 0.6f);
         if (d->hp <= 0) { d->alive = false; sol[d->sid].off = true; }

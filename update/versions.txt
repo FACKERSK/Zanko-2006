@@ -1,4 +1,5 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.7.2|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.7.2.zip|2026-11-03|Streets lined with houses
 0.7.1|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.7.1.zip|2026-11-03|Cheat menu support
 0.7.0|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.7.0.zip|2026-11-03|The new Kirimachi
 0.6.3|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.6.3.zip|2026-11-03|Fixes
