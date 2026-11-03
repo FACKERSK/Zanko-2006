@@ -1,0 +1,26 @@
+# Zanko 2006 material file for viewmodels/katana
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.118 0.078 0.078
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.627 0.549 0.235
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png
+
+newmtl part2
+Ka 0 0 0
+Kd 0.843 0.863 0.902
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png

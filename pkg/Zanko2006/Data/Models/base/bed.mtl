@@ -1,0 +1,26 @@
+# Zanko 2006 material file for base/bed
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.353 0.431 0.588
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/cloth.png
+
+newmtl part2
+Ka 0 0 0
+Kd 0.902 0.882 0.843
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/cloth.png

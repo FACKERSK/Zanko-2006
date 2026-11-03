@@ -1,0 +1,42 @@
+# Zanko 2006 material file for base/can_alarm
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.471 0.373 0.275
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.784 0.784 0.745
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png
+
+newmtl part2
+Ka 0 0 0
+Kd 0.706 0.235 0.196
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png
+
+newmtl part3
+Ka 0 0 0
+Kd 0.784 0.745 0.667
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png
+
+newmtl part4
+Ka 0 0 0
+Kd 0.275 0.471 0.667
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png

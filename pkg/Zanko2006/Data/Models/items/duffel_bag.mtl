@@ -1,0 +1,10 @@
+# Zanko 2006 material file for items/duffel_bag
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.157 0.196 0.275
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/cloth.png

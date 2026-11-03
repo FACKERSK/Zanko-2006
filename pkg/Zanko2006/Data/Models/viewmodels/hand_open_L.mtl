@@ -1,0 +1,50 @@
+# Zanko 2006 material file for viewmodels/hand_open_L
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/skin.png
+
+newmtl part1
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/skin.png
+
+newmtl part2
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/skin.png
+
+newmtl part3
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/skin.png
+
+newmtl part4
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/skin.png
+
+newmtl part5
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/skin.png

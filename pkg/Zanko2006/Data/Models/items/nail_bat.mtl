@@ -1,0 +1,26 @@
+# Zanko 2006 material file for items/nail_bat
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.667 0.529 0.392
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.588 0.471 0.353
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part2
+Ka 0 0 0
+Kd 0.667 0.667 0.667
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png

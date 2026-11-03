@@ -1,0 +1,8 @@
+# Example Mod materials. map_Kd plain.png -> game swaps in its own plain texture.
+newmtl rice
+Kd 0.94 0.94 0.90
+map_Kd plain.png
+
+newmtl nori
+Kd 0.08 0.16 0.10
+map_Kd plain.png

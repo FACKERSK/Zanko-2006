@@ -1,0 +1,50 @@
+# Zanko 2006 material file for base/spirit_ward
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part1
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part2
+Ka 0 0 0
+Kd 0.882 0.804 0.569
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/cloth.png
+
+newmtl part3
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/ofuda.png
+
+newmtl part4
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/ofuda.png
+
+newmtl part5
+Ka 0 0 0
+Kd 1.000 1.000 1.000
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/ofuda.png

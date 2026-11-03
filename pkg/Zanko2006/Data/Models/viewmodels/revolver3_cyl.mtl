@@ -1,0 +1,18 @@
+# Zanko 2006 material file for viewmodels/revolver3_cyl
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.306 0.314 0.337
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.275 0.282 0.306
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png

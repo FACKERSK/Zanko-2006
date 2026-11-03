@@ -1,0 +1,124 @@
+ZANKO 2006 - Afterglow  (v0.6.0, The town as drawn)
+
+- 0.6.0: Zanko 2006. The town as drawn.
+  * New name: Zanko 2006. The story is now set in 2006.
+  * Windows installer (no administrator rights needed). The
+    launcher now updates the game by itself from GitHub: it
+    downloads the new installer, runs it and reopens. Saves,
+    accounts and settings are kept. Turn it off in Options.
+  * Hands: the left hand holds a flip phone, its light is your
+    flashlight; the right hand holds fists or the weapon. New
+    revolver model; melee weapons rest lower and tilt forward;
+    guarding raises the blade across the body.
+  * The town is fixed: the same streets, buildings and rooms every
+    run, built from the 5b map: a curved edge, a ring road, a
+    diagonal avenue across the grid, the old town and fish market
+    on the bay, and the coast road wrapping around them. It is
+    about twice as large as before.
+  * Every street end runs on to the ring road, the avenue or the
+    coast road. Walkways line them with hedge planters, wooden
+    bollards and trees.
+  * Rooms are furnished to a plan instead of at random: kitchens
+    (fridge, cabinets, sink, stove, dining table), tatami living
+    rooms (low table, cushions, bookcase, chest), bedrooms
+    (futons, wardrobe, desk), shops (shelving, counter, register,
+    stockroom), konbini (drinks wall, aisles, magazine rack,
+    register, ATM, copier), offices (desk islands, lockers,
+    whiteboard, water cooler) and the koban.
+  * HUD: every gadget is a small 3D glass slab that sways with
+    your head.
+  * Windows Vista style buttons and caption buttons.
+  * Map colours follow the town map: green hills, blue bay,
+    dark roads, pale buildings, brown old houses.
+  * Old saves do not load: the world changed.
+- 0.5.0: a new city layout.
+  * The city now has an uneven edge, with a bay cut into the
+    south-west corner.
+  * Old town: narrow alleys, small houses, paper lanterns and
+    shrines along the shore; a fish market by the water.
+  * Coast road: two lanes along the bay with a seawall, beach,
+    breakwater blocks, bus stops and vending machines. It runs
+    into a road tunnel at each end.
+  * Three road tunnels (west, south-east, north). You can walk
+    inside: lights (many dead), abandoned cars with trunks, fire
+    cabinets. Each one is collapsed partway in.
+  * East mountain: a hairpin pass with guardrails, a small
+    village of old wooden houses, shrines and a row of torii,
+    and cedar forest.
+  * At the top: an old brick tunnel sealed with concrete blocks.
+    Climb over the gap. Something is still inside.
+  * Map (M) is now a 3D model of the town: drag with the right
+    mouse button to turn it, wheel to zoom, left click for a marker.
+  * Signs, shop fronts, tunnel plates, broadcasts and manga are in
+    Japanese.
+  * Animations: equip, inspect (I), eating, drinking, pills,
+    bandaging, reloading, doors, building, reading manga with
+    page turns, sway, breathing and landing.
+  * Guard: hold the right mouse button with a melee weapon or fists.
+    Raise it just before a hit to parry and stagger the attacker.
+  * Creatures: heads that track you, longer limbs, teeth, glowing
+    eyes, sudden lunges when they hunt.
+  * Inventory, crafting and the quickbar are 3D panels like the
+    pause menu. Items have drawn icons.
+  * Fixes: furniture no longer blocks doors; empty quickbar slots
+    clear themselves; the kamidana ward keeps spirits out of the
+    house; launcher login text is readable; square window buttons.
+  * New app icon.
+  * Old saves from 0.4 do not load: the world changed.
+- 0.4.0: the basics every survival game has.
+  * Saving: automatic on sleep, every 2 minutes and on Main Menu.
+    Continue loads it. Death deletes it.
+  * Day and night: 20-minute days. Grey overcast days, dark
+    nights. City spirits only walk at night; more mobs at night.
+  * Traits: pick one strength and one weakness at New Game.
+  * Crafting (Tab): bandages, splints, boiled water, charcoal,
+    blessed ofuda, nail bat, weapon repair.
+  * Water: rain barrels, a park fountain and hill springs. Fill
+    empty bottles; boil unboiled water at a fire.
+  * Sickness from bad water (vomiting, faster hunger/thirst).
+  * Infection from open wounds and rags; fever blocks recovery.
+    Disinfectant cures it.
+  * Broken legs from falls and heavy hits. Splint, then 12 h.
+  * Weapons wear out and break. Repair with scrap + nails.
+  * Garden beds grow daikon (about 1.5 days). Seeds in loot.
+  * Spike traps and can alarms (Build menu).
+  * Searched places far away sometimes restock at midnight.
+  * Map (M) with buildings, subway, water, base and markers.
+  * First-time tips. Not yet: vehicles, multiplayer.
+- 0.3.5: ambient music. Three looping tracks (city, hills,
+  subway) crossfade by location and dip during chases. Music
+  volume slider in Settings. Spirits now give up: 3 s without
+  sight or 40 s of chasing, then they drift away, ignore you for
+  30 s and vanish 30 m out. Spirits no longer react to noise.
+- 0.3.4: spirits and screamers no longer look alike. Spirits glow
+  pale blue, float, and two blue soul-flames circle them. Swings
+  only report "passes through" when no solid mob is in reach and
+  nothing blocks the blow; you can no longer hit through walls.
+- 0.3.3: no more wallhacks. Mobs only see and hit you with a
+  clear line of sight; noise brings them to the sound, not to you.
+- 0.3.2: mouse shows in the pause menu, quickbar is drag and drop
+  (Tab), ground and floors rebuilt to stop flickering,
+  switchback stairwells, room walls no longer cut through doors.
+- 0.3.1: stairwells visible from upper floors, Esc menu opens,
+  heavier hits (longer freeze, roll, flash, flinch, more blood).
+
+- Inventory: hands, back, pockets and bags (school bag, duffel,
+  hiking pack). Weight slows walking, swings and stamina.
+- Loot is searched, not picked off the floor: hold E on
+  cabinets, fridges, wardrobes, desks, lockers, car trunks.
+- No health bar. Wounds bleed: bandage or rag them, then you
+  heal slowly. Food, water and blood drain faster.
+- Skills level with use: Strength, Fitness, Carpentry,
+  Scavenging, Stealth, First Aid.
+- Buildings have up to 4 floors, rooms and stairs, some
+  choked with junk you must smash through.
+- Subway under road 3: three stairwells, a dead train,
+  lockers, and the things that live down there.
+- Leave the city and the hills of the old wallpaper appear.
+  They eat your mind. Spirits gather there.
+- New mobs: stalker, screamer, mannequin, hanger, attendant.
+  Hits freeze, shake and throw blood.
+- Base building: walls, door walls, floors, chests, beds,
+  campfire. Raise a Kamidana; spirit wards work only
+  inside its 22 m.
+- Spirits are rarer and only hunt what they can see.

@@ -1,0 +1,16 @@
+# build output
+*.exe
+*.res
+*_linux
+pkg/*.zip
+pkg/Zanko2006/Root/*
+!pkg/Zanko2006/Root/.keep
+web/zanko.js
+web/zanko.wasm
+web/zanko.data
+web/assets/
+# player data
+pkg/Zanko2006/Data/Userdata/*
+!pkg/Zanko2006/Data/Userdata/.keep
+pkg/Zanko2006/Data/update_manifest.txt
+test/

@@ -1,0 +1,18 @@
+# Zanko 2006 material file for items/unboiled_water
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.549 0.588 0.431
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/glass.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.235 0.471 0.784
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png

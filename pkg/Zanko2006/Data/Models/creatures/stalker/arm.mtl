@@ -1,0 +1,34 @@
+# Zanko 2006 material file for creatures/stalker/arm
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.125 0.125 0.141
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../../Textures/cloth.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.784 0.745 0.714
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../../Textures/flesh.png
+
+newmtl part2
+Ka 0 0 0
+Kd 0.784 0.745 0.714
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../../Textures/flesh.png
+
+newmtl part3
+Ka 0 0 0
+Kd 0.784 0.745 0.714
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../../Textures/flesh.png
