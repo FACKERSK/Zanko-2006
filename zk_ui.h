@@ -144,7 +144,7 @@ static void drawInventory(void) {
     uiHot = -1; invOverPanel = false; invQHot = -1;
     DrawRectangle(0, 0, (int)W, (int)H, (Color){6, 8, 9, 150});
     { float asp = (float)GetScreenWidth() / GetScreenHeight(); p3Fov = fmaxf(45, 2 * atanf(0.84f / asp) * RAD2DEG); }   // the three panels fit at any aspect
-    p3Begin((float)GetTime());
+    p3Begin((float)GetTime()); p3FitMargin = 8 * aU;   // every inventory slab stays fully on screen, whatever the window shape
     float s, cell;
     // ---- survivor: equipment, load, skills
     float pxDeg = 2 * tanf(22.5f * DEG2RAD) / 720.0f * RAD2DEG;   // degrees per reference px on the panel sphere
@@ -235,7 +235,7 @@ static void drawInventory(void) {
         else if (!invOverPanel) dropSlot(pl.dragFrom);
         pl.dragFrom = -1; pl.drag.t = -1;
     }
-    p3Render(pl.stage); p3Fov = 45;
+    p3Render(pl.stage); p3Fov = 45; p3FitMargin = 0;
     if (!invOverPanel && pl.dragFrom >= 0 && pl.drag.t >= 0) { Vector2 m = GetMousePosition(); float c2 = 62 * (shh / 720.0f); itemCell((Rectangle){m.x - c2 / 2, m.y - c2 / 2, c2, c2}, pl.drag, true, false); }
 }
 // ---- the bleeding symbol: a blood drop, one ring per open wound

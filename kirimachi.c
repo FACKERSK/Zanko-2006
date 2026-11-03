@@ -1921,6 +1921,15 @@ int main(int argc, char **argv) {
                     tested++; if (!lineOfSight(a, b)) blocked++; }
                 TraceLog(LOG_INFO, "LOSTEST: %d of %d thin walls block sight", blocked, tested); }
             if (frame == 39) gameActive = true;
+            if (frame == 39) {   // overlap audit: every solid furniture piece against every other solid it intersects (5 cm inset)
+                int bad = 0, shown = 0;
+                for (int i = 0; i < nCont; i++) { Cont *c = &conts[i]; if (!c->on || c->sid < 0) continue; Solid *a = &sol[c->sid];
+                    query(a->mn.x + 0.05f, a->mn.z + 0.05f, a->mx.x - 0.05f, a->mx.z - 0.05f);
+                    for (int q = 0; q < qn; q++) { int id = qb[q]; if (id == c->sid) continue; Solid *b = &sol[id];
+                        if (b->mx.y <= a->mn.y + 0.06f || b->mn.y >= a->mx.y - 0.05f) continue;
+                        if (a->mn.x + 0.05f < b->mx.x && a->mx.x - 0.05f > b->mn.x && a->mn.z + 0.05f < b->mx.z && a->mx.z - 0.05f > b->mn.z) {
+                            bad++; if (shown < 12) { shown++; TraceLog(LOG_INFO, "OVERLAP cont kind %d region %d at %.2f %.2f %.2f yaw %.2f  vs solid %d [%.2f %.2f %.2f]-[%.2f %.2f %.2f]", c->kind, c->region, c->pos.x, c->pos.y, c->pos.z, c->yaw, id, b->mn.x, b->mn.y, b->mn.z, b->mx.x, b->mx.y, b->mx.z); } break; } } }
+                TraceLog(LOG_INFO, "OVERLAPTEST %d of %d containers intersect another solid", bad, nCont); }
             if (frame == 40) { state = ST_PLAY; pl.pos = V3(ROADW + PITCH + 2, 0, ROADW / 2); pl.tyaw = pl.yaw = PI / 2 + 0.3f; pl.tpitch = pl.pitch = 0.05f;
                 for (int i = 0; i < nCr; i++) crs[i].on = false; nCr = 0;
                 spawnCreature(V3(pl.pos.x + 5, 0, pl.pos.z + 1.8f), 0.01f, 0.02f, false); crs[0].pos = V3(pl.pos.x + 4.5f, 0, pl.pos.z + 1.2f); crs[0].type = 1; crs[0].yaw = -PI / 2;

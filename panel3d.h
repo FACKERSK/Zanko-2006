@@ -43,6 +43,27 @@ static void p3Begin(float t) {
     for (int i = 0; i < P3MAX; i++) p3[i].used = false;
 }
 // Begin drawing panel <id>. Inside, draw widgets in a rectangle {0, 0, wpx*aU, hpx*aU}. Always pair with p3End().
+static float p3FitMargin = 0;   // > 0: p3Panel nudges each slab onto the screen before the mouse test
+static void p3Orient(P3 *p) {   // place the slab on the sphere from its yaw / pitch, facing the eye
+    Vector3 d = p3Dir(p->yaw, p->pitch);
+    p->c = Vector3Scale(d, p3R); p->n = Vector3Negate(d);
+    p->rx = Vector3Normalize(Vector3CrossProduct((Vector3){0, 1, 0}, p->n)); p->uy = Vector3CrossProduct(p->n, p->rx);
+    p->M = (Matrix){p->rx.x, p->uy.x, p->n.x, p->c.x,  p->rx.y, p->uy.y, p->n.y, p->c.y,  p->rx.z, p->uy.z, p->n.z, p->c.z,  0, 0, 0, 1};
+}
+// keep a slab (including its slab rim and drip marks) fully on screen with a margin in screen px: nudges yaw / pitch by measuring the projected corners
+static void p3FitP(P3 *p, float mpx) {
+    int SW = GetScreenWidth(), SH = GetScreenHeight();
+    float k = 2 * tanf(p3Fov * DEG2RAD / 2) / SH;
+    for (int it = 0; it < 24; it++) {
+        float W = p->wpx * p3Upp / 2 + 0.06f, H = p->hpx * p3Upp / 2 + 0.12f, x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+        for (int c = 0; c < 8; c++) { Vector3 v = Vector3Transform((Vector3){(c & 1) ? W : -W, (c & 2) ? H : -H, (c & 4) ? 0.2f : -0.15f}, p->M);
+            Vector2 sp = GetWorldToScreenEx(v, p3Cam, SW, SH); x0 = fminf(x0, sp.x); x1 = fmaxf(x1, sp.x); y0 = fminf(y0, sp.y); y1 = fmaxf(y1, sp.y); }
+        float dx = x0 < mpx ? mpx - x0 : x1 > SW - mpx ? (SW - mpx) - x1 : 0, dy = y0 < mpx ? mpx - y0 : y1 > SH - mpx ? (SH - mpx) - y1 : 0;
+        if (fabsf(dx) < 1.0f && fabsf(dy) < 1.0f) break;
+        p->yaw += dx * k * 0.4f; p->pitch -= dy * k * 0.4f; p3Orient(p);   // small steps: near the edges one radian moves the slab further on screen
+    }
+}
+static void p3Fit(int id, float mpx) { p3FitP(&p3[id], mpx); }
 static Rectangle p3Panel(int id, float yawDeg, float pitchDeg, float wpx, float hpx, int frame) {
     P3 *p = &p3[id];
     p->used = true; p->frame = frame; p->yaw = yawDeg * DEG2RAD; p->pitch = pitchDeg * DEG2RAD; p->wpx = wpx; p->hpx = hpx;
@@ -52,6 +73,7 @@ static Rectangle p3Panel(int id, float yawDeg, float pitchDeg, float wpx, float 
     p->c = Vector3Scale(d, p3R); p->n = Vector3Negate(d);
     p->rx = Vector3Normalize(Vector3CrossProduct((Vector3){0, 1, 0}, p->n)); p->uy = Vector3CrossProduct(p->n, p->rx);
     p->M = (Matrix){p->rx.x, p->uy.x, p->n.x, p->c.x,  p->rx.y, p->uy.y, p->n.y, p->c.y,  p->rx.z, p->uy.z, p->n.z, p->c.z,  0, 0, 0, 1};
+    if (p3FitMargin > 0) p3FitP(p, p3FitMargin);
     // mouse ray -> texture plane -> panel pixels
     Ray ray = GetScreenToWorldRay(aRealMouse(), p3Cam);
     Vector3 pc = Vector3Add(p->c, Vector3Scale(p->n, P3_FRONT));
@@ -71,25 +93,6 @@ static Rectangle p3Panel(int id, float yawDeg, float pitchDeg, float wpx, float 
     rlSetBlendFactorsSeparate(RL_SRC_ALPHA, RL_ONE_MINUS_SRC_ALPHA, RL_ONE, RL_ONE_MINUS_SRC_ALPHA, RL_FUNC_ADD, RL_FUNC_ADD);
     BeginBlendMode(BLEND_CUSTOM_SEPARATE);
     return (Rectangle){0, 0, (float)tw, (float)th};
-}
-static void p3Orient(P3 *p) {   // place the slab on the sphere from its yaw / pitch, facing the eye
-    Vector3 d = p3Dir(p->yaw, p->pitch);
-    p->c = Vector3Scale(d, p3R); p->n = Vector3Negate(d);
-    p->rx = Vector3Normalize(Vector3CrossProduct((Vector3){0, 1, 0}, p->n)); p->uy = Vector3CrossProduct(p->n, p->rx);
-    p->M = (Matrix){p->rx.x, p->uy.x, p->n.x, p->c.x,  p->rx.y, p->uy.y, p->n.y, p->c.y,  p->rx.z, p->uy.z, p->n.z, p->c.z,  0, 0, 0, 1};
-}
-// keep a slab (including its slab rim and drip marks) fully on screen with a margin in screen px: nudges yaw / pitch by measuring the projected corners
-static void p3Fit(int id, float mpx) {
-    P3 *p = &p3[id]; int SW = GetScreenWidth(), SH = GetScreenHeight();
-    float k = 2 * tanf(p3Fov * DEG2RAD / 2) / SH;
-    for (int it = 0; it < 24; it++) {
-        float W = p->wpx * p3Upp / 2 + 0.06f, H = p->hpx * p3Upp / 2 + 0.12f, x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
-        for (int c = 0; c < 8; c++) { Vector3 v = Vector3Transform((Vector3){(c & 1) ? W : -W, (c & 2) ? H : -H, (c & 4) ? 0.2f : -0.15f}, p->M);
-            Vector2 sp = GetWorldToScreenEx(v, p3Cam, SW, SH); x0 = fminf(x0, sp.x); x1 = fmaxf(x1, sp.x); y0 = fminf(y0, sp.y); y1 = fmaxf(y1, sp.y); }
-        float dx = x0 < mpx ? mpx - x0 : x1 > SW - mpx ? (SW - mpx) - x1 : 0, dy = y0 < mpx ? mpx - y0 : y1 > SH - mpx ? (SH - mpx) - y1 : 0;
-        if (fabsf(dx) < 1.0f && fabsf(dy) < 1.0f) break;
-        p->yaw += dx * k * 0.4f; p->pitch -= dy * k * 0.4f; p3Orient(p);   // small steps: near the edges one radian moves the slab further on screen
-    }
 }
 static void p3End(int id) {
     P3 *p = &p3[id];

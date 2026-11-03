@@ -194,7 +194,8 @@ static void drawCont(Cont *c, float t) {
         }
         break; }
     case CK_CABINET: ADRAW("furniture/kitchen_cabinet", M, dim, BX(T_WOOD, 0, 0.45f, 0, 1.0f, 0.9f, 0.5f, ((Color){200, 190, 170, 255})), BX(T_PLAIN, 0, 0.92f, 0, 1.04f, 0.04f, 0.54f, ((Color){180, 185, 190, 255})),
-                           BX(T_PLAIN, -0.25f, 0.55f, 0.251f, 0.4f, 0.6f, 0.01f, ((Color){225, 215, 195, 255})), BX(T_PLAIN, 0.25f, 0.55f, 0.251f, 0.4f, 0.6f, 0.01f, ((Color){225, 215, 195, 255}))); break;
+                           BX(T_WOOD, -0.245f, 0.5f, 0.27f, 0.44f, 0.7f, 0.04f, ((Color){214, 202, 180, 255})), BX(T_WOOD, 0.245f, 0.5f, 0.27f, 0.44f, 0.7f, 0.04f, ((Color){214, 202, 180, 255})),
+                           BX(T_METAL, -0.06f, 0.62f, 0.3f, 0.03f, 0.14f, 0.03f, ((Color){90, 92, 96, 255})), BX(T_METAL, 0.06f, 0.62f, 0.3f, 0.03f, 0.14f, 0.03f, ((Color){90, 92, 96, 255}))); break;   // doors stand 2 cm proud of the body, with handles
     case CK_FRIDGE: ADRAW("furniture/refrigerator", M, dim, BX(T_PLAIN, 0, 0.85f, 0, 0.7f, 1.7f, 0.65f, ((Color){230, 235, 235, 255})), BX(T_PLAIN, 0, 1.2f, 0.326f, 0.66f, 0.01f, 0.01f, ((Color){120, 130, 130, 255})),
                           BX(T_PLAIN, 0.28f, 0.9f, 0.33f, 0.03f, 0.4f, 0.02f, ((Color){150, 160, 160, 255}))); break;
     case CK_WARDROBE: ADRAW("furniture/wardrobe", M, dim, BX(T_WOOD, 0, 0.95f, 0, 1.2f, 1.9f, 0.55f, ((Color){150, 110, 80, 255})), BX(T_PLAIN, 0, 0.95f, 0.276f, 0.01f, 1.8f, 0.01f, ((Color){60, 40, 30, 255}))); break;

@@ -19,16 +19,32 @@ map_Kd ../../../Textures/plain.png
 
 newmtl part2
 Ka 0 0 0
-Kd 0.882 0.843 0.765
+Kd 0.839 0.792 0.706
 Ks 0 0 0
 d 1
 illum 1
-map_Kd ../../../Textures/plain.png
+map_Kd ../../../Textures/wood.png
 
 newmtl part3
 Ka 0 0 0
-Kd 0.882 0.843 0.765
+Kd 0.839 0.792 0.706
 Ks 0 0 0
 d 1
 illum 1
-map_Kd ../../../Textures/plain.png
+map_Kd ../../../Textures/wood.png
+
+newmtl part4
+Ka 0 0 0
+Kd 0.353 0.361 0.376
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png
+
+newmtl part5
+Ka 0 0 0
+Kd 0.353 0.361 0.376
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png

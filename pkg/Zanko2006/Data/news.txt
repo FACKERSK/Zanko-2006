@@ -1,5 +1,10 @@
-ZANKO 2006 - Afterglow  (v0.6.2, Update fix)
+ZANKO 2006 - Afterglow  (v0.6.3, Fixes)
 
+- 0.6.3: fixes.
+  * The quickbar no longer falls off the bottom of the screen with
+    the inventory open; every inventory panel now stays on screen
+    whatever the window shape.
+  * Kitchen cabinet doors no longer flicker through the cabinet.
 - 0.6.2: launcher fix.
   * Fixed "Update manifest unreadable": the update check could
     read the wrong file while the launcher window was drawing.
