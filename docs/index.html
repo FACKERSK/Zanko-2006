@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zankō 2006 (残光)</title>
+<meta name="description" content="Zankō 2006: a PS1-style survival horror sandbox set in a Japanese coastal town in 2006. Free Windows download.">
+<meta property="og:title" content="Zankō 2006 (残光)">
+<meta property="og:description" content="Japan, 2006. The bright, green future did not arrive. A PS1-style survival horror sandbox.">
+<meta property="og:image" content="https://zanko2006.net/img/hero.jpg">
+<meta property="og:url" content="https://zanko2006.net/">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+:root {
+  --bg: #0a0e0f; --panel: #141c1e; --panel2: #1a2427; --rim: #2c3a3d; --text: #e6e0d0; --dim: #a29c8c;
+  --cyan: #6fd6d0; --amber: #e8b45a; --red: #c8402a;
+  --glass: linear-gradient(#f4f6f7, #dfe3e6 48%, #c9cfd3 52%, #d8dde0);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI", "Noto Sans", system-ui, sans-serif; }
+a { color: var(--cyan); }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+nav { position: sticky; top: 0; z-index: 5; background: rgba(10, 14, 15, .88); backdrop-filter: blur(6px); border-bottom: 1px solid var(--rim); }
+nav .wrap { display: flex; align-items: center; gap: 18px; height: 56px; }
+nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .06em; color: var(--text); text-decoration: none; }
+nav .brand img { width: 30px; height: 30px; }
+nav .links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+nav .links a { color: var(--dim); text-decoration: none; }
+nav .links a:hover { color: var(--text); }
+
+header.hero { position: relative; min-height: 78vh; display: flex; align-items: flex-end; background: #000 url(img/hero.jpg) center 30%/cover no-repeat; image-rendering: pixelated; }
+header.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,14,15,.1) 30%, rgba(10,14,15,.92) 88%, var(--bg)); }
+header.hero .wrap { position: relative; z-index: 1; padding-bottom: 48px; width: 100%; }
+h1 { margin: 0; font-size: clamp(40px, 8vw, 76px); letter-spacing: .04em; line-height: 1.05; }
+h1 .jp { color: var(--amber); font-size: .55em; margin-left: .3em; vertical-align: .35em; }
+.tag { margin: 10px 0 26px; font-size: clamp(17px, 2.4vw, 21px); color: #d8d2c2; max-width: 640px; }
+
+.btn { display: inline-flex; align-items: center; gap: 12px; padding: 12px 26px; border-radius: 4px; border: 1px solid #707070;
+  background: var(--glass); color: #10181f; font-weight: 700; text-decoration: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.75), 0 3px 10px rgba(0,0,0,.45); }
+.btn:hover { border-color: #3c7fb1; background: linear-gradient(#eaf6fd, #d9f0fc 48%, #bee6fd 52%, #a7d9f5); }
+.btn small { font-weight: 400; color: #34495a; }
+.dl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
+.dl-meta { font-size: 14px; color: var(--dim); }
+
+section { padding: 56px 0; border-top: 1px solid #172022; }
+h2 { font-size: 26px; margin: 0 0 18px; letter-spacing: .03em; }
+h2 .jp { color: var(--amber); font-size: .7em; margin-left: 10px; font-weight: 400; }
+.lead { max-width: 760px; color: #d4cebf; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.card { background: linear-gradient(var(--panel2), var(--panel)); border: 1px solid var(--rim); border-radius: 8px; padding: 18px 20px; }
+.card h3 { margin: 0 0 6px; font-size: 17px; color: var(--cyan); }
+.card p { margin: 0; color: #cfc9ba; font-size: 15px; }
+
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.shots figure { margin: 0; background: #000; border: 1px solid var(--rim); border-radius: 6px; overflow: hidden; }
+.shots img { aspect-ratio: 16/9; object-fit: cover; width: 100%; image-rendering: pixelated; }
+.shots figcaption { padding: 8px 12px; font-size: 13px; color: var(--dim); }
+
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+td { padding: 7px 10px; border-bottom: 1px solid #1d282a; vertical-align: top; }
+td:first-child { white-space: nowrap; color: var(--amber); font-family: Consolas, "IBM Plex Mono", monospace; width: 1%; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
+
+.news { background: var(--panel); border: 1px solid var(--rim); border-radius: 8px; padding: 18px 20px; white-space: pre-wrap; font: 14px/1.55 Consolas, "IBM Plex Mono", monospace; color: #cfc9ba; max-height: 460px; overflow: auto; }
+
+footer { padding: 36px 0 48px; border-top: 1px solid #172022; color: var(--dim); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 26px; }
+
+@media (max-width: 620px) { nav .links { gap: 12px; font-size: 13px; } nav .links .opt { display: none; } header.hero { min-height: 70vh; } }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="#"><img src="img/icon.png" alt="">ZANKŌ 2006</a>
+  <div class="links"><a href="#about" class="opt">About</a><a href="#shots">Screenshots</a><a href="#download">Download</a><a href="https://github.com/FACKERSK/Zanko-2006" class="opt">GitHub</a></div>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <h1>ZANKŌ 2006<span class="jp">残光</span></h1>
+  <p class="tag">Japan, 2006. The bright, green future did not arrive. Survive a fog-bound coastal town as Nanashi no Gonbei.</p>
+  <div class="dl-row">
+    <a class="btn dl-link" href="https://github.com/FACKERSK/Zanko-2006/raw/main/releases/Zanko2006_Setup_v0.6.0.exe">Download for Windows <small class="dl-ver">v0.6.0</small></a>
+    <span class="dl-meta">Free · Windows 10/11, 64-bit · 2.6 MB installer</span>
+  </div>
+</div></header>
+
+<section id="about"><div class="wrap">
+  <h2>About<span class="jp">霧町</span></h2>
+  <p class="lead">Zankō 2006 is a first-person survival horror sandbox in the style of the original PlayStation. Kirimachi, a town on the bay, has been told to stay indoors. Search homes, shops and offices for food, water and tools, bandage your wounds, build a base and ward it against what walks at night. Leave the town and the hills start to take your mind.</p>
+  <div class="grid" style="margin-top:24px">
+    <div class="card"><h3>A real town</h3><p>Every street, building and room is laid out by hand: an old town and fish market on the bay, a coast road running into tunnels, and a hairpin pass up to a sealed brick tunnel.</p></div>
+    <div class="card"><h3>Survive</h3><p>Hunger, thirst, warmth, sleep, sickness, infection and broken bones. Craft bandages and splints, boil water, grow daikon, repair your weapons.</p></div>
+    <div class="card"><h3>Fight or hide</h3><p>Katana, fire axe, baseball bat, revolver. Guard and parry, or sneak past. Some things only an ofuda can touch.</p></div>
+    <div class="card"><h3>Build a base</h3><p>Barricade windows, put up a kamidana to keep spirits out, and sleep where it is safe.</p></div>
+  </div>
+</div></section>
+
+<section id="shots"><div class="wrap">
+  <h2>Screenshots</h2>
+  <div class="shots">
+    <figure><img src="img/street.jpg" alt="A crossroads in the grid district" loading="lazy"><figcaption>The grid district. Your phone is the only light.</figcaption></figure>
+    <figure><img src="img/coast.jpg" alt="The coast road beside the seawall" loading="lazy"><figcaption>The coast road along the bay</figcaption></figure>
+    <figure><img src="img/touge.jpg" alt="The hairpin pass on the mountain" loading="lazy"><figcaption>The mountain pass</figcaption></figure>
+    <figure><img src="img/oldtunnel.jpg" alt="The sealed old brick tunnel" loading="lazy"><figcaption>The old tunnel at the top. It is sealed for a reason.</figcaption></figure>
+    <figure><img src="img/home.jpg" alt="A kitchen in an apartment" loading="lazy"><figcaption>Every room is furnished on purpose</figcaption></figure>
+    <figure><img src="img/konbini.jpg" alt="A konbini at night" loading="lazy"><figcaption>The konbini is still lit</figcaption></figure>
+    <figure><img src="img/inventory.jpg" alt="The 3D inventory panels" loading="lazy"><figcaption>Inventory and crafting</figcaption></figure>
+    <figure><img src="img/map.jpg" alt="The 3D map of the town" loading="lazy"><figcaption>The map of Kirimachi</figcaption></figure>
+  </div>
+</div></section>
+
+<section id="download"><div class="wrap two">
+  <div>
+    <h2>Download</h2>
+    <p><a class="btn dl-link" href="https://github.com/FACKERSK/Zanko-2006/raw/main/releases/Zanko2006_Setup_v0.6.0.exe">Zanko2006_Setup <small class="dl-ver">v0.6.0</small></a></p>
+    <p class="dl-meta">Installs for your Windows account. No administrator rights needed. You choose the folder, the desktop shortcut and the Start menu shortcuts.</p>
+    <p class="dl-meta">The launcher updates the game by itself. Saves, accounts and settings are kept through updates and reinstalls.</p>
+    <p class="dl-meta">Windows may warn that the installer is from an unknown publisher: choose "More info", then "Run anyway".</p>
+    <h2 style="margin-top:34px">Requirements</h2>
+    <table>
+      <tr><td>System</td><td>Windows 10 or 11, 64-bit</td></tr>
+      <tr><td>Graphics</td><td>OpenGL 3.3</td></tr>
+      <tr><td>Disk</td><td>About 15 MB</td></tr>
+      <tr><td>Input</td><td>Keyboard and mouse</td></tr>
+    </table>
+  </div>
+  <div>
+    <h2>Controls</h2>
+    <table>
+      <tr><td>WASD</td><td>Move · Shift sprint · Ctrl sneak</td></tr>
+      <tr><td>Space</td><td>Jump, climb ledges, vault broken windows</td></tr>
+      <tr><td>LMB</td><td>Swing, fire, place a build piece</td></tr>
+      <tr><td>Hold RMB</td><td>Guard; raise it just before a hit to parry</td></tr>
+      <tr><td>Hold E</td><td>Search furniture · E for doors, water, gardens</td></tr>
+      <tr><td>Tab</td><td>Inventory and crafting</td></tr>
+      <tr><td>1–6</td><td>Quickbar</td></tr>
+      <tr><td>F</td><td>Phone light</td></tr>
+      <tr><td>R · H · I</td><td>Reload · put the weapon away · inspect</td></tr>
+      <tr><td>B · G · Z</td><td>Build · barricade or repair · sleep</td></tr>
+      <tr><td>M</td><td>Map</td></tr>
+      <tr><td>Esc</td><td>Pause</td></tr>
+    </table>
+  </div>
+</div></section>
+
+<section id="news"><div class="wrap">
+  <h2>What's new</h2>
+  <div class="news" id="newsbox">Loading the change list…</div>
+</div></section>
+
+<footer><div class="wrap">
+  <span>Zankō 2006 © FACKERSK</span>
+  <a href="https://github.com/FACKERSK/Zanko-2006">Source on GitHub</a>
+  <a href="https://github.com/FACKERSK/Zanko-2006/issues">Report a bug</a>
+</div></footer>
+
+<script>
+// The download buttons and the change list follow the same files the launcher reads, so the site stays current with every update.
+(function () {
+  var raw = "https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/";
+  fetch(raw + "update/stable.txt", { cache: "no-store" }).then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
+    var v = (t.match(/^version=(\S+)/m) || [])[1], u = (t.match(/^installer=(\S+)/m) || [])[1];
+    if (!v || !u) return;
+    document.querySelectorAll(".dl-link").forEach(function (a) { a.href = u; });
+    document.querySelectorAll(".dl-ver").forEach(function (s) { s.textContent = "v" + v; });
+  }).catch(function () {});
+  fetch(raw + "pkg/Zanko2006/Data/news.txt", { cache: "no-store" }).then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
+    var box = document.getElementById("newsbox");
+    if (!t) { box.textContent = "The change list is on GitHub: pkg/Zanko2006/Data/news.txt"; return; }
+    var cut = t.search(/^- 0\.4\.0/m);   // the three most recent versions
+    box.textContent = (cut > 0 ? t.slice(0, cut) : t).trim();
+  }).catch(function () { document.getElementById("newsbox").textContent = "The change list could not be loaded."; });
+})();
+</script>
+</body>
+</html>
