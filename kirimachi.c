@@ -17,13 +17,13 @@
 #define CITY (NB * PITCH + ROADW)
 #define SIDEH 0.15f
 #define GH 3.35f
-#define MAX_SOLID 100000
-#define MAX_OPEN 9000
-#define MAX_VEND 320
-#define MAX_LIGHT 1800
-#define MAX_SIGN 420
-#define MAX_LAMP 560
-#define MAX_ITEM 1300
+#define MAX_SOLID 240000
+#define MAX_OPEN 20000
+#define MAX_VEND 500
+#define MAX_LIGHT 3000
+#define MAX_SIGN 900
+#define MAX_LAMP 900
+#define MAX_ITEM 2600
 #define MAX_CR 110
 #define MAX_PART 420
 #define MAX_BUILD 220
@@ -340,10 +340,10 @@ static int box(int t, Vector3 mn, Vector3 mx, Color c, bool solid, int mask) {
 enum { OP_WINDOW, OP_DOOR };
 typedef struct { Vector3 mn, mx; int type, axis, sid, bsid, state; float hp, side, fy; } Open;
 typedef struct { Vector3 mn, mx; int sid; float hp; bool alive; int seed; } Debris;   // junk piles (chairs, tables) blocking stairs and doorways
-#define MAX_DEB 700
+#define MAX_DEB 1400
 static Debris debs[MAX_DEB]; static int nDeb;
 typedef struct { Vector3 bot, top; } Stair;   // walkable stair runs (creature navigation between floors)
-#define MAX_STAIR 1200
+#define MAX_STAIR 2400
 static Stair stairs[MAX_STAIR]; static int nStair;   // window: 0 intact 1 broken 2 barricaded; door: 0 open 1 locked 2 barricaded
 static Open ops[MAX_OPEN]; static int nOps;
 typedef struct { Vector3 mn, mx; int face, sid, light; float hp; bool broken; Color body; } Vend;
@@ -377,7 +377,7 @@ static Vector3 phonePos, stationCenter;
 typedef struct { Vector3 pos; float r, life; int kind; bool on; } Ward;   // kind 0 salt circle, 1 shimenawa, 2 shrine
 static Ward wards[MAX_WARD]; static int nWard;
 #define MAX_FIRE 24
-#define MAX_TV 320
+#define MAX_TV 700
 typedef struct { Vector3 pos; float life; int light; bool on; } Fire;
 static Fire fires[MAX_FIRE]; static int nFire;
 typedef struct { Vector3 pos; float ang; } TV;
@@ -704,7 +704,33 @@ static void genBlock(float x0, float z0, int bi, int bj) {
     for (int k = 0; k < 5; k++) if (bi == konbiniB[k][0] && bj == konbiniB[k][1]) konbini = true;
     Rectangle lots[4]; int nl = 0;
     float mxs = (L + R) / 2, mzs = (Tz + B) / 2;
-    if (layout == 0) lots[nl++] = (Rectangle){L, Tz, R - L, B - Tz};
+    if (!koban && !konbini && ri(10) < 6) {   // a Japanese town block: a ring of narrow houses and shops of mixed widths, each facing its street,
+        // back yards, laundry poles and a shared alley in the middle; corners go to the wider side
+        for (int s = 0; s < 4; s++) {
+            float a0 = (s == 0 || s == 2) ? L : Tz, a1 = (s == 0 || s == 2) ? R : B, u = a0 + (s & 1 ? 9.0f : 0), uEnd = a1 - (s & 1 ? 9.0f : 0);
+            while (u < uEnd - 4.5f) {
+                float w = fminf(fr(5.0f, 9.0f), uEnd - u), d = fr(7.0f, 9.5f), set = fr(0, 0.9f);
+                if (uEnd - (u + w) < 4.5f) w = uEnd - u;   // no sliver at the end of a row
+                Rectangle r;
+                if (s == 0) r = (Rectangle){u, Tz + set, w - 0.6f, d};
+                else if (s == 2) r = (Rectangle){u, B - set - d, w - 0.6f, d};
+                else if (s == 1) r = (Rectangle){R - set - d, u, d, w - 0.6f};
+                else r = (Rectangle){L + set, u, d, w - 0.6f};
+                float rr = fr(0, 1); int kind = rr < 0.42f ? 0 : rr < 0.75f ? 2 : 1, floors = kind == 1 ? 2 + ri(3) : 1 + ri(2);
+                if (kind == 0 && fr(0, 1) < 0.07f) shrine(r); else if (fr(0, 1) < 0.08f) { /* an empty lot: a parked car or a garden */ }
+                else building(r, kind, floors, s);
+                u += w;
+            }
+        }
+        for (int k2 = 0; k2 < 3; k2++) { float x = fr(L + 9.5f, R - 9.5f), z = fr(Tz + 9.5f, B - 9.5f);   // yards: laundry poles, potted plants
+            if (!pointFree(x, z, 0.8f, SIDEH + 0.05f)) continue;
+            if (k2 == 0) { box(T_METAL, V3(x - 1.2f, SIDEH, z - 0.03f), V3(x - 1.14f, SIDEH + 1.8f, z + 0.03f), rgb(150, 150, 150), true, ALL); box(T_METAL, V3(x + 1.14f, SIDEH, z - 0.03f), V3(x + 1.2f, SIDEH + 1.8f, z + 0.03f), rgb(150, 150, 150), true, ALL);
+                box(T_METAL, V3(x - 1.2f, SIDEH + 1.75f, z - 0.02f), V3(x + 1.2f, SIDEH + 1.8f, z + 0.02f), rgb(170, 170, 170), false, ALLB); box(T_CLOTH, V3(x - 0.8f, SIDEH + 1.0f, z - 0.01f), V3(x + 0.3f, SIDEH + 1.75f, z + 0.01f), rgb(220, 215, 200), false, ALLB); }
+            else box(T_HEDGE, V3(x - 0.4f, SIDEH, z - 0.4f), V3(x + 0.4f, SIDEH + 0.9f, z + 0.4f), rgb(70, 120, 70), true, ALL); }
+        layout = -1;
+    }
+    if (layout == -1) {}
+    else if (layout == 0) lots[nl++] = (Rectangle){L, Tz, R - L, B - Tz};
     else if (layout == 1) {
         if (ri(2)) { lots[nl++] = (Rectangle){L, Tz, mxs - 1 - L, B - Tz}; lots[nl++] = (Rectangle){mxs + 1, Tz, R - mxs - 1, B - Tz}; blockWall(V3(mxs, 0, Tz + 1), V3(mxs, 0, B - 1), 1.8f); }
         else { lots[nl++] = (Rectangle){L, Tz, R - L, mzs - 1 - Tz}; lots[nl++] = (Rectangle){L, mzs + 1, R - L, B - mzs - 1}; blockWall(V3(L + 1, 0, mzs), V3(R - 1, 0, mzs), 1.8f); }
@@ -865,19 +891,23 @@ static void spawnCreatureT(Vector3 nearP, float minD, float maxD, bool alerted, 
         float r = fr(0, 1);
         c->type = forceType >= 0 ? forceType : (r < 0.3f ? 0 : r < 0.45f ? 1 : r < 0.6f ? 2 : r < 0.72f ? 3 : r < 0.84f ? 6 : r < 0.94f ? 7 : 0);
         crStats(c);
-        c->pos = V3(x, onRoad(x, z) ? 0 : SIDEH, z); c->yaw = fr(-PI, PI); c->on = true;
+        c->pos = V3(x, SIDEH, z); c->yaw = fr(-PI, PI); c->on = true;
         c->state = alerted ? CS_CHASE : CS_WANDER; c->tgt = c->pos; c->groanT = fr(2, 10); c->t = fr(0, 100); c->lastKnown = c->pos;
         if (forceType < 0 && c->type == 3) { Vector3 p = c->pos; for (int k2 = 0; k2 < 1 + ri(2); k2++) spawnAt(Vector3Add(p, V3(fr(-2, 2), 0, fr(-2, 2))), 3, alerted); }   // dogs hunt in packs
         return;
     }
 }
+static int streetOfKind(int k, float minW) {   // shot tests: the longest street of a kind (0 street, 1 avenue, 2 stairs, 3 bridge)
+    int best = 0, bn = -1; for (int i = 0; i < nStreet; i++) if (dStreets[i][3] == k && dStreets[i][2] / 10.0f >= minW && dStreets[i][1] > bn) { bn = dStreets[i][1]; best = i; } return best; }
+static Vector3 seaSidePt(int i, float d) {   // shot tests: a point d metres off the coast road, on the side towards the sea
+    Vector2 nn = pnorm(coastP, nCoast, i); Vector3 a = V3(coastP[i].x + nn.x * d, 0, coastP[i].z + nn.y * d), b = V3(coastP[i].x - nn.x * d, 0, coastP[i].z - nn.y * d);
+    return terrainH(a.x, a.z) < terrainH(b.x, b.z) ? a : b; }
 static void genWorld(unsigned int seed) {
     freeWorld();
     hfReady = false; layoutInit();
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
     // subway stairwells cut holes into the ground; the city opens onto the wilds (no perimeter wall)
     nHole = 0;
-    for (int b = 0; b < 3; b++) holes[nHole++] = (Rectangle){ROADW + subCols[b] * PITCH + 14, ROADW + SUB_ROW * PITCH + 0.3f, 10, 2.0f};
     {   // road surface: tiles only where no sidewalk block covers it
         for (int i = 0; i <= NB; i++) for (int j = 0; j <= NB; j++) {
             if (nodeOn(i, j)) tileBox(T_ASPHALT, (Rectangle){i * PITCH, j * PITCH, ROADW, ROADW}, -0.5f, 0, WHITE, 16);
@@ -932,6 +962,8 @@ static void genWorld(unsigned int seed) {
         float u = ROADW + seg * PITCH + fr(3, BLOCK - 3);
         if (alongZ) car(line * PITCH + lane, u, true); else car(u, line * PITCH + lane, false);
     }
+    bakeHeightfield();
+    genLayoutWorld();
     // scarce extras: 2 axes, 1 katana, 3 ammo stashes
     int want[6] = {IT_AXE, IT_AXE, IT_KATANA, IT_AMMO, IT_AMMO, IT_AMMO};
     for (int w = 0; w < 6; w++) {
@@ -942,15 +974,12 @@ static void genWorld(unsigned int seed) {
             Vector3 c = Vector3Scale(Vector3Add(op->mn, op->mx), 0.5f);
             Vector3 inward = op->axis == 1 ? V3(0, 0, -op->side) : V3(-op->side, 0, 0);
             Vector3 p = Vector3Add(c, Vector3Scale(inward, 1.6f));
-            if (Vector3Distance(p, V3(5, 0, 5)) < 60 && want[w] != IT_AMMO) continue;
+            if (Vector3Distance(p, V3(SPAWN_X, 0, SPAWN_Z)) < 60 && want[w] != IT_AMMO) continue;
             if (!pointFree(p.x, p.z, 0.25f, SIDEH + 0.05f)) continue;
             addItem(V3(p.x, SIDEH, p.z), want[w], want[w] == IT_AMMO ? 2 : 1);
             break;
         }
     }
-    genSubway();
-    bakeHeightfield();
-    genLayoutWorld();
     genWilds();
     genWater();
     worldSolids = nSol; worldLights = nLight;
@@ -978,8 +1007,8 @@ static void resolve(Vector3 *p, float r, float h, float step) {
             }
         }
     }
-    if (p->y > -2 && hfReady && !cityLand(p->x, p->z) && !inBore(p->x, p->z, p->y) && terrainH(p->x, p->z) < -0.7f) {   // the sea pushes you back to shore
-        for (int it = 0; it < 16 && terrainH(p->x, p->z) < -0.7f; it++) {
+    if (p->y > -6 && hfReady && !cityLand(p->x, p->z) && !inBore(p->x, p->z, p->y) && seaDepth(p->x, p->z) > 0.05f) {   // the sea and the river push you back to shore
+        for (int it = 0; it < 16 && seaDepth(p->x, p->z) > 0.05f; it++) {
             float gx = terrainH(p->x + 1, p->z) - terrainH(p->x - 1, p->z), gz = terrainH(p->x, p->z + 1) - terrainH(p->x, p->z - 1), L = sqrtf(gx * gx + gz * gz);
             if (L < 1e-4f) break; p->x += gx / L * 0.25f; p->z += gz / L * 0.25f; } }
     p->x = clampf(p->x, -WILD + 4, CITY + WILD - 4); p->z = clampf(p->z, -WILD + 4, CITY + WILD - 4);
@@ -1122,7 +1151,7 @@ static void updateSanity(float dt, Vector3 aim) {
     if (pl.rest < 25) l += 0.4f;
     if (pl.boredom > 70) l += 0.35f;
     { float wk = wildK(pl.pos); l += wk * 3.2f; if (wk > 0.3f) g *= 0.2f; }   // the hills eat your mind
-    if (pl.pos.y < -2) l += 0.3f;
+    if (pl.pos.y < -40) l += 0.3f;
     if (pl.stage >= 2) g *= 0.5f;
     if (pl.sick > 30) l += 0.25f;
     if (pl.fracture == 1) l += 0.2f;
@@ -1810,7 +1839,7 @@ static void musicInit(void) {
 static void musicUpdate(float dt, bool inGame) {
     float tgt[3] = {0, 0, 0};
     if (!inGame) tgt[0] = 1;
-    else if (pl.pos.y < -2 || inBore(pl.pos.x, pl.pos.z, pl.pos.y)) tgt[2] = 1;
+    else if (pl.pos.y < -40 || inBore(pl.pos.x, pl.pos.z, pl.pos.y)) tgt[2] = 1;
     else { float wk = wildK(pl.pos); tgt[1] = clampf(wk * 1.6f, 0, 1); tgt[0] = 1 - tgt[1]; }
     float duck = 1;
     if (inGame) for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state == CS_CHASE && !crs[i].phantom && Vector3Distance(crs[i].pos, pl.pos) < 25) { duck = 0.35f; break; }   // chase sounds take over
@@ -1921,6 +1950,17 @@ int main(int argc, char **argv) {
                     tested++; if (!lineOfSight(a, b)) blocked++; }
                 TraceLog(LOG_INFO, "LOSTEST: %d of %d thin walls block sight", blocked, tested); }
             if (frame == 39) gameActive = true;
+            if (frame == 38) TraceLog(LOG_INFO, "EXTTEST %d street ends carried to a main road", nExt);
+            if (frame == 38 && getenv("KIRI_TOWNDUMP")) {   // town coverage dump: 2 m cells
+                FILE *f = fopen("town.ppm", "wb"); int N = HF_N; fprintf(f, "P6 %d %d 255\n", N, N);
+                for (int j = 0; j < N; j++) for (int i = 0; i < N; i++) { float x = HF_X0 + i * HF_S + 1, z = HF_X0 + j * HF_S + 1; unsigned char c[3] = {40, 90, 40};
+                    if (seaSide(x, z)) { c[0] = 30; c[1] = 70; c[2] = 140; }
+                    if (inCore(x, z)) { c[0] = 200; c[1] = 196; c[2] = 186; }
+                    if (cityLand(x, z)) { c[0] = 150; c[1] = 150; c[2] = 150; }
+                    if (roadAt(x, z) || (cityLand(x, z) && (fmodf(x, PITCH) < ROADW || fmodf(z, PITCH) < ROADW))) { c[0] = 60; c[1] = 60; c[2] = 64; }
+                    for (int m = 0; m < nMapFoot; m++) { Rectangle r = mapFoot[m]; if (x >= r.x && x <= r.x + r.width && z >= r.y && z <= r.y + r.height) { c[0] = 170; c[1] = 90; c[2] = 60; break; } }
+                    fwrite(c, 1, 3, f); }
+                fclose(f); }
             if (frame == 39) {   // overlap audit: every solid furniture piece against every other solid it intersects (5 cm inset)
                 int bad = 0, shown = 0;
                 for (int i = 0; i < nCont; i++) { Cont *c = &conts[i]; if (!c->on || c->sid < 0) continue; Solid *a = &sol[c->sid];
@@ -1993,7 +2033,7 @@ int main(int argc, char **argv) {
         {   // the wilds are bright, clear and wrong; the subway is darker than the street
             float wk = (state == ST_PLAY || gameActive) ? wildK(cam.position) : 0;
             Vector3 dark = {0.075f, 0.08f, 0.095f}, sky = {0.46f, 0.70f, 0.94f};
-            if (cam.position.y < -2 || inBore(cam.position.x, cam.position.z, cam.position.y)) { amb = 0.16f; fogD = 0.055f; dark = (Vector3){0.03f, 0.035f, 0.035f}; }
+            if (cam.position.y < -40 || inBore(cam.position.x, cam.position.z, cam.position.y)) { amb = 0.16f; fogD = 0.055f; dark = (Vector3){0.03f, 0.035f, 0.035f}; }
             else if (gameActive) {   // day: flat grey overcast over the dead city; night: the old darkness
                 float dk = dayK(); float dusk = (pl.tod > 16 && pl.tod < 20.5f) ? sinf((pl.tod - 16) / 4.5f * PI) : 0;
                 dark = Vector3Lerp(dark, (Vector3){0.47f, 0.50f, 0.53f}, dk); dark = Vector3Lerp(dark, (Vector3){0.42f, 0.27f, 0.22f}, dusk * 0.45f);
@@ -2235,19 +2275,25 @@ int main(int argc, char **argv) {
             SHOTAT(881, tougeP[40].x, tougeP[40].y + 0.1f, tougeP[40].z, atan2f(tougeP[46].x - tougeP[40].x, tougeP[46].z - tougeP[40].z), 0.05f, "shot_touge.png")
             SHOTAT(888, HAMLET_X, pads[0].y + 0.1f, HAMLET_Z + 14, PI, -0.05f, "shot_hamlet.png")
             SHOTAT(895, bores[3].px, bores[3].fy, bores[3].pz + 9, PI, 0.0f, "shot_oldtunnel.png")
-            SHOTAT(902, ringP[0][nRing[0] / 2].x, 0.2f, ringP[0][nRing[0] / 2].z, atan2f(ringP[0][nRing[0] / 2 + 3].x - ringP[0][nRing[0] / 2].x, ringP[0][nRing[0] / 2 + 3].z - ringP[0][nRing[0] / 2].z), -0.05f, "shot_ring.png")
+            { int b_ = streetOfKind(3, 0); const Vector3 *q_ = stPts + dStreets[b_][0]; int n_ = dStreets[b_][1];
+              SHOTAT(902, q_[0].x, SIDEH + 0.1f, q_[0].z, atan2f(q_[n_ - 1].x - q_[0].x, q_[n_ - 1].z - q_[0].z), -0.05f, "shot_bridge.png") }
             SHOTAT(909, bores[1].px - 24, 0.2f, bores[1].pz, PI / 2, 0.02f, "shot_portal_se.png")
-            SHOTAT(1032, avenueP[nAvenue / 3].x, 0.2f, avenueP[nAvenue / 3].z, atan2f(avenueP[nAvenue / 3 + 4].x - avenueP[nAvenue / 3].x, avenueP[nAvenue / 3 + 4].z - avenueP[nAvenue / 3].z), -0.03f, "shot_avenue.png")
-            SHOTAT(1040, extR[0].x + extR[0].width / 2, 0.2f, extR[0].y + extR[0].height / 2, extR[0].height > extR[0].width ? 0 : PI / 2, -0.05f, "shot_ext.png")
+            { int a_ = streetOfKind(1, 0); const Vector3 *q_ = stPts + dStreets[a_][0]; int m_ = dStreets[a_][1] / 3;
+              SHOTAT(1032, q_[m_].x, SIDEH + 0.1f, q_[m_].z, atan2f(q_[m_ + 2].x - q_[m_].x, q_[m_ + 2].z - q_[m_].z), -0.03f, "shot_avenue.png") }
+            { int t_ = streetOfKind(2, 0); const Vector3 *q_ = stPts + dStreets[t_][0]; int n_ = dStreets[t_][1];
+              SHOTAT(1040, q_[0].x, SIDEH + 0.1f, q_[0].z, atan2f(q_[n_ - 1].x - q_[0].x, q_[n_ - 1].z - q_[0].z), -0.05f, "shot_stairs.png") }
+            { Vector3 w_ = seaSidePt(nCoast / 2, 30); Vector3 c_ = coastP[nCoast / 2 + 3]; Vector3 e_ = V3(c_.x + (w_.x - coastP[nCoast / 2].x) * 0.1f, SIDEH + 0.1f, c_.z + (w_.z - coastP[nCoast / 2].z) * 0.1f);
+              SHOTAT(1056, e_.x, e_.y, e_.z, atan2f(w_.x - c_.x, w_.z - c_.z) - 0.6f, -0.35f, "shot_seawall.png") if (frame > 1056 && frame < 1062) pl.flash = false; }
             SHOTAT(1048, (float)SPAWN_X, 0.2f, (float)SPAWN_Z, 0.6f, 0.0f, "shot_spawn.png")
             if (frame == 916) { pl.tod = 21; pl.mapOpen = true; }
             if (frame == 921) TakeScreenshot("shot_map2.png");
             if (frame == 922) { pl.mapOpen = false;
                 Vector3 a = V3(bores[0].px, 0.3f, bores[0].pz - 30); float g1 = groundAt(a, 0.3f, 0.42f);
                 Vector3 b = V3(bores[0].px, terrainH(bores[0].px, bores[0].pz - 30) + 0.3f, bores[0].pz - 30); float g2 = groundAt(b, 0.3f, 0.42f);
-                Vector3 sp = V3(60, 0, 290); float d0 = terrainH(sp.x, sp.z); resolve(&sp, 0.3f, 1.7f, 0.42f);
-                TraceLog(LOG_INFO, "T_GROUND in tunnel %.2f (floor 0) | on hill above %.2f (terrain %.2f) | sea push: depth %.2f -> pos %.1f,%.1f terrain %.2f | land(5,6)=%d bay(30,250)=%d",
-                         g1, g2, terrainH(bores[0].px, bores[0].pz - 30), d0, sp.x, sp.z, terrainH(sp.x, sp.z), cityLand(5, 6), cityLand(30, 250));
+                Vector3 sp = seaSidePt(nCoast / 2, 40); float d0 = terrainH(sp.x, sp.z); resolve(&sp, 0.3f, 1.7f, 0.42f);
+                TraceLog(LOG_INFO, "T_GROUND in tunnel %.2f (floor 0) | on hill above %.2f (terrain %.2f) | sea push: depth %.2f -> pos %.1f,%.1f terrain %.2f | land(spawn)=%d land(after push)=%d",
+                         g1, g2, terrainH(bores[0].px, bores[0].pz - 30), d0, sp.x, sp.z, terrainH(sp.x, sp.z), cityLand(SPAWN_X, SPAWN_Z), cityLand(sp.x, sp.z));
+                { int ci_ = nCoast / 2; Vector2 nn_ = pnorm(coastP, nCoast, ci_); char buf_[600] = ""; for (int d_ = -10; d_ <= 24; d_ += 2) { float x_ = coastP[ci_].x + nn_.x * d_, z_ = coastP[ci_].z + nn_.y * d_; char t_[40]; snprintf(t_, 40, " %d:%.1f/%.1f%s", d_, terrainH(x_, z_), coastSigned(x_, z_), cityLand(x_, z_) ? "L" : ""); strcat(buf_, t_); } TraceLog(LOG_INFO, "T_COASTPROF%s", buf_); }
                 for (int b2 = 0; b2 < nBore; b2++) { Bore *bb = &bores[b2]; Vector3 mid = boreAt(bb, bb->len / 2, 0, 0); TraceLog(LOG_INFO, "T_BORE %d floor %.1f terrain above mid %.1f (ceiling %.1f)", b2, bb->fy, terrainH(mid.x, mid.z), bb->fy + bb->h + 0.5f); } }
             if (frame == 924) {   // a lit shop sign, head-on, at night
                 pl.tod = 21; int best = -1;

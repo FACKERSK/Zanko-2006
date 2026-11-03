@@ -348,7 +348,7 @@ static void drawHUD(Vector2 cross, float t) {
         p3End(12); p3Fit(12, 12 * s);
     }
     {   // who and where
-        const char *where = pl.pos.y < -2 ? "Subway" : inBore(pl.pos.x, pl.pos.z, pl.pos.y) ? (bores[inBore(pl.pos.x, pl.pos.z, pl.pos.y) - 1].kind ? "Old tunnel" : "Road tunnel") : touge_d(pl.pos.x, pl.pos.z) < 40 ? "The mountain pass" : coast_d(pl.pos.x, pl.pos.z) < 30 && !cityLand(pl.pos.x, pl.pos.z) ? "Coast road" : wk > 0.3f ? "The hills" : "Nanashi no Gonbei";
+        const char *where = pl.pos.y < -40 ? "Subway" : inBore(pl.pos.x, pl.pos.z, pl.pos.y) ? (bores[inBore(pl.pos.x, pl.pos.z, pl.pos.y) - 1].kind ? "Old tunnel" : "Road tunnel") : touge_d(pl.pos.x, pl.pos.z) < 40 ? "The mountain pass" : coast_d(pl.pos.x, pl.pos.z) < 30 && !cityLand(pl.pos.x, pl.pos.z) ? "Coast road" : wk > 0.3f ? "The hills" : "Nanashi no Gonbei";
         Rectangle np = HUDP(13, -Wr / 2 + mg + 130 * f, -360 + mg * 0.7f + 30 * f, 260, 60);
         aGadget(np);
         aText(prof.name, np.x + 16 * s, np.y + 11 * s, 15, (Color){236, 230, 216, 255}, false);

@@ -7,7 +7,7 @@ static const int ckSlots[CK_N] = {16, 6, 6, 8, 4, 8, 6, 4, 4, 8, 4, 6, 16, 6, 3}
 // footprint (w along the facing wall, h, d into the room)
 static const Vector3 ckSize[CK_N] = {{0.5f, 0.2f, 0.5f}, {1.0f, 0.9f, 0.5f}, {0.7f, 1.7f, 0.65f}, {1.2f, 1.9f, 0.55f}, {1.2f, 0.75f, 0.6f}, {1.6f, 1.6f, 0.45f}, {0.5f, 1.8f, 0.5f},
                                       {0.7f, 0.5f, 0.5f}, {0.5f, 0.25f, 0.3f}, {1.2f, 0.4f, 0.6f}, {0.6f, 0.55f, 0.4f}, {1.4f, 1.0f, 0.6f}, {1.0f, 0.6f, 0.6f}, {0.6f, 1.8f, 0.5f}, {0.6f, 0.8f, 0.25f}};
-#define MAX_CONT 4200
+#define MAX_CONT 12000
 #define CSLOTS 16
 typedef struct { Vector3 pos; float yaw; int kind, region, sid; bool on, filled, searched; Slot s[CSLOTS]; } Cont;
 static Cont conts[MAX_CONT]; static int nCont;

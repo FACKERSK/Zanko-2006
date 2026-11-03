@@ -72,7 +72,9 @@ static bool blockOn(int i, int j) { return i >= 0 && j >= 0 && i < NB && j < NB 
 static bool segV(int i, int j) { return j >= 0 && j < NB && i >= 0 && i <= NB && (blockOn(i - 1, j) || blockOn(i, j)); }   // vertical road strip at column line i, beside block row j
 static bool segH(int i, int j) { return i >= 0 && i < NB && j >= 0 && j <= NB && (blockOn(i, j - 1) || blockOn(i, j)); }
 static bool nodeOn(int i, int j) { return blockOn(i - 1, j - 1) || blockOn(i, j - 1) || blockOn(i - 1, j) || blockOn(i, j); }
-static bool cityLand(float x, float z) {   // on a block or on an existing road of the grid
+static bool inCore(float x, float z);
+static bool cityLand(float x, float z) {   // the town's ground (the fixed Atami-style town: zk_design.h)
+    return inCore(x, z);
     if (x < 0 || z < 0 || x > CITY || z > CITY) return false;
     int ci = (int)(x / PITCH), cj = (int)(z / PITCH); float u = x - ci * PITCH, v = z - cj * PITCH;
     bool rx = u < ROADW, rz = v < ROADW;
@@ -108,17 +110,19 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
     return 0;
 }
 static float baseGroundY(float x, float z, float y) {
-    if (cityLand(x, z)) return inHole(x, z) ? -1e9f : 0;
+    if (cityLand(x, z)) return inHole(x, z) ? -1e9f : SIDEH;
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
     return terrainH(x, z);
 }
 static float baseGround(float x, float z) { return baseGroundY(x, z, 1e9f); }
-static float seaDepth(float x, float z) { return cityLand(x, z) ? 0 : fmaxf(0, -0.8f - terrainH(x, z)); }
+static bool inRiverRaw(float x, float z);
+static float seaDepth(float x, float z) { if (cityLand(x, z)) return 0; if (inRiverRaw(x, z)) return 1.0f; return fmaxf(0, -4.0f - terrainH(x, z)); }   // SEA_Y
 static float touge_d(float x, float z);   // distance to the mountain pass road (zk_layout.h)
 static bool inCore(float x, float z);
 static float coast_d(float x, float z);
+static float coastSigned(float x, float z);
 static float wildK(Vector3 p) {
-    if (p.y < -2 || inBore(p.x, p.z, p.y)) return 0;
+    if (p.y < -40 || inBore(p.x, p.z, p.y)) return 0;
     float k = clampf((cityDist(p.x, p.z) - 4) / 26, 0, 1);
     if (hfReady) { if (coast_d(p.x, p.z) < 30) k = fminf(k, 0.08f); if (touge_d(p.x, p.z) < 40) k = fminf(k, 0.15f); }
     return k;
@@ -167,7 +171,8 @@ static void genTerrain(void) {
             float sh = 0.82f + 0.18f * nn.y;
             // tint: wet sand at the waterline, dark cedar on the mountain, grey rock near its top
             float r = 1, g = 1, b = 1;
-            if (y < 0.4f && y > -1.6f && !cityLand(x, z)) { r = 1.9f; g = 1.25f; b = 1.0f; }
+            if (y < -2.5f && y > -4.8f && !cityLand(x, z)) { r = 1.9f; g = 1.25f; b = 1.0f; }   // sand below the seawall
+            if (y > -3.9f && y < SIDEH + 0.5f && !cityLand(x, z) && hfReady) { float cs = coastSigned(x, z); if (cs > 2 && cs < 9) { r = 2.0f; g = 1.28f; b = 2.6f; } }   // the concrete face of the seawall, not grass
             float mt = clampf((y - 12) / 14, 0, 1); r = Lerp(r, 0.55f, mt); g = Lerp(g, 0.72f, mt); b = Lerp(b, 0.62f, mt);
             float rk = clampf((y - 34) / 10, 0, 1); r = Lerp(r, 1.45f, rk); g = Lerp(g, 0.95f, rk); b = Lerp(b, 1.05f, rk);
             m.colors[v * 4] = (unsigned char)clampf(255 * sh * r, 0, 255); m.colors[v * 4 + 1] = (unsigned char)clampf(255 * sh * g, 0, 255);
@@ -747,7 +752,7 @@ static void spawnUnderground(void) {
 }
 
 // ---------------------------------------------------------------- v0.4: map footprints, water sources, day light
-#define MAX_MAPFOOT 1400
+#define MAX_MAPFOOT 2400
 static Rectangle mapFoot[MAX_MAPFOOT]; static float mapFootH[MAX_MAPFOOT], mapFootY[MAX_MAPFOOT]; static int nMapFoot;
 typedef struct { Vector3 pos; int kind; } WSrc;   // kind 0 rain barrel, 1 park fountain, 2 hill spring
 #define MAX_WS 200
@@ -755,26 +760,19 @@ static WSrc wsrc[MAX_WS]; static int nWs;
 static int worldSolids, worldLights;              // counts right after generation (save files restore on top of these)
 static void genWater(void) {
     nWs = 0;
-    for (int bi = 0; bi < NB; bi++) for (int bj = 0; bj < NB; bj++) {
-        float x0 = ROADW + bi * PITCH, z0 = ROADW + bj * PITCH;
-        if (!blockOn(bi, bj) || blockKindA[bi][bj] == BK_PARK || blockKindA[bi][bj] == BK_OLD) continue;
-        int want = 2, got = 0;
-        for (int tries = 0; tries < 40 && got < want && nWs < MAX_WS; tries++) {
-            float x = x0 + 0.8f + fr(0, BLOCK - 1.6f), z = z0 + 0.8f + fr(0, BLOCK - 1.6f);
-            if (inHole(x, z) || !pointFree(x, z, 0.55f, SIDEH + 0.05f)) continue;
-            bool inside = false; for (int f = 0; f < nMapFoot; f++) { Rectangle r = mapFoot[f]; if (x > r.x - 0.7f && x < r.x + r.width + 0.7f && z > r.y - 0.7f && z < r.y + r.height + 0.7f) inside = true; }
-            if (inside) continue;
-            bool near = false; for (int w = 0; w < nWs; w++) if (Vector3Distance(wsrc[w].pos, V3(x, SIDEH, z)) < 9) near = true;
+    for (int f = 0; f < nMapFoot && nWs < MAX_WS - 12; f += 3) {   // rain barrels beside the houses
+        Rectangle r = mapFoot[f]; if (mapFootY[f] > 1) continue;
+        for (int tries = 0; tries < 24; tries++) { int s = (f + tries) % 4; float u = 0.15f + 0.7f * ((tries / 4) % 6) / 5.0f, off = tries < 12 ? 0.75f : 1.4f;
+            float x = s == 1 ? r.x + r.width + off : s == 3 ? r.x - off : r.x + r.width * u, z = s == 2 ? r.y + r.height + off : s == 0 ? r.y - off : r.y + r.height * u;
+            if (!cityLand(x, z) || !pointFree(x, z, 0.4f, SIDEH + 0.05f)) continue;
+            bool near = false; for (int k = 0; k < nWs; k++) if (Vector3Distance(wsrc[k].pos, V3(x, SIDEH, z)) < 9) near = true;
             if (near) continue;
-            wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 0}; addSolid(V3(x - 0.32f, SIDEH, z - 0.32f), V3(x + 0.32f, SIDEH + 0.95f, z + 0.32f)); got++;
-        }
+            wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 0}; addSolid(V3(x - 0.32f, SIDEH, z - 0.32f), V3(x + 0.32f, SIDEH + 0.95f, z + 0.32f)); break; }
     }
-    {   // the park fountain
-        int pbi = 4, pbj = 4; for (int a = 0; a < NB; a++) for (int b = 0; b < NB; b++) if (blockKindA[a][b] == BK_PARK) { pbi = a; pbj = b; }
-        float x0 = ROADW + pbi * PITCH, z0 = ROADW + pbj * PITCH;
-        float x = x0 + BLOCK / 2 + 4, z = z0 + BLOCK / 2 + 4;
-        for (int tries = 0; tries < 30; tries++) { if (pointFree(x, z, 0.8f, SIDEH + 0.05f)) break; x = x0 + 3 + fr(0, BLOCK - 6); z = z0 + 3 + fr(0, BLOCK - 6); }
-        if (nWs < MAX_WS) { wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 1}; addSolid(V3(x - 0.75f, SIDEH, z - 0.75f), V3(x + 0.75f, SIDEH + 0.6f, z + 0.75f)); }
+    if (DPARKS_N > 0 && nWs < MAX_WS) {   // the fountain in the waterfront park
+        float x = dParks[0][0], z = dParks[0][1];
+        for (int tries = 0; tries < 30; tries++) { if (pointFree(x, z, 0.8f, SIDEH + 0.05f)) break; x = dParks[0][0] + fr(-6, 6); z = dParks[0][1] + fr(-6, 6); }
+        wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 1}; addSolid(V3(x - 0.75f, SIDEH, z - 0.75f), V3(x + 0.75f, SIDEH + 0.6f, z + 0.75f));
     }
     for (int k = 0; k < 7 && nWs < MAX_WS; k++) {   // clear springs in the hills (the water there is fine; the hills are not)
         float a = fr(0, 2 * PI), d = fr(30, 110);

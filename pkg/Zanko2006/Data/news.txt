@@ -1,5 +1,22 @@
-ZANKO 2006 - Afterglow  (v0.6.3, Fixes)
+ZANKO 2006 - Afterglow  (v0.7.0, The new Kirimachi)
 
+- 0.7.0: the new Kirimachi.
+  * The town is rebuilt from the ground up, laid out like Atami
+    turned around: streets wind and step up the slope from the
+    bay instead of a square grid, with doglegs, forks and stairs.
+  * The coast road runs on a seawall about 4 m above the sea,
+    with a parapet, a sidewalk and a sand beach below it.
+  * A river runs through town under seven bridges.
+  * The railway runs along the top edge of town on its own shelf,
+    with a station platform, and tunnels into the mountain at
+    both ends.
+  * 500 buildings: offices by the station, hotels and apartments
+    on the slope, shops near the water and along the shopping
+    streets, houses everywhere else.
+  * A castle on the hill, parks, shrines, rain barrels.
+  * The subway is gone.
+  * The map shows the new streets and the railway.
+  * Old saves do not load in the new town.
 - 0.6.3: fixes.
   * The quickbar no longer falls off the bottom of the screen with
     the inventory open; every inventory panel now stays on screen

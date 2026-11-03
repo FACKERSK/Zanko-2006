@@ -157,7 +157,7 @@ static void updateCreatures(float dt, Vector3 aim) {
             if (dist > 140) c->on = false;
             continue;
         }
-        if (c->pos.y > -2) aliveTop++;
+        if (c->pos.y > -40) aliveTop++;
         if (c->type == 5) stalkers++;
         if (dist < nearest) nearest = dist;
         // twitch
@@ -228,7 +228,7 @@ static void updateCreatures(float dt, Vector3 aim) {
             if (c->type == 7 || c->type == 8) { goal = c->pos; spd = 0; }
             else {
                 if (Vector3Distance(V3(c->tgt.x, 0, c->tgt.z), V3(c->pos.x, 0, c->pos.z)) < 1.0f || c->t > 9) {
-                    float r2 = c->pos.y < -2 ? 18 : 14;
+                    float r2 = c->pos.y < -40 ? 18 : 14;
                     c->tgt = V3(c->pos.x + fr(-r2, r2), c->pos.y, c->pos.z + fr(-r2, r2)); c->t = 0;
                 }
                 goal = c->tgt; spd = c->spd * 0.32f;
@@ -290,11 +290,11 @@ static void updateCreatures(float dt, Vector3 aim) {
     // ---- population upkeep
     float wk = wildK(pl.pos);
     static float spawnT = 0, spiritT = 40, ugT = 20; spawnT -= dt; spiritT -= dt; ugT -= dt;
-    if (pl.pos.y > -2 && wk < 0.2f && aliveTop < (dayK() > 0.5f ? 32 : 44) && spawnT <= 0) { if (fr(0, 1) < 0.35f) spawnIndoor(pl.pos, 35); else spawnCreature(pl.pos, 45, 0, false); spawnT = 3.0f; }
+    if (pl.pos.y > -40 && wk < 0.2f && aliveTop < (dayK() > 0.5f ? 32 : 44) && spawnT <= 0) { if (fr(0, 1) < 0.35f) spawnIndoor(pl.pos, 35); else spawnCreature(pl.pos, 45, 0, false); spawnT = 3.0f; }
     if (stalkers < 1 && pl.time > 240 && fr(0, 1) < dt * 0.004f) spawnCreatureT(pl.pos, 40, 60, false, 5);
     int maxSpirits = wk > 0.3f ? 4 + (int)(wk * 4) : dayK() > 0.5f ? 0 : (pl.time > 300 ? 3 : 2);   // the city's spirits walk at night
     if (spiritT <= 0) { if (spirits < maxSpirits) spawnCreatureT(pl.pos, wk > 0.3f ? 14 : 30, wk > 0.3f ? 30 : 45, wk > 0.5f, 4); spiritT = wk > 0.3f ? fr(4, 8) : fr(35, 70); }
-    if (pl.pos.y < -2 && ugT <= 0) { int ug = 0; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state != CS_DEAD && crs[i].pos.y < -2) ug++; if (ug < 12) spawnUnderground(); ugT = 45; }
+    if (pl.pos.y < -40 && ugT <= 0) { int ug = 0; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state != CS_DEAD && crs[i].pos.y < -40) ug++; if (ug < 12) spawnUnderground(); ugT = 45; }
     static float hallT = 5; hallT -= dt;
     if ((pl.stage == 3 || wk > 0.4f) && hallT <= 0) {   // things that aren't there
         int before = nCr; int freeSlot = -1; for (int i = 0; i < nCr; i++) if (!crs[i].on) { freeSlot = i; break; }
