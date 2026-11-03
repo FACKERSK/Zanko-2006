@@ -2,7 +2,7 @@
 
 PS1-style survival horror sandbox set in a Japanese coastal town in 2006. Written in C99 with [raylib 5.5](https://www.raylib.com/).
 
-**Download:** the Windows installer is on the [Releases](https://github.com/FACKERSK/Zanko-2006/releases/latest) page. It installs for the current Windows account (no administrator rights needed). The launcher updates the game automatically from this repository's releases.
+**Download:** [Zanko2006_Setup_v0.6.0.exe](https://github.com/FACKERSK/Zanko-2006/raw/main/releases/Zanko2006_Setup_v0.6.0.exe) (Windows installer, also in the `releases/` folder). It installs for the current Windows account (no administrator rights needed). The launcher updates the game automatically from this repository's releases.
 
 ## Layout
 
@@ -32,7 +32,7 @@ RW=~/raylib/src ./build.sh installer        # Windows build + pkg/Zanko2006_Setu
 
 1. Raise `GAME_VERSION` in `aero.h` and `pkg/Zanko2006/Data/version.txt`; add the changes to `pkg/Zanko2006/Data/news.txt`.
 2. `./build.sh installer`.
-3. Create the GitHub release `v<version>` and attach `Zanko2006_Setup_v<version>.exe`.
-4. Point `update/stable.txt` (and `update/beta.txt`) at the new version and installer URL, then push.
+3. Copy `pkg/Zanko2006_Setup_v<version>.exe` into `releases/` (and, if you like, attach it to a GitHub release).
+4. Point `update/stable.txt` (and `update/beta.txt`) at the new version and installer URL, then push. Players' launchers pick it up on their next start.
 
 On start the launcher reads `update/<channel>.txt`. If its `version` is newer than the installed one, it downloads the installer and runs it silently (`/S /UPDATE`), closes, and the installer reopens the launcher when it is done. Saves, accounts and settings in `Data/` are kept.
