@@ -10,11 +10,7 @@ ZANKO 2006 - Afterglow  (v0.7.2, Streets lined with houses)
     the road from the bank.
   * Spirits have faces.
   * Old saves do not load in this version.
-- 0.7.1: cheat menu support.
-  * Mods can now switch on an in-game cheat menu by shipping a
-    cheats.ini. The Cheat Menu mod (CheatMenu.zip, separate
-    download) uses it: F8 during play opens it and pauses the game.
-  * Without the mod the menu does not exist.
+- 0.7.1: bug fixes
 - 0.7.0: the new Kirimachi.
   * The town is rebuilt from the ground up, laid out like Atami
     turned around: streets wind and step up the slope from the
