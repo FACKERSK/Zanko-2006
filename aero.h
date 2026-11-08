@@ -8,7 +8,7 @@
 #include <math.h>
 #include "raymath.h"
 
-#define GAME_VERSION "0.7.2"
+#define GAME_VERSION "0.8.0"
 #if defined(PLATFORM_WEB)
 #define GLSL_HEAD "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #include <emscripten/emscripten.h>

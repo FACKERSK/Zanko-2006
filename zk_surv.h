@@ -335,7 +335,9 @@ static void deleteSave(void) { if (saveExists()) remove(savePath()); }
 #define SAVE_MAGIC 0x3034485Au   // "ZH04"
 #define WR(x) fwrite(&(x), sizeof(x), 1, f)
 #define WRA(a, n) do { int _n = (n); fwrite(&_n, sizeof _n, 1, f); fwrite((a), sizeof((a)[0]), _n, f); } while (0)
+
 static bool saveGame(void) {
+    if (netMode == NM_CLIENT) return false;   // a guest in someone else's game keeps no save
     if (!gameActive || pl.hp <= 0) return false;
     ensureDir("Data"); ensureDir("Data/Userdata");
     { char rel[128]; snprintf(rel, sizeof rel, "Data/Userdata/%s", prof.name[0] ? prof.name : "Guest"); ensureDir(rel); }

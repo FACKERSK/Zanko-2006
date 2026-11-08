@@ -99,6 +99,13 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
     const ItemDef *w = weaponDef();
     float heavy = clampf((w->weight - 0.3f) / 4.0f + w->knock * 0.25f, 0, 1);
     int best = -1, ghost = -1; float bd = meleeRange(), gd = meleeRange() + 0.45f;
+    if (netMode != NM_OFF && netPvp) {   // PvP: another player in reach takes the blow
+        int pv = -1; float pd = meleeRange() + 0.3f;
+        for (int k = 0; k < MP_MAX; k++) { RPlayer *r = &rps[k]; if (k == mySlot || !r->on || !r->alive) continue;
+            Vector3 d = Vector3Subtract(Vector3Add(r->pos, V3(0, 1.1f, 0)), eye); float dist = Vector3Length(d);
+            if (dist < pd && dist > 0.01f && Vector3DotProduct(Vector3Scale(d, 1 / dist), aim) > 0.6f && lineOfSight(eye, Vector3Add(r->pos, V3(0, 1.1f, 0)))) { pd = dist; pv = k; } }
+        if (pv >= 0) { netPlayerDamage(pv, meleeDmg() * 12, 0.5f); play(sSplat, 0.75f); pl.hitStopT = 0.04f; weaponWear(1); return; }
+    }
     for (int i = 0; i < nCr; i++) {
         Cr *c = &crs[i]; if (!c->on || c->state == CS_DEAD) continue;
         Vector3 d = Vector3Subtract(crCenter(c), eye); float dist = Vector3Length(d);
@@ -122,6 +129,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         if (c->type == 7) dmg *= 1.4f;
         if (cht.on[CH_ONEHIT]) dmg = 9999;   // mannequins crack easily
         c->hp -= dmg; c->hurt = 0.18f; c->wind = 0; c->atkCd = fmaxf(c->atkCd, 0.7f);
+        if (netMode == NM_CLIENT) netCreatureHit(best, dmg);
         Vector3 push = Vector3Normalize(V3(c->pos.x - pl.pos.x, 0, c->pos.z - pl.pos.z));
         if (c->type == 9) heavy *= 0.4f;   // the attendant barely flinches
         bool kill = c->hp <= 0;
@@ -199,6 +207,11 @@ static void shoot(Vector3 eye, Vector3 aim) {
         RayCollision rb = GetRayCollisionSphere(ray, cc, 0.42f);
         if (rb.hit && rb.distance < best) { best = rb.distance; hitC = i; head = false; }
     }
+    int hitP = -1;
+    if (netMode != NM_OFF && netPvp) for (int k = 0; k < MP_MAX; k++) { RPlayer *r = &rps[k]; if (k == mySlot || !r->on || !r->alive) continue;   // PvP
+        RayCollision rp = GetRayCollisionSphere(ray, Vector3Add(r->pos, V3(0, 1.0f, 0)), 0.45f); RayCollision rh = GetRayCollisionSphere(ray, Vector3Add(r->pos, V3(0, 1.62f, 0)), 0.2f);
+        if (rh.hit && rh.distance < best) { best = rh.distance; hitP = k; hitC = -1; head = true; } else if (rp.hit && rp.distance < best) { best = rp.distance; hitP = k; hitC = -1; head = false; } }
+    if (hitP >= 0) netPlayerDamage(hitP, head ? 70 : 34, head ? 0 : 1.0f);
     for (int i = 0; i < nOps; i++) {
         Open *o = &ops[i]; if (o->type != OP_WINDOW || o->state != 0) continue;
         RayCollision rc = GetRayCollisionBox(o->f ? (Ray){xfI(o->f, eye), xfDI(o->f, aim)} : ray, (BoundingBox){o->mn, o->mx});
@@ -206,7 +219,7 @@ static void shoot(Vector3 eye, Vector3 aim) {
     }
     if (hitC >= 0) {
         Cr *c = &crs[hitC];
-        c->hp -= cht.on[CH_ONEHIT] ? 9999 : (head ? 7 : 3.5f); c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
+        { float gd = cht.on[CH_ONEHIT] ? 9999 : (head ? 7 : 3.5f); c->hp -= gd; if (netMode == NM_CLIENT) netCreatureHit(hitC, gd); } c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
         if (c->hanging) { c->hanging = false; c->pos.y = groundAt(c->pos, 0.3f, 4.0f); }
         impactFX(c, 0.7f, c->state == CS_DEAD, aim);
         if (c->state == CS_DEAD) { c->deadT = 0; pl.kills++; playAt(sScreech, c->pos, 40, 0.6f); }

@@ -43,7 +43,7 @@ static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2
 #include "zk_items.h"
 #include "zk_jp.h"
 
-enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS };
+enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS, ST_MP };
 
 // ============================================================ utils
 static float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }
@@ -1143,6 +1143,15 @@ static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
 #include "zk_inv.h"
 enum { CH_GOD, CH_STAM, CH_NEEDS, CH_AMMO, CH_WEAR, CH_ONEHIT, CH_NOCLIP, CH_PEACE, CH_TIME, CH_LIGHT, CH_N };
 static struct { bool avail, menu, on[CH_N]; int key; float speed, frozenTod; char mod[64]; } cht = {.speed = 1, .key = KEY_F8};   // cheat menu state (zk_cheat.h)
+// ---- multiplayer state shared with the creature and player code (zk_net.h does the networking)
+#define MP_MAX 8
+enum { NM_OFF, NM_HOST, NM_CLIENT };
+static int netMode = NM_OFF, mySlot = 0; static bool netPvp = false;
+typedef struct { unsigned int ip; unsigned short port; } NetAddr;
+typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held; char name[16]; NetAddr addr; double heard; } RPlayer;
+static RPlayer rps[MP_MAX];   // every player in the session by slot (the host is slot 0); rps[mySlot] is unused (that is pl)
+static void netPlayerDamage(int slot, float dmg, float bleed);   // creature or PvP damage to a remote player
+static void netCreatureHit(int idx, float dmg);                   // a client hit a creature: the host applies it
 static void cheatsReset(void);
 #include "zk_player.h"
 
@@ -1494,6 +1503,7 @@ static void setupLights(Vector3 eye, float t) {
     SetShaderValueV(sh, locLR, lr, SHADER_UNIFORM_FLOAT, n > 0 ? n : 1);
     SetShaderValue(sh, locNL, &n, SHADER_UNIFORM_INT);
 }
+static void drawRemotePlayers(float dt);
 static void drawWorld(Vector3 eye, float t) {
     curEmis = -1; setEmis(0);
     if (terrainOk) { terrain.transform = MatrixIdentity(); DrawModel(terrain, V3(0, 0, 0), 1, WHITE); }
@@ -1598,6 +1608,7 @@ static void drawWorld(Vector3 eye, float t) {
         }
         drawCreature(c);
     }
+    drawRemotePlayers(GetFrameTime());
     for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0) { Part *p = &parts[i]; float s = p->size;
         drawBox(p->t, V3(p->pos.x - s, p->pos.y - s, p->pos.z - s), V3(p->pos.x + s, p->pos.y + s, p->pos.z + s), p->tint); }
     setEmis(1);
@@ -1651,6 +1662,7 @@ static void updateFX(float dt, Vector3 eye) {
 static float sw, shh;
 #include "zk_ui.h"
 #include "zk_cheat.h"
+#include "zk_net.h"
 static int menuPanel(const char *title, const char **labels, int n, bool *enabled) {
     Rectangle lg = p3Panel(0, -16, 16.5f, 560, 140, false);
     aLogo(lg.width / 2, 22 * aU, 62, "A F T E R G L O W");
@@ -1972,6 +1984,27 @@ int main(int argc, char **argv) {
     while (!WindowShouldClose()) {
         frame++;
         float dt = fminf(GetFrameTime(), 0.05f), t = (float)GetTime();
+        {   // multiplayer test: KIRI_MPHOST=1 hosts, KIRI_MPJOIN=<ip> joins; both log what they see of each other and of the shared town
+            static int mpRole = -1, wi = -1, ci = -1; static unsigned int ch0 = 0;
+            if (mpRole < 0) mpRole = getenv("KIRI_MPHOST") ? 1 : getenv("KIRI_MPJOIN") ? 2 : 0;
+            if (mpRole == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; netPvp = true; netHost(27015); state = ST_PLAY; TraceLog(LOG_INFO, "MPTEST host up: %s", netStatus); }
+            if (mpRole == 2 && frame == 5) { netJoin(getenv("KIRI_MPJOIN"), 27015); TraceLog(LOG_INFO, "MPTEST joining: %s", netStatus); }
+            if (mpRole && frame > 5) {
+                if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].f == 0) { wi = i; break; }
+                if (ci < 0) for (int i = 0; i < nCont; i++) if (conts[i].kind == CK_FRIDGE || conts[i].kind == CK_SHELF) { ci = i; break; }
+                if (mpRole == 1 && frame == 200) { pl.pos = V3(SPAWN_X, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; }
+                if (mpRole == 2 && gameActive && frame % 60 == 0) { pl.pos = V3(SPAWN_X + 3, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; pl.tyaw = pl.yaw = -PI / 2; pl.tpitch = pl.pitch = 0; }
+                if (mpRole == 1 && frame == 260) { pl.tyaw = pl.yaw = PI / 2; pl.tpitch = pl.pitch = 0; }
+                if (mpRole == 1 && frame == 420 && wi >= 0) { breakWindow(&ops[wi]); lootFill(&conts[ci]); conts[ci].s[0] = (Slot){IT_KATANA, 1, 0}; ch0 = contHash(&conts[ci]); TraceLog(LOG_INFO, "MPTEST host broke window %d and put a katana in container %d", wi, ci); }
+                if (mpRole == 2 && frame == 700) { lootFill(&conts[ci]); TraceLog(LOG_INFO, "MPTEST client sees window %d state %d (1 = broken), container %d first slot item %d (katana %d), solid off %d", wi, ops[wi].state, ci, conts[ci].s[0].t, IT_KATANA, ops[wi].sid >= 0 ? sol[ops[wi].sid].off : -1); }
+                if (frame == 640) { int n = 0; for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { n++; TraceLog(LOG_INFO, "MPTEST %s sees player %d '%s' at %.1f %.1f %.1f alive %d", mpRole == 1 ? "host" : "client", k, rps[k].name, rps[k].pos.x, rps[k].pos.y, rps[k].pos.z, rps[k].alive); }
+                    int cr = 0; for (int i = 0; i < nCr; i++) if (crs[i].on) cr++; TraceLog(LOG_INFO, "MPTEST %s: %d other players, %d creatures, slot %d, tod %.2f", mpRole == 1 ? "host" : "client", n, cr, mySlot, pl.tod); }
+                if (frame == 650) TakeScreenshot(mpRole == 1 ? "mp_host.png" : "mp_client.png");
+                if (mpRole == 2 && frame == 660) { float hp0 = pl.hp; netPlayerDamage(0, 10, 0); TraceLog(LOG_INFO, "MPTEST client hit the host (PvP on), own hp %.0f", hp0); }
+                if (mpRole == 1 && frame == 760) TraceLog(LOG_INFO, "MPTEST host hp after PvP hit: %.0f", pl.hp);
+                if (frame == 800) { netStop("test over"); break; }
+            }
+        }
         musicUpdate(dt, gameActive && (state == ST_PLAY || state == ST_PAUSE));
         static float vtime = 0;
         if (videoMode) { dt = 1.0f / 30.0f; vtime += dt; t = vtime; videoScript(); if (vPhase >= 8 && vT > 40) break; }
@@ -2056,17 +2089,21 @@ int main(int argc, char **argv) {
             if (pl.turned && pl.hp > 0) { pl.hp = 0; say("You have become one of them."); }
             eye = Vector3Add(pl.pos, V3(0, 1.6f + (pl.ground ? sinf(pl.bob * 2) * 0.035f : 0), 0));
             aim = dirOf(pl.tyaw, pl.tpitch);
-            if (!shotMode || frame > 44) updateCreatures(dt, aim);
+            if (netMode == NM_CLIENT) netClientCreatures(dt); else if (!shotMode || frame > 44) updateCreatures(dt, aim);
             if (evacOn) { evacT -= dt; if (evacT <= 0) { state = ST_WIN; EnableCursor(); prof.wins++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; } }
             if (pl.hp <= 0 && shotMode) TraceLog(LOG_INFO, "SHOT: died at frame %d pos %.1f %.1f %.1f", frame, pl.pos.x, pl.pos.y, pl.pos.z);
-            if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
+            if (pl.hp <= 0 && netMode != NM_OFF) { state = ST_DEAD; EnableCursor(); prof.deaths++; profSave(); play(sScreech, 1); }   // in a session the town goes on: respawn
+            else if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
             }
         } else {
             float tt = t * 0.05f;
             eye = gameActive ? Vector3Add(pl.pos, V3(0, 1.6f, 0)) : V3(SPAWN_X + sinf(tt) * 1.5f, 2.2f, fmodf(t * 1.2f, 300) + 40);
             aim = gameActive ? dirOf(pl.tyaw, pl.tpitch) : Vector3Normalize(V3(sinf(t * 0.13f) * 0.4f, 0.02f, 1));
             if (audioOk) { if (!IsSoundPlaying(sDrone)) PlaySound(sDrone); SetSoundVolume(sStatic, 0); }
+            if (netMode == NM_HOST && gameActive) updateCreatures(dt, aim);   // the host's menus don't stop the other players' night
+            else if (netMode == NM_CLIENT && gameActive) netClientCreatures(dt);
         }
+        netUpdate(dt);
         updateFX(dt, eye);
         Vector3 shake = V3(fr(-1, 1) * pl.shake * 0.13f, fr(-1, 1) * pl.shake * 0.13f, 0);
         cam.position = Vector3Add(eye, shake);
@@ -2134,17 +2171,18 @@ int main(int argc, char **argv) {
         ClearBackground(BLACK);
         if (backdrop) saBackdrop(t, 0, 0, 0, 1.0f);
         else DrawTexturePro(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
-        if (state == ST_PLAY) { drawHUD(cross, t); if (cht.menu) cheatMenu(t); }
+        if (state == ST_PLAY) { drawHUD(cross, t); drawNameTags(); if (cht.menu) cheatMenu(t); }
         else {
             if (!backdrop) aBackground(state == ST_PAUSE ? 0.75f : 0.85f);
             aCorrupt = gameActive ? pl.stage : 0;
             p3Begin(t);
             if (state == ST_MENU) {
-                const char *l[] = {"Continue", "New Game", "Multiplayer (not in this build)", "Settings", "Controls", "Lore", "Quit"}; bool en[] = {gameActive || saveExists(), true, false, true, true, true, true};
+                const char *l[] = {"Continue", "New Game", "Multiplayer", "Settings", "Controls", "Lore", "Quit"}; bool en[] = {gameActive || saveExists(), netMode == NM_OFF, true, true, true, true, true};
                 int r = menuPanel("Seiry\xC5\xAB - Menu", l, 7, en);
                 profilePanel();
                 if (r == 0) { if (gameActive || loadGame()) { state = ST_PLAY; DisableCursor(); } else say("The save could not be read."); }
                 if (r == 1) { if (videoMode) { newGame(); vSetupScene(); vT = 0; state = ST_PLAY; DisableCursor(); } else state = ST_TRAITS; }
+                if (r == 2) state = ST_MP;
                 if (r == 3) { settingsBack = ST_MENU; state = ST_SETTINGS; }
                 if (r == 4) { settingsBack = ST_MENU; state = ST_CONTROLS; }
                 if (r == 5) state = ST_LORE;
@@ -2156,8 +2194,9 @@ int main(int argc, char **argv) {
                 if (r == 0 || (KP(KEY_ESCAPE) && frame != pauseFrame)) { state = ST_PLAY; DisableCursor(); }
                 if (r == 1) { settingsBack = ST_PAUSE; state = ST_SETTINGS; }
                 if (r == 2) { settingsBack = ST_PAUSE; state = ST_CONTROLS; }
-                if (r == 3) { saveGame(); state = ST_MENU; }
+                if (r == 3) { saveGame(); if (netMode != NM_OFF) { netStop("Left the game."); gameActive = false; } state = ST_MENU; }
             } else if (state == ST_LORE) lorePanel();
+            else if (state == ST_MP) mpPanel();
             else if (state == ST_TRAITS) traitsPanel();
             else if (state == ST_SETTINGS) settingsPanel();
             else if (state == ST_CONTROLS) controlsPanel();
@@ -2172,8 +2211,9 @@ int main(int argc, char **argv) {
                 char b[96];
                 snprintf(b, sizeof b, "Survived  %02d:%02d", (int)pl.time / 60, (int)pl.time % 60); aTextC(b, sw / 2, p.y + 56 * aU, 20, C_BONE, false);
                 snprintf(b, sizeof b, "Creatures put down  %d", pl.kills); aTextC(b, sw / 2, p.y + 88 * aU, 20, C_BONE, false);
-                if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 134 * aU, 280 * aU, 46 * aU}, "New Game", true)) state = ST_TRAITS;
-                if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 194 * aU, 280 * aU, 46 * aU}, "Main Menu", true)) state = ST_MENU;
+                if (netMode != NM_OFF && !win) { if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 134 * aU, 280 * aU, 46 * aU}, "Respawn", true)) { resetPlayer(); pl.pos = V3(SPAWN_X, SIDEH + 0.1f, SPAWN_Z); state = ST_PLAY; DisableCursor(); } }
+                else if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 134 * aU, 280 * aU, 46 * aU}, "New Game", true)) state = ST_TRAITS;
+                if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 194 * aU, 280 * aU, 46 * aU}, "Main Menu", true)) { if (netMode != NM_OFF) { netStop("Left the game."); gameActive = false; } state = ST_MENU; }
                 p3End(1);
             }
             p3Render(aCorrupt);
@@ -2214,6 +2254,7 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_WARDROBE) { Cont *c = &conts[i]; pl.pos = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.2f, 0, cosf(c->yaw) * 1.2f));
                     pl.tyaw = pl.yaw = c->yaw + PI; pl.tpitch = pl.pitch = -0.2f; lootFill(c); slotsAdd(c->s, CSLOTS, IT_HIKEPACK, 1); slotsAdd(c->s, CSLOTS, IT_CROWBAR, 1); openInventory(i); break; } }
             if (frame == 198) TakeScreenshot("shot_inv.png");
+            if (frame == 195) { for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind != CK_PILE) { Cont *c = &conts[i]; pl.pos = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.2f, 0, cosf(c->yaw) * 1.2f)); pl.vy = 0; lootFill(c); openInventory(i); break; } }
             if (frame == 196) SetMousePosition(1180, 330);
             if (frame == 197) TakeScreenshot("shot_inv_hover.png");
             if (frame == 199) { pl.invOpen = false; pl.openC = -1;

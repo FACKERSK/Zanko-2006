@@ -63,7 +63,13 @@ static int lootQty(int t) {
     switch (t) { case IT_PLANKS: return 2 + ri(3); case IT_NAILS: return 6 + ri(12); case IT_AMMO: return 2 + ri(5); case IT_RAG: return 1 + ri(3);
                  case IT_SCRAP: return 1 + ri(2); case IT_OFUDA: return 1 + ri(2); case IT_SEEDS: return 2 + ri(3); case IT_CHARCOAL: return 1 + ri(2); default: return 1; }
 }
-static void lootFill(Cont *c) {
+static void lootFill0(Cont *c);
+static void lootFill(Cont *c) {   // what a container holds depends only on the world and the container: every player in a session finds the same
+    if (c->filled) return;
+    unsigned int save = rs; rs = (worldSeed * 2654435761u) ^ ((unsigned int)(c - conts) * 40503u + 12345u); if (!rs) rs = 1;
+    lootFill0(c); rs = save;
+}
+static void lootFill0(Cont *c) {
     if (c->filled) return;
     c->filled = true;
     int rolls = 0; const LootW *tb = NULL; int n = 0;

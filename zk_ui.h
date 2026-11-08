@@ -143,12 +143,12 @@ static void drawInventory(void) {
     float W = sw, H = shh;
     uiHot = -1; invOverPanel = false; invQHot = -1;
     DrawRectangle(0, 0, (int)W, (int)H, (Color){6, 8, 9, 150});
-    { float asp = (float)GetScreenWidth() / GetScreenHeight(); p3Fov = fmaxf(45, 2 * atanf(0.84f / asp) * RAD2DEG); }   // the three panels fit at any aspect
+    { float asp = (float)GetScreenWidth() / GetScreenHeight(); p3Fov = fmaxf(45, 2 * atanf(0.98f / asp) * RAD2DEG); }   // the three panels fit at any aspect
     p3Begin((float)GetTime()); p3FitMargin = 8 * aU;   // every inventory slab stays fully on screen, whatever the window shape
     float s, cell;
     // ---- survivor: equipment, load, skills
     float pxDeg = 2 * tanf(22.5f * DEG2RAD) / 720.0f * RAD2DEG;   // degrees per reference px on the panel sphere
-    float halfIn = (6 * 70 + 36) / 2.0f + 22;   // side panels hug the pockets panel instead of drifting off-screen
+    float halfIn = (6 * 70 + 36) / 2.0f + 46;   // a clear gap: neighbouring slabs never cover each other's text, even as the view sways with the mouse   // side panels hug the pockets panel instead of drifting off-screen
     Rectangle ep = p3Panel(0, -(halfIn + 150) * pxDeg, 0, 300, 560, true); s = aU; cell = 62 * s;
     aWindow(ep, "Survivor");
     aText("Hands", ep.x + 22 * s, ep.y + 52 * s, 13, C_BONE2, false);
@@ -214,7 +214,7 @@ static void drawInventory(void) {
             Slot sl = {(short)pl.quick[q], (short)(pl.quick[q] >= 0 ? invCount(pl.quick[q]) : 0), 0};
             if (pl.dragFrom == ((4 << 8) | q)) sl.t = -1;
             itemCell(r, sl, hot, pl.quick[q] >= 0 && pl.quick[q] == pl.hands.t);
-            aText(TextFormat("%d", q + 1), r.x + 4 * s, r.y + r.height - 15 * s, 11, C_AMBER, true);
+            aText(TextFormat("%d", q + 1), r.x + 5 * s, r.y + 4 * s, 11, C_AMBER, true);   // top-left: the item name runs along the bottom
         }
         dragGhost(cell);
         p3End(3);
@@ -307,7 +307,7 @@ static void drawHUD(Vector2 cross, float t) {
             int it = pl.quick[q]; Slot sl = {(short)it, (short)(it >= 0 ? invCount(it) : 0)};
             if (it >= 0 && sl.n == 0) sl.t = -1;
             itemCell(r, sl, false, it >= 0 && it == pl.hands.t);
-            aText(TextFormat("%d", q + 1), r.x + 4 * s, r.y + r.height - 14 * s, 10, C_AMBER, true);
+            aText(TextFormat("%d", q + 1), r.x + 5 * s, r.y + 4 * s, 10, C_AMBER, true);
         }
         p3End(11); p3Fit(11, 12 * s);
     }
