@@ -110,7 +110,7 @@ tg = unary_union([town, ROADS_D.buffer(3.0)]).buffer(6, join_style=2).buffer(-6,
 tg = tg.difference(c.sea)
 tg = max(tg.geoms, key=lambda g: g.area) if tg.geom_type == "MultiPolygon" else tg
 tg = Polygon(tg.exterior)
-BUILD = tg.buffer(-1.0).difference(ROADS_D.buffer(1.0)).difference(COAST_D).difference(RAIL_D).difference(keep_out).difference(water.buffer(4.5)).difference(c.sea.buffer(16))
+BUILD = tg.buffer(-1.0).difference(ROADS_D.buffer(1.0)).difference(COAST_D).difference(RAIL_D).difference(keep_out).difference(water.buffer(4.5)).difference(c.sea.buffer(16)).difference(c.touge.buffer(5.5))
 rngb = np.random.default_rng(1103)
 from shapely import affinity
 placed, grid = [], {}

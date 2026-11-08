@@ -980,15 +980,6 @@ static void genWorld(unsigned int seed) {
             cutBox(T_SIDEWALK, (Rectangle){x0, z0, BLOCK, BLOCK}, 0, SIDEH, WHITE, ALL, cut, nc);
         }
     }
-    // cars on roads
-    for (int k = 0; k < 60; k++) {
-        bool alongZ = ri(2);
-        int line = ri(NB + 1), seg = ri(NB);
-        if (alongZ ? !segV(line, seg) : !segH(seg, line)) continue;
-        float lane = fr(0, 1) < 0.5f ? 2.6f : ROADW - 2.6f;
-        float u = ROADW + seg * PITCH + fr(3, BLOCK - 3);
-        if (alongZ) car(line * PITCH + lane, u, true); else car(u, line * PITCH + lane, false);
-    }
     bakeHeightfield();
     genLayoutWorld();
     // scarce extras: 2 axes, 1 katana, 3 ammo stashes
@@ -1984,13 +1975,48 @@ int main(int argc, char **argv) {
     while (!WindowShouldClose()) {
         frame++;
         float dt = fminf(GetFrameTime(), 0.05f), t = (float)GetTime();
+        {   // walk test: KIRI_WALK=1 walks the player (real physics) down the whole touge into town, along the coast road and every avenue
+            static int wk = -1, walkTun = -1; static Vector3 route[20000]; static int nR = 0, ri0 = 0, seg[64], nSeg = 0, stuck = 0, falls = 0, jumps = 0, shots = 0; static float prog = 0, distSinceShot = 0, stuckT = 0; static Vector3 lastP;
+            if (wk < 0) wk = getenv("KIRI_WALK") ? 1 : 0;
+            if (wk == 1 && frame == 5) {
+                gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_STAM] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; cht.on[CH_TIME] = true; cht.frozenTod = 12;
+                #define WADD(P, N, REV) do { seg[nSeg++] = nR; for (int q_ = 0; q_ < (N) && nR < 20000; q_++) route[nR++] = (P)[(REV) ? (N) - 1 - q_ : q_]; } while (0)
+                WADD(tougeP, nTouge, 1); WADD(coastP, nCoast, 0);
+                for (int s2 = 0; s2 < nStreet; s2++) if (dStreets[s2][3] == 1 || dStreets[s2][3] == 2) WADD(stPts + dStreets[s2][0], dStreets[s2][1], 0);
+                seg[nSeg] = nR; ri0 = 1; walkTun = 0; pl.pos = route[0]; pl.pos.y = baseGroundY(route[0].x, route[0].z, 99) + 0.2f; pl.vy = 0; lastP = pl.pos; vin.on = true;
+                TraceLog(LOG_INFO, "WALK route: %d points in %d stretches (touge %d, coast %d)", nR, nSeg, nTouge, nCoast); }
+            if (wk == 1 && walkTun >= 0 && walkTun < 4 && frame > 5) {   // pictures of both railway tunnel mouths, from the track and from the side
+                static int tf = 0; tf++;
+                int end = walkTun < 2 ? 0 : nRail - 1, in = walkTun < 2 ? 10 : nRail - 11; Vector3 a = railP[in], b = railP[end]; Vector2 nn = pnorm(railP, nRail, in);
+                Vector3 p = walkTun % 2 == 0 ? a : V3(a.x + nn.x * 9, 0, a.z + nn.y * 9);
+                pl.pos = V3(p.x, baseGroundY(p.x, p.z, 99) + 0.1f, p.z); pl.vy = 0; pl.tyaw = pl.yaw = atan2f(b.x - p.x, b.z - p.z); pl.tpitch = pl.pitch = 0.04f;
+                if (tf == 8) { char fn[64]; snprintf(fn, 64, "walk_train_tunnel_%d.png", walkTun); TakeScreenshot(fn); tf = 0; walkTun++; if (walkTun == 4) { pl.pos = route[0]; pl.pos.y = baseGroundY(route[0].x, route[0].z, 99) + 0.2f; lastP = pl.pos; } }
+            }
+            else             if (wk == 1 && frame > 5 && state == ST_PLAY) {
+                memset(vin.down, 0, sizeof vin.down);
+                if (ri0 >= nR) { TraceLog(LOG_INFO, "WALK done: %d stuck spots, %d falls, %d jumps between stretches, %d screenshots", stuck, falls, jumps, shots); break; }
+                bool newSeg = false; for (int k = 1; k < nSeg; k++) if (seg[k] == ri0) newSeg = true;
+                if (newSeg) { pl.pos = route[ri0]; pl.pos.y = groundAt(V3(route[ri0].x, 60, route[ri0].z), 0.3f, 80) + 0.1f; pl.vy = 0; ri0++; jumps++; lastP = pl.pos; stuckT = 0; }
+                Vector3 tg = route[ri0]; float d = Vector2Distance((Vector2){pl.pos.x, pl.pos.z}, (Vector2){tg.x, tg.z});
+                if (d < 1.6f) ri0++;
+                else { pl.tyaw = pl.yaw = atan2f(tg.x - pl.pos.x, tg.z - pl.pos.z); pl.tpitch = pl.pitch = -0.08f; vin.down[KEY_W] = 1; vin.down[KEY_LEFT_SHIFT] = 1; }
+                float mv = Vector3Distance(pl.pos, lastP); prog += mv; distSinceShot += mv; lastP = pl.pos;
+                stuckT = mv < 0.02f ? stuckT + dt : 0;
+                if (stuckT > 1.5f) { stuck++; if (stuck <= 40) TraceLog(LOG_INFO, "WALK stuck at %.1f %.1f %.1f (route point %d)", pl.pos.x, pl.pos.y, pl.pos.z, ri0); char fn[64]; if (stuck <= 12) { snprintf(fn, 64, "walk_stuck_%02d.png", stuck); TakeScreenshot(fn); }
+                    pl.pos = route[ri0 < nR - 1 ? ri0 + 1 : ri0]; pl.pos.y = groundAt(V3(pl.pos.x, 60, pl.pos.z), 0.3f, 80) + 0.1f; pl.vy = 0; ri0++; stuckT = 0; lastP = pl.pos; }
+                float gy = baseGroundY(pl.pos.x, pl.pos.z, pl.pos.y + 2);
+                if (pl.pos.y < gy - 1.2f || pl.pos.y < -20) { falls++; if (falls <= 40) TraceLog(LOG_INFO, "WALK fell at %.1f %.1f y %.1f (ground %.1f)", pl.pos.x, pl.pos.z, pl.pos.y, gy);
+                    pl.pos.y = gy + 0.2f; pl.vy = 0; }
+                if (distSinceShot > 90) { distSinceShot = 0; char fn[64]; snprintf(fn, 64, "walk_%03d.png", shots++); TakeScreenshot(fn); }
+            }
+        }
         {   // multiplayer test: KIRI_MPHOST=1 hosts, KIRI_MPJOIN=<ip> joins; both log what they see of each other and of the shared town
             static int mpRole = -1, wi = -1, ci = -1; static unsigned int ch0 = 0;
             if (mpRole < 0) mpRole = getenv("KIRI_MPHOST") ? 1 : getenv("KIRI_MPJOIN") ? 2 : 0;
             if (mpRole == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; netPvp = true; netHost(27015); state = ST_PLAY; TraceLog(LOG_INFO, "MPTEST host up: %s", netStatus); }
             if (mpRole == 2 && frame == 5) { netJoin(getenv("KIRI_MPJOIN"), 27015); TraceLog(LOG_INFO, "MPTEST joining: %s", netStatus); }
             if (mpRole && frame > 5) {
-                if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].f == 0) { wi = i; break; }
+                if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].state == 0) { wi = i; break; }
                 if (ci < 0) for (int i = 0; i < nCont; i++) if (conts[i].kind == CK_FRIDGE || conts[i].kind == CK_SHELF) { ci = i; break; }
                 if (mpRole == 1 && frame == 200) { pl.pos = V3(SPAWN_X, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; }
                 if (mpRole == 2 && gameActive && frame % 60 == 0) { pl.pos = V3(SPAWN_X + 3, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; pl.tyaw = pl.yaw = -PI / 2; pl.tpitch = pl.pitch = 0; }
@@ -2452,6 +2478,15 @@ int main(int argc, char **argv) {
             if (frame > 1177 && frame < 1188 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
             if (frame == 1188 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
                 TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
+            if (frame == 6) {   // walkability audit: every street and the coast road, centre and edges: solid ground at the drawn height, nothing in the way
+                int holes = 0, blocked = 0, total = 0; char hb[400] = "", bb[400] = "";
+                for (int s2 = -1; s2 < nStreet; s2++) { const Vector3 *p = s2 < 0 ? coastP : stPts + dStreets[s2][0]; int n = s2 < 0 ? nCoast : dStreets[s2][1]; float w = s2 < 0 ? 9.0f : dStreets[s2][2] / 10.0f;
+                    if (s2 >= 0 && dStreets[s2][3] == 3) continue;
+                    for (int i = 0; i < n; i++) { Vector2 nn = pnorm(p, n, i); for (int e = -1; e <= 1; e++) { float o2 = e * (w / 2 - 0.5f); float x = p[i].x + nn.x * o2, z = p[i].z + nn.y * o2; total++;
+                        float g = groundAt(V3(x, SIDEH + 0.4f, z), 0.25f, 0.42f);
+                        if (g < SIDEH - 0.3f) { holes++; if (holes <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f g%.1f)", x, z, g); strcat(hb, t2); } if (holes <= 4) TraceLog(LOG_INFO, "HOLEDBG street %d kind %d at %.1f %.1f: land %d terrain %.2f coast_d %.1f cs %.1f river %d sea %d bore %d", s2, s2 >= 0 ? dStreets[s2][3] : -1, x, z, cityLand(x, z), terrainH(x, z), coast_d(x, z), coastSigned(x, z), inRiverRaw(x, z), seaSide(x, z), inBore(x, z, SIDEH)); }
+                        else if (!pointFree(x, z, 0.3f, SIDEH + 0.25f) && e == 0) { if (blocked < 12) { query(x - 0.3f, z - 0.3f, x + 0.3f, z + 0.3f); for (int q = 0; q < qn; q++) { Solid *so = &sol[qb[q]]; Vector3 L_ = solL(so, V3(x, 0, z)); if (so->mx.y > SIDEH + 0.25f && so->mn.y < SIDEH + 1.8f && L_.x + 0.3f > so->mn.x && L_.x - 0.3f < so->mx.x && L_.z + 0.3f > so->mn.z && L_.z - 0.3f < so->mx.z) TraceLog(LOG_INFO, "BLOCKDBG at %.1f %.1f solid %d f%d mn %.1f %.1f %.1f mx %.1f %.1f %.1f street %d kind %d", x, z, qb[q], so->f, so->mn.x, so->mn.y, so->mn.z, so->mx.x, so->mx.y, so->mx.z, s2, s2 >= 0 ? dStreets[s2][3] : -1); } } blocked++; if (blocked <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f)", x, z); strcat(bb, t2); } } } } }
+                TraceLog(LOG_INFO, "WALKAUDIT %d points: %d with no ground under the road%s | %d blocked on a centre line%s", total, holes, hb, blocked, bb); }
             if (frame == 1190) break;
         }
     }
