@@ -1443,7 +1443,12 @@ static void drawCreature(Cr *c) {
         for (int s2 = -1; s2 <= 1; s2 += 2) { Matrix Am = frameM(Tm, V3(0.27f * s2, 1.4f, 0.02f), -0.15f + w[4] * 0.2f, 0, 0.06f * s2);
             ADRAW("creatures/spirit/arm", Am, WHITE, BX(T_CLOTH, 0, -0.4f, 0, 0.13f, 0.8f, 0.13f, ((Color){140, 185, 225, 255})), BX(T_FLESH, 0, -0.88f, 0, 0.08f, 0.16f, 0.06f, ((Color){175, 215, 240, 255}))); }
         Matrix Hm = frameM(Tm, V3(0, 1.5f, 0.02f), 0.35f + w[0] * 0.3f, w[1] * 0.4f, w[5] * 0.4f);
-        ADRAW("creatures/spirit/head", Hm, WHITE, BX(T_FLESH, 0, 0.15f, 0, 0.24f, 0.3f, 0.24f, ((Color){175, 215, 240, 255})), BX(T_PLAIN, 0, 0.08f, 0.04f, 0.3f, 0.62f, 0.3f, ((Color){8, 8, 10, 255})), BX(T_PLAIN, 0, -0.15f, 0.13f, 0.26f, 0.5f, 0.06f, ((Color){8, 8, 10, 255})));
+        ADRAW("creatures/spirit/face", Hm, WHITE, BX(T_FLESH, 0, 0.15f, 0, 0.24f, 0.3f, 0.24f, ((Color){205, 222, 232, 255})),   // pale face framed by long black hair
+              BX(T_PLAIN, 0, 0.08f, -0.06f, 0.3f, 0.62f, 0.22f, ((Color){8, 8, 10, 255})), BX(T_PLAIN, -0.135f, -0.04f, 0.05f, 0.05f, 0.5f, 0.15f, ((Color){8, 8, 10, 255})), BX(T_PLAIN, 0.135f, -0.04f, 0.05f, 0.05f, 0.5f, 0.15f, ((Color){8, 8, 10, 255})),
+              BX(T_PLAIN, 0, 0.285f, 0.09f, 0.27f, 0.05f, 0.08f, ((Color){8, 8, 10, 255})),
+              BX(T_PLAIN, -0.055f, 0.185f, 0.121f, 0.055f, 0.03f, 0.01f, ((Color){4, 4, 6, 255})), BX(T_PLAIN, 0.055f, 0.185f, 0.121f, 0.055f, 0.03f, 0.01f, ((Color){4, 4, 6, 255})),
+              BX(T_PLAIN, -0.055f, 0.185f, 0.127f, 0.016f, 0.016f, 0.004f, ((Color){230, 235, 240, 255})), BX(T_PLAIN, 0.055f, 0.185f, 0.127f, 0.016f, 0.016f, 0.004f, ((Color){230, 235, 240, 255})),
+              BX(T_PLAIN, 0, 0.075f, 0.121f, 0.08f, 0.022f, 0.01f, ((Color){70, 20, 24, 255})), BX(T_FLESH, 0, 0.13f, 0.124f, 0.025f, 0.05f, 0.012f, ((Color){180, 200, 215, 255})));
         setEmis(0);
     } else {   // crawler
         Matrix Rm = frameM(base, V3(0, 0.45f, 0), w[2] * 0.15f, 0, w[3] * 0.2f);
@@ -2209,6 +2214,8 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_WARDROBE) { Cont *c = &conts[i]; pl.pos = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.2f, 0, cosf(c->yaw) * 1.2f));
                     pl.tyaw = pl.yaw = c->yaw + PI; pl.tpitch = pl.pitch = -0.2f; lootFill(c); slotsAdd(c->s, CSLOTS, IT_HIKEPACK, 1); slotsAdd(c->s, CSLOTS, IT_CROWBAR, 1); openInventory(i); break; } }
             if (frame == 198) TakeScreenshot("shot_inv.png");
+            if (frame == 196) SetMousePosition(1180, 330);
+            if (frame == 197) TakeScreenshot("shot_inv_hover.png");
             if (frame == 199) { pl.invOpen = false; pl.openC = -1;
                 for (int i = 0; i < nStair; i++) if (stairs[i].top.y > 5 && stairs[i].top.y < 8) { pl.pos = stairs[i].top; Vector3 d = Vector3Subtract(stairs[i].top, stairs[i].bot); pl.tyaw = pl.yaw = atan2f(-d.x, -d.z); pl.tpitch = pl.pitch = -0.35f; pl.vy = 0; break; } }
             if (frame == 205) TakeScreenshot("shot_floor.png");
