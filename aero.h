@@ -234,8 +234,9 @@ static AW3 aW3[AW3MAX]; static int aW3n = 0;
 static void aW3Add(int kind, Rectangle r, int state, Color base, float v) { if (aW3n < AW3MAX) aW3[aW3n++] = (AW3){kind, r, state, base, v}; }
 static Vector2 aRealMouse(void) { return vidOn ? vidMouse : GetMousePosition(); }
 static Vector2 aMousePos(void) { return aMO ? aMOp : vidOn ? vidMouse : GetMousePosition(); }
-static bool aMPressed(void) { return vidOn ? vidPress : IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
-static bool aMDown(void) { return vidOn ? vidDown : IsMouseButtonDown(MOUSE_BUTTON_LEFT); }
+static bool aPadClick = false, aPadDown = false;   // the game's gamepad A button acts as the left mouse button in menus
+static bool aMPressed(void) { return vidOn ? vidPress : (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || aPadClick); }
+static bool aMDown(void) { return vidOn ? vidDown : (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || aPadDown); }
 static void aDrawCursor(void) {
     if (!vidOn) return;
     Vector2 p = vidMouse; float s = 1.15f * aU;

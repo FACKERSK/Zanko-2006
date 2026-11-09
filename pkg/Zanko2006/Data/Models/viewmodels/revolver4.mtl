@@ -1,0 +1,50 @@
+# Zanko 2006 material file for viewmodels/revolver4
+# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.
+
+newmtl part0
+Ka 0 0 0
+Kd 0.541 0.329 0.188
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part1
+Ka 0 0 0
+Kd 0.424 0.251 0.141
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/wood.png
+
+newmtl part3
+Ka 0 0 0
+Kd 0.471 0.494 0.549
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png
+
+newmtl part8
+Ka 0 0 0
+Kd 0.063 0.063 0.071
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png
+
+newmtl part10
+Ka 0 0 0
+Kd 0.361 0.380 0.431
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/metal.png
+
+newmtl part14
+Ka 0 0 0
+Kd 0.902 0.353 0.157
+Ks 0 0 0
+d 1
+illum 1
+map_Kd ../../../Textures/plain.png

@@ -97,7 +97,7 @@ static void updateCreatures(float dt, Vector3 aim) {
     int aliveTop = 0, spirits = 0, stalkers = 0, chasing = 0;
     stingCd -= dt;
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
-    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (KD(KEY_LEFT_CONTROL) ? 0.55f : 1.0f);
+    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actD(A_CROUCH) ? 0.55f : 1.0f);
     for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0) { wards[w].life -= dt; if (wards[w].life <= 0) wards[w].on = false; }
     for (int i = 0; i < nCr; i++) {
         Cr *c = &crs[i]; if (!c->on) continue;

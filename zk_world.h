@@ -109,12 +109,12 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
         if (a >= -0.5f && a <= b->len + 2 && fabsf(l) <= b->w / 2 + 0.6f) return i + 1; }
     return 0;
 }
-static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool mainRoadAt(float x, float z, float m);
+static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool mainRoadAt(float x, float z, float m); static float polyEdgeDist(const float (*p)[2], int n, float x, float z);
 static float baseGroundY(float x, float z, float y) {
     if (cityLand(x, z)) return inHole(x, z) ? -1e9f : SIDEH;
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
     float h = terrainH(x, z);
-    if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coastSigned(x, z) > 5.0f) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
+    if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coastSigned(x, z) > 5.0f && polyEdgeDist(dSea, DSEA_N, x, z) < 16) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
     return h;
 }
 static float baseGround(float x, float z) { return baseGroundY(x, z, 1e9f); }

@@ -298,6 +298,11 @@ static void drawMap(float W, float H) {
     float t = (float)GetTime();
     DrawRectangle(0, 0, (int)W, (int)H, (Color){6, 8, 9, 150});
     { float wh = GetMouseWheelMove(); if (wh != 0) mapZoom = clampf(mapZoom * (wh > 0 ? 0.88f : 1.13f), 0.35f, 1.6f); }
+    {   // gamepad: right stick turns and tilts, RT / LT zoom in / out
+        float dt = fminf(GetFrameTime(), 0.05f);
+        mapYaw -= padLookV.x * 2.2f * dt; mapPitch = clampf(mapPitch + padLookV.y * 1.2f * dt, 0.45f, 1.45f);
+        if (padNow[GAMEPAD_BUTTON_RIGHT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 - 1.2f * dt), 0.35f, 1.6f);
+        if (padNow[GAMEPAD_BUTTON_LEFT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 + 1.2f * dt), 0.35f, 1.6f); }
     renderMapScene(t);
     p3Begin(t);
     Rectangle mp = p3Panel(4, 0, 0, 800, 640, true); float s = aU;
@@ -310,15 +315,15 @@ static void drawMap(float W, float H) {
     struct { Color c; const char *t; } leg[] = {{MP_BLD, "Buildings"}, {MP_OLD, "Old houses"}, {MP_SEA, "Bay"}, {MP_HILL_LO, "Hills"}, {MP_ROAD, "Roads"}, {{120, 116, 108, 255}, "Railway"},
         {MP_TUN, "Road tunnel"}, {MP_X, "Collapse"}, {{120, 210, 250, 255}, "Water"}, {{250, 205, 70, 255}, "Markers"}};
     for (int i = 0; i < 10; i++) { DrawRectangle((int)lx, (int)(ly + 3 * s), (int)(12 * s), (int)(12 * s), leg[i].c); aText(leg[i].t, lx + 16 * s, ly, 12, C_BONE2, false); lx += (aMeasure(leg[i].t, 12, false).x + 34 * s); }
-    aText("LMB marker   RMB drag rotate / click remove   Wheel zoom   M / Esc close", mr.x, ly + 20 * s, 12, C_BONE2, false);
+    aText(padActive ? "A marker   X remove nearest   Right stick rotate   RT / LT zoom   B close" : TextFormat("LMB marker   RMB drag rotate / click remove   Wheel zoom   %s / Esc close", actKey(A_MAP)), mr.x, ly + 20 * s, 12, C_BONE2, false);
     Vector2 m = aMousePos(); bool over = CheckCollisionPointRec(m, mr);
     if (over) {
         Vector2 rtp = {(m.x - mr.x) / mr.width * mapRT.texture.width, (m.y - mr.y) / mr.height * mapRT.texture.height};
         Ray ray = GetScreenToWorldRayEx(rtp, mapCamera(), mapRT.texture.width, mapRT.texture.height);
         float tt = ray.direction.y < -1e-4f ? -ray.position.y / ray.direction.y : -1; Vector2 wp = {ray.position.x + ray.direction.x * tt, ray.position.z + ray.direction.z * tt};
-        if (tt > 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) { if (nMark < MAX_MARK) marks[nMark++] = wp; else { for (int i = 1; i < MAX_MARK; i++) marks[i - 1] = marks[i]; marks[MAX_MARK - 1] = wp; } play(sClick, 0.4f); }
+        if (tt > 0 && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || aPadClick)) { if (nMark < MAX_MARK) marks[nMark++] = wp; else { for (int i = 1; i < MAX_MARK; i++) marks[i - 1] = marks[i]; marks[MAX_MARK - 1] = wp; } play(sClick, 0.4f); }
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) { mapDragging = true; mapMoved = false; mapDrag = GetMousePosition(); }
-        if (mapDragging && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT) && !mapMoved && tt > 0 && nMark > 0) {
+        if (((mapDragging && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT) && !mapMoved) || padP(GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) && tt > 0 && nMark > 0) {
             int best = 0; float bd = 1e9f; for (int i = 0; i < nMark; i++) { float dd = Vector2Distance(marks[i], wp); if (dd < bd) { bd = dd; best = i; } }
             for (int i = best + 1; i < nMark; i++) marks[i - 1] = marks[i]; nMark--; play(sClick, 0.3f); }
     }

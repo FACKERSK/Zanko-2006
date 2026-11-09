@@ -150,7 +150,7 @@ static void drawViewmodel(Vector3 eye, Vector3 aim) {
         Matrix H = frameM(B, V3(0.22f + bx, -0.25f + by, -0.4f), -0.3f, 0, 0);
         ADRAW("viewmodels/build_plank", H, WHITE, BX(T_WOOD, 0, 0, -0.05f, 0.5f, 0.05f, 0.12f, CWH), BX(T_FLESH, 0.05f, -0.03f, 0, 0.08f, 0.08f, 0.1f, ((Color){210, 180, 160, 255})));
     } else if (ht == IT_REVOLVER) {
-        float rl = pl.reloadT > 0 ? sinf((1 - pl.reloadT / 1.8f) * PI) : 0;
+        float rl = pl.reloadT > 0 ? sinf((1 - pl.reloadT / REV_RELOAD) * PI) : 0;
         Matrix G = MatrixMultiply(MatrixScale(0.7f, 0.7f, 0.7f), frameM(B, V3(0.17f + bx, -0.16f + by - rl * 0.15f, -0.42f + pl.kick * 0.05f), pl.kick * 0.3f + rl * 0.6f, 0, rl * 0.5f));
         ADRAW("viewmodels/revolver", G, WHITE, BX(T_WOOD, 0, -0.07f, 0.04f, 0.045f, 0.12f, 0.06f, CWH), BX(T_PLAIN, 0, 0, -0.08f, 0.05f, 0.055f, 0.24f, ((Color){55, 55, 60, 255})),
               BX(T_PLAIN, 0, -0.005f, -0.02f, 0.07f, 0.07f, 0.07f, ((Color){70, 70, 75, 255})), BX(T_FLESH, 0, -0.12f, 0.05f, 0.08f, 0.08f, 0.1f, ((Color){210, 180, 160, 255})));
