@@ -1,10 +1,11 @@
 // zk_animdef.h — first-person animation state (the drawing lives in zk_anim.h)
-enum { ANIM_NONE, ANIM_EQUIP, ANIM_HOLSTER, ANIM_INSPECT, ANIM_EAT, ANIM_DRINK, ANIM_PILL, ANIM_BANDAGE, ANIM_TAKE, ANIM_DOOR, ANIM_RELOAD, ANIM_BUILD, ANIM_FLOURISH, ANIM_N };
-static const float animDurs[ANIM_N] = {0, 0.45f, 0.32f, 2.8f, 1.3f, 1.5f, 0.9f, 1.8f, 0.45f, 0.5f, 1.8f, 0.35f, 1.0f};
+enum { ANIM_NONE, ANIM_EQUIP, ANIM_HOLSTER, ANIM_INSPECT, ANIM_EAT, ANIM_DRINK, ANIM_PILL, ANIM_BANDAGE, ANIM_TAKE, ANIM_DOOR, ANIM_RELOAD, ANIM_BUILD, ANIM_FLOURISH, ANIM_TURNGUN, ANIM_N };
+static const float animDurs[ANIM_N] = {0, 0.45f, 0.32f, 2.8f, 1.3f, 1.5f, 0.9f, 1.8f, 0.45f, 0.5f, 1.8f, 0.35f, 1.0f, 3.6f};
 #define REV_RELOAD 2.6f   // swing out, eject, speedloader, spin, close
 static float revShotT = 9;
 static float hitMarkT = 0; static int hitMarkKind = 0;   // crosshair hit marker: 0 body, 1 head, 2 kill
 static float vmVx = 0, vmVy = 0, vmRoll = 0, vmRollV = 0, vmStrafe = 0, vmPushZ = 0, vmPushV = 0;   // viewmodel springs (look inertia, strafe lean, step push)   // seconds since the revolver hammer last fell (a shot or a dry click)
+static bool selfShot = false;   // insanity: the hand turned the revolver on you
 static int animId = ANIM_NONE, animItem = -1; static float animT = 0, animDur = 0;
 static void animPlay(int a) {
     if (a <= ANIM_NONE || a >= ANIM_N) return;

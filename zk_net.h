@@ -185,7 +185,7 @@ static void netRecvAll(double now) {
             if (k < 0) continue;
             rps[k].heard = now;
             if (t == P_STATE) { Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); unsigned char fl = RV(&r, unsigned char); short held = RV(&r, short);
-                if (r.bad) continue; rps[k].pos = p; rps[k].yaw = yw; rps[k].pitch = pt; rps[k].hp = hp; rps[k].flash = fl & 1; rps[k].alive = (fl & 2) != 0; rps[k].held = held; }
+                if (r.bad) continue; rps[k].pos = p; rps[k].yaw = yw; rps[k].pitch = pt; rps[k].hp = hp; rps[k].flash = fl & 1; rps[k].alive = (fl & 2) != 0; rps[k].held = held; rps[k].ev = fl >> 2; }
             else if (t == P_BYE) { char b[96]; snprintf(b, sizeof b, "%s left.", rps[k].name); say(b); rps[k].on = false; netSay(b, k); }
         } else if (netMode == NM_CLIENT) {
             if (from.ip != hostAddr.ip || from.port != hostAddr.port) continue;
@@ -199,7 +199,7 @@ static void netRecvAll(double now) {
                 pl.tod = tod; pl.day = day; bool seen[MP_MAX] = {0};
                 for (int e = 0; e < cnt; e++) { unsigned char s = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); short held = RV(&r, short); char nm[16]; rbr(&r, nm, 16); nm[15] = 0;
                     if (r.bad || s >= MP_MAX || s == mySlot) continue; RPlayer *q = &rps[s]; if (!q->on) { q->shown = p; q->shownYaw = yw; }
-                    q->on = true; seen[s] = true; q->alive = fl & 2; q->flash = fl & 1; q->pos = p; q->yaw = yw; q->pitch = pt; q->hp = hp; q->held = held; memcpy(q->name, nm, 16); }
+                    q->on = true; seen[s] = true; q->alive = fl & 2; q->flash = fl & 1; q->ev = fl >> 2; q->pos = p; q->yaw = yw; q->pitch = pt; q->hp = hp; q->held = held; memcpy(q->name, nm, 16); }
                 for (int s = 0; s < MP_MAX; s++) if (s != mySlot && !seen[s]) rps[s].on = false; }
             else if (t == P_CRS) { unsigned short cnt = RV(&r, unsigned short);
                 for (int e = 0; e < cnt; e++) { unsigned short id = RV(&r, unsigned short); unsigned char ty = RV(&r, unsigned char), st = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), hp = RV(&r, float);
@@ -213,8 +213,22 @@ static void netRecvAll(double now) {
             for (int a = 0; a < cnt; a++) { unsigned short s = RV(&r, unsigned short); if (r.bad) break; for (int i = 0; i < RQN; i++) if (rq[k][i].used && rq[k][i].seq == s) { rq[k][i].used = false; break; } } }
     }
 }
+static void netRemoteSounds(float dt) {   // other players' shots, swings and footsteps, heard from where they are
+    (void)dt; if (!gameActive) return;
+    for (int k = 0; k < MP_MAX; k++) { RPlayer *q = &rps[k]; if (k == mySlot) continue;
+        if (!q->on) { q->evInit = false; continue; }
+        if (!q->evInit) { q->evInit = true; q->evDone = q->ev; q->stepLast = q->pos; q->stepAcc = 0; continue; }
+        int shots = ((q->ev & 7) - (q->evDone & 7)) & 7, swings = (((q->ev >> 3) & 7) - ((q->evDone >> 3) & 7)) & 7;
+        Vector3 at = Vector3Add(q->pos, V3(0, 1.4f, 0));
+        for (int i = 0; i < shots && i < 3; i++) playAt(sShot, at, 160, 1.0f);
+        for (int i = 0; i < swings && i < 3; i++) playAt(sSwing, at, 20, 0.5f);
+        q->evDone = q->ev;
+        float d = Vector2Distance((Vector2){q->pos.x, q->pos.z}, (Vector2){q->stepLast.x, q->stepLast.z}); q->stepLast = q->pos;
+        if (d < 3 && q->alive) { q->stepAcc += d; if (q->stepAcc > 1.8f) { q->stepAcc = 0; playAt(sStep, q->pos, 22, 0.35f); } } }
+}
 static void netUpdate(float dt) {   // every frame, in every state
     (void)dt; if (netMode == NM_OFF) return;
+    netRemoteSounds(dt);
     double now = GetTime();
     netRecvAll(now);
     if (netMode == NM_OFF) return;
@@ -227,14 +241,14 @@ static void netUpdate(float dt) {   // every frame, in every state
     if (netMode == NM_HOST) for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on && now - rps[k].heard > 10) { char b[96]; snprintf(b, sizeof b, "%s lost connection.", rps[k].name); say(b); rps[k].on = false; netSay(b, k); }
     if (now - netScanT > 0.2) { netScanT = now; if (gameActive) netScan(); }
     if (now - netSendT > 0.05) { netSendT = now;
-        unsigned char fl = (pl.flash ? 1 : 0) | (pl.hp > 0 && state != ST_DEAD ? 2 : 0);
+        unsigned char fl = (pl.flash ? 1 : 0) | (pl.hp > 0 && state != ST_DEAD ? 2 : 0) | (netShotN & 7) << 2 | (netSwingN & 7) << 5;
         if (netMode == NM_CLIENT) { WB w = {0}; WV(&w, (unsigned char)P_STATE); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, fl); WV(&w, (short)pl.hands.t); netSend(&hostAddr, w.b, w.n); }
         else {
             WB w = {0}; WV(&w, (unsigned char)P_PLAYERS); WV(&w, pl.tod); WV(&w, pl.day); WV(&w, (unsigned char)netPvp);
             unsigned char cnt = 1; for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) cnt++; WV(&w, cnt);
             char nm[16] = {0}; snprintf(nm, 16, "%s", prof.name);
             WV(&w, (unsigned char)mySlot); WV(&w, fl); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, (short)pl.hands.t); wb(&w, nm, 16);
-            for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { RPlayer *q = &rps[k]; unsigned char f2 = (q->flash ? 1 : 0) | (q->alive ? 2 : 0);
+            for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { RPlayer *q = &rps[k]; unsigned char f2 = (q->flash ? 1 : 0) | (q->alive ? 2 : 0) | (q->ev & 63) << 2;
                 WV(&w, (unsigned char)k); WV(&w, f2); WV(&w, q->pos); WV(&w, q->yaw); WV(&w, q->pitch); WV(&w, q->hp); WV(&w, q->held); wb(&w, q->name, 16); }
             for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) netSend(&rps[k].addr, w.b, w.n);
         }

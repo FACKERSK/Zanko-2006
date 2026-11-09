@@ -8,7 +8,7 @@
 #include <math.h>
 #include "raymath.h"
 
-#define GAME_VERSION "0.8.0"
+#define GAME_VERSION "0.8.1"
 #if defined(PLATFORM_WEB)
 #define GLSL_HEAD "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #include <emscripten/emscripten.h>
@@ -129,6 +129,15 @@ static bool aFontOwn = false, aFontJOwn = false;
 static float aU = 1.0f;
 static bool aClickUsed = false;
 static Sound aBlip; static bool aBlipOk = false;
+static Sound aErr; static bool aErrOk = false;   // played when a greyed-out button is clicked
+static void aMakeErr(void) {   // two short low buzzes, the second lower: "not available"
+    int sr = 22050, n = sr * 30 / 100; short *d = (short *)MemAlloc(n * sizeof(short));
+    for (int i = 0; i < n; i++) { float t = (float)i / sr, f = t < 0.13f ? 220 : 165, lt = t < 0.13f ? t : t - 0.15f;
+        float env = (t < 0.13f || t > 0.15f) ? expf(-lt * 18) * fminf(1, lt * 400) : 0;
+        float sq = sinf(t * 2 * PI * f) + 0.35f * sinf(t * 2 * PI * f * 2) + 0.2f * (sinf(t * 2 * PI * f * 3) > 0 ? 1 : -1);
+        d[i] = (short)(sq * env * 0.32f * 32767); }
+    Wave w = {(unsigned)n, (unsigned)sr, 16, 1, d}; aErr = LoadSoundFromWave(w); UnloadWave(w); aErrOk = true;
+}
 static int aCorrupt = 0;            // 0 afterglow, 1 sadness, 2 depression, 3 otherworld
 
 // palette
@@ -489,6 +498,7 @@ static bool aButton(Rectangle r, const char *label, bool enabled) {
     Vector2 ms = aMeasure(lb, fs, true);
     aText(lb, r.x + (r.width - ms.x) / 2 + (down ? 1 * s : 0), r.y + (r.height - ms.y) / 2 + (down ? 1 * s : 0), fs, enabled ? (aCorrupt == 3 ? (Color){40, 8, 4, 255} : (Color){14, 22, 30, 255}) : (Color){131, 131, 131, 255}, true);
     if (hov && !aClickUsed && aMPressed()) { aClickUsed = true; if (aBlipOk) PlaySound(aBlip); return true; }
+    if (!enabled && !aClickUsed && CheckCollisionPointRec(m, r) && aMPressed()) { aClickUsed = true; if (aErrOk) PlaySound(aErr); }
     return false;
 }
 // horizontal vial: glass tube, banded liquid, bright meniscus, sediment

@@ -7,6 +7,7 @@ static void showHint(int id);
 // zk_player.h — player reset, combat feel, building, interaction and the per-frame player update
 static void spawnUnderground(void);
 static void resetPlayer(void) {
+    selfShot = false; inputLocked = false;
     memset(&pl, 0, sizeof pl);
     pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.yaw = pl.tyaw = 0.6f;
     pl.hp = 100; pl.stam = 100; pl.food = 70; pl.water = 65; pl.batt = 60; pl.flash = true;
@@ -372,6 +373,11 @@ static void openInventory(int contIdx) {
 static void updatePlayer(float dt) {
     pl.time += dt;
     // ---- animation clock and springs
+    inputLocked = animId == ANIM_TURNGUN;
+    if (animId == ANIM_TURNGUN) {
+        pl.tpitch += (0.02f - pl.tpitch) * fminf(1, dt * 2); pl.shake = fmaxf(pl.shake, 0.08f + 0.15f * clampf(animT / animDur, 0, 1));
+        if (animT + dt >= animDur) { play(sShot, 1.0f); pl.muzzle = 0.07f; selfShot = true; pl.hp = 0; inputLocked = false; }
+    }
     if (animId != ANIM_NONE) { animT += dt; if (animT >= animDur) { if (animId == ANIM_HOLSTER) {} animId = ANIM_NONE; animItem = -1; } }
     { Vector2 m = (pl.invOpen || pl.mapOpen) ? (Vector2){0, 0} : MDel(); float tx = clampf(-m.x * 0.0007f, -0.05f, 0.05f), ty = clampf(m.y * 0.0007f, -0.04f, 0.04f);
       // springs, slightly under-damped: the weapon lags behind fast turns, overshoots a touch and settles
@@ -383,7 +389,8 @@ static void updatePlayer(float dt) {
       hitMarkT -= dt;
       pl.landK *= expf(-dt * 7); pl.blockK += ((pl.blocking ? 1.0f : 0.0f) - pl.blockK) * fminf(1, dt * 14);
       pl.eyeK += ((pl.sleeping ? 1.0f : 0.0f) - pl.eyeK) * fminf(1, dt * (pl.sleeping ? 1.6f : 3.0f));
-      if (pl.watchT > 0 && pl.watchKind == 2) { float ph2 = fmodf(5 - pl.watchT, 1.25f); pl.readFlip = ph2 > 0.75f ? (ph2 - 0.75f) / 0.5f : 0; } else pl.readFlip = 0; }
+      { float was = pl.readFlip; if (pl.watchT > 0 && pl.watchKind == 2) { float ph2 = fmodf(5 - pl.watchT, 1.25f); pl.readFlip = ph2 > 0.75f ? (ph2 - 0.75f) / 0.5f : 0; } else pl.readFlip = 0;
+        if (was <= 0 && pl.readFlip > 0) play(sPaper, 0.35f); } }
     pl.weapon = (pl.hands.t == IT_REVOLVER) ? 1 : 0;
     // ---- GoldenEye-style aim: crosshair leads, view follows with lag
     Vector2 md = (pl.invOpen || pl.mapOpen) ? (Vector2){0, 0} : MDel();
@@ -400,7 +407,7 @@ static void updatePlayer(float dt) {
     pl.yaw = wrapA(pl.yaw); pl.tyaw = pl.yaw + wrapA(pl.tyaw - pl.yaw);
     Vector3 aim = dirOf(pl.tyaw, pl.tpitch);
     if (pl.sleeping || pl.watchT > 0) {
-        if (pl.sleeping) { pl.rest = fminf(100, pl.rest + dt * 100.0f / 40.0f); if (pl.rest >= 100 || actP(A_SLEEP)) { pl.sleeping = false; say("You wake up."); } }
+        if (pl.sleeping) { pl.rest = fminf(100, pl.rest + dt * 100.0f / 40.0f); if (pl.rest >= 100 || actP(A_SLEEP)) { pl.sleeping = false; say("You wake up."); if (pl.rest >= 100) play(sPhone, 0.35f); else play(sSigh, 0.5f); }   /* the phone alarm, or you get up yourself */ }
         else {
             pl.watchT -= dt;
             if (pl.watchT <= 0) {
@@ -418,7 +425,7 @@ static void updatePlayer(float dt) {
             pl.involT = fr(1.5f, 6.0f) * (1.25f - pl.corrupt / 100.0f);
             int kk = ri(3);
             if (kk == 0) { pl.tyaw += fr(-0.9f, 0.9f); pl.tpitch += fr(-0.3f, 0.3f); }
-            else if (kk == 1 && pl.weapon == 0 && pl.swingCd <= 0) { pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; play(sSwing, 0.6f); }
+            else if (kk == 1 && pl.weapon == 0 && pl.swingCd <= 0) { pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; play(sSwing, 0.6f); netSwingN++; }
             else { pl.pos.x += fr(-0.8f, 0.8f); pl.pos.z += fr(-0.8f, 0.8f); resolve(&pl.pos, 0.3f, 1.7f, 0.42f); }
         }
     }
@@ -471,7 +478,7 @@ static void updatePlayer(float dt) {
     pl.vy -= 18.0f * dt;
     pl.pos.y += pl.vy * dt;
     float g = groundAt(pl.pos, 0.3f, 0.42f);
-    if (pl.pos.y <= g && pl.vy < -4) { pl.landK = fminf(1.5f, -pl.vy / 9); vmVy -= pl.landK * 0.5f; }
+    if (pl.pos.y <= g && pl.vy < -4) { pl.landK = fminf(1.5f, -pl.vy / 9); vmVy -= pl.landK * 0.5f; play(sLand, fminf(1, 0.3f + pl.landK * 0.4f)); }
     if (pl.pos.y <= g) { if (pl.vy < -12) { hurtPlayer((-pl.vy - 12) * 5, 0.5f); if (pl.fracture == 0 && fr(0, 1) < 0.55f * trMul(2)) breakLeg("You land badly. Your leg is broken."); }
         else if (pl.vy < -9.5f && pl.fracture == 0 && fr(0, 1) < 0.08f * trMul(2)) breakLeg("You land badly. Your leg is broken.");
         pl.pos.y = g; pl.vy = 0; pl.ground = true; }
@@ -503,7 +510,8 @@ static void updatePlayer(float dt) {
         Cont *c = &conts[pl.searchC];
         if (!c->on || Vector3Distance(c->pos, pl.pos) > 2.8f || !actD(A_USE)) { pl.searchC = -1; pl.searchT = 0; }
         else {
-            pl.searchT += dt; float need = searchTime(c->kind);
+            { float before = pl.searchT; pl.searchT += dt; if ((int)(before / 0.45f) != (int)(pl.searchT / 0.45f) || before == 0) play(sRummage, 0.45f); }
+            float need = searchTime(c->kind);
             snprintf(prompt, sizeof prompt, "Searching %s ...", ckName[c->kind]);
             if (pl.searchT >= need) {
                 bool fresh = !c->filled; lootFill(c);
@@ -528,12 +536,12 @@ static void updatePlayer(float dt) {
     if (actP(A_USE) && !pl.invOpen && pl.searchC < 0) {
         if (cont >= 0) { Cont *c = &conts[cont]; if (searchTime(c->kind) <= 0) { lootFill(c); openInventory(cont); } else { pl.searchC = cont; pl.searchT = 0; } }
         else if (survPrompt(eye, aim, true)) {}
-        else if (nearTV >= 0) { if (invTake(IT_VHS, 1)) { pl.watchKind = 1; pl.watchT = 8; } else { pl.watchKind = 0; pl.watchT = 4; } }
+        else if (nearTV >= 0) { if (invTake(IT_VHS, 1)) { pl.watchKind = 1; pl.watchT = 8; play(sTape, 0.6f); play(sTV, 0.35f); } else { pl.watchKind = 0; pl.watchT = 4; play(sTV, 0.3f); play(sJingle, 0.45f); } }
         else if (door >= 0) { animPlay(ANIM_DOOR); Build *b = &builds[door]; b->open = !b->open; sol[b->sid].off = b->open; play(sWood, 0.5f); }
     }
-    if (actP(A_MAP) && !pl.invOpen) { pl.mapOpen = !pl.mapOpen; if (pl.mapOpen) EnableCursor(); else DisableCursor(); }
+    if (actP(A_MAP) && !pl.invOpen) { pl.mapOpen = !pl.mapOpen; play(sPaper, 0.45f); if (pl.mapOpen) EnableCursor(); else DisableCursor(); }
     if (pl.mapOpen) goto survival_ui;
-    if (actP(A_INV)) { if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { int pile = contAt(pl.pos, 1.6f, CK_PILE); openInventory(pile); } }
+    if (actP(A_INV)) { play(sCloth, 0.45f); if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { int pile = contAt(pl.pos, 1.6f, CK_PILE); openInventory(pile); } }
     if (pl.invOpen && pl.openC >= 0 && Vector3Distance(conts[pl.openC].pos, pl.pos) > 3.0f) pl.openC = -1;
     if (pl.invOpen) goto survival_ui;
     if (actP(A_JUMP)) {
@@ -547,7 +555,7 @@ static void updatePlayer(float dt) {
             float h = ledge.y - pl.pos.y;
             pl.climbFrom = pl.pos; pl.climbTo = ledge; pl.climbDur = pl.climbT = 0.35f + h * 0.28f; pl.climbKind = 0;
             pl.stam -= 8; play(sStep, 0.6f);
-        } else if (pl.ground && pl.fracture != 1) { pl.vy = 5.6f; pl.ground = false; pl.stam -= 6; vmVy -= 0.35f; }
+        } else if (pl.ground && pl.fracture != 1) { pl.vy = 5.6f; pl.ground = false; pl.stam -= 6; vmVy -= 0.35f; play(sJump, 0.35f); }
     }
     if (actP(A_BARR)) {
         if (barrOp >= 0) {
@@ -574,7 +582,7 @@ static void updatePlayer(float dt) {
         bool inBed = bed >= 0 || facingBuild(eye, V3(0, -1, 0), 2.0f, BK_BED) >= 0;
         if (threat) say("Something is hunting you. You can't sleep now.");
         else if (!inBed && !(pl.roof && pl.nearFire)) say("Sleep needs a bed, or a roof and a fire.");
-        else { pl.sleeping = true; say("You close your eyes. [Z] to wake."); }
+        else { pl.sleeping = true; say("You close your eyes. [Z] to wake."); play(sSigh, 0.55f); }
     }
     if (actP(A_BUILD)) { pl.build = !pl.build; if (pl.build) { say(TextFormat("Build mode: %s place, wheel / %s choose, %s exit", actKey(A_ATTACK), actKey(A_RELOAD), actKey(A_BUILD))); showHint(11); } }
     if (pl.build) { float w = MWheel(); if (w > 0 || actP(A_RELOAD)) pl.buildKind = (pl.buildKind + 1) % BK_N; if (w < 0) pl.buildKind = (pl.buildKind + BK_N - 1) % BK_N; }
@@ -598,15 +606,15 @@ static void updatePlayer(float dt) {
         if (pl.weapon == 0 && pl.swingCd <= 0 && pl.stam > 6) {
             const ItemDef *w = weaponDef();
             pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; pl.stam -= w->stam * (1 - 0.07f * skLvl(SK_FIT)) * encStam();
-            if (audioOk) { SetSoundPitch(sSwing, 1.25f - clampf(w->weight / 5.0f, 0, 0.6f)); SetSoundVolume(sSwing, 0.6f); PlaySound(sSwing); }
+            if (audioOk) { SetSoundPitch(sSwing, 1.25f - clampf(w->weight / 5.0f, 0, 0.6f)); SetSoundVolume(sSwing, 0.6f); PlaySound(sSwing); } netSwingN++;
         } else if (pl.weapon == 1 && pl.shootCd <= 0 && pl.reloadT <= 0 && actP(A_ATTACK)) {
             if (pl.mag > 0) {
-                pl.mag--; revShotT = 0; pl.shootCd = 0.45f; pl.kick = 1; pl.muzzle = 0.07f; pl.tpitch += 0.05f; pl.shake = 0.2f; pl.punch = 0.5f;
+                pl.mag--; revShotT = 0; netShotN++; pl.shootCd = 0.45f; pl.kick = 1; pl.muzzle = 0.07f; pl.tpitch += 0.05f; pl.shake = 0.2f; pl.punch = 0.5f;
                 play(sShot, 1.0f); shoot(eye, aim);
             } else { play(sClick, 0.7f); revShotT = 0; pl.shootCd = 0.3f; }
         }
     }
-    if (actP(A_RELOAD) && !pl.build && pl.weapon == 1 && pl.mag < 6 && invHas(IT_AMMO) && pl.reloadT <= 0) { pl.reloadT = REV_RELOAD; play(sReload, 0.7f); animPlay(ANIM_RELOAD); }
+    if (actP(A_RELOAD) && !pl.build && pl.weapon == 1 && pl.mag < 6 && invHas(IT_AMMO) && pl.reloadT <= 0) { pl.reloadT = REV_RELOAD; animPlay(ANIM_RELOAD); }
     goto survival;
 survival_ui:
     pl.swingT = fmaxf(0, pl.swingT - dt);

@@ -321,7 +321,7 @@ static void drawMap(float W, float H) {
         Vector2 rtp = {(m.x - mr.x) / mr.width * mapRT.texture.width, (m.y - mr.y) / mr.height * mapRT.texture.height};
         Ray ray = GetScreenToWorldRayEx(rtp, mapCamera(), mapRT.texture.width, mapRT.texture.height);
         float tt = ray.direction.y < -1e-4f ? -ray.position.y / ray.direction.y : -1; Vector2 wp = {ray.position.x + ray.direction.x * tt, ray.position.z + ray.direction.z * tt};
-        if (tt > 0 && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || aPadClick)) { if (nMark < MAX_MARK) marks[nMark++] = wp; else { for (int i = 1; i < MAX_MARK; i++) marks[i - 1] = marks[i]; marks[MAX_MARK - 1] = wp; } play(sClick, 0.4f); }
+        if (tt > 0 && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || aPadClick)) { play(sClick, 0.35f); if (nMark < MAX_MARK) marks[nMark++] = wp; else { for (int i = 1; i < MAX_MARK; i++) marks[i - 1] = marks[i]; marks[MAX_MARK - 1] = wp; } play(sClick, 0.4f); }
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) { mapDragging = true; mapMoved = false; mapDrag = GetMousePosition(); }
         if (((mapDragging && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT) && !mapMoved) || padP(GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) && tt > 0 && nMark > 0) {
             int best = 0; float bd = 1e9f; for (int i = 0; i < nMark; i++) { float dd = Vector2Distance(marks[i], wp); if (dd < bd) { bd = dd; best = i; } }

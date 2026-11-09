@@ -2,7 +2,7 @@
 
 PS1-style survival horror sandbox set in a Japanese coastal town in 2006. Written in C99 with [raylib 5.5](https://www.raylib.com/).
 
-**Download:** [Zanko2006_Setup_v0.8.0.exe](https://github.com/FACKERSK/Zanko-2006/raw/main/releases/Zanko2006_Setup_v0.8.0.exe) (Windows installer, also in the `releases/` folder). It installs for the current Windows account (no administrator rights needed). The launcher updates the game automatically from this repository's releases.
+**Download:** [Zanko2006_Setup_v0.8.1.exe](https://github.com/FACKERSK/Zanko-2006/raw/main/releases/Zanko2006_Setup_v0.8.1.exe) (Windows installer, also in the `releases/` folder). It installs for the current Windows account (no administrator rights needed). The launcher updates the game automatically from this repository's releases.
 
 ## Layout
 

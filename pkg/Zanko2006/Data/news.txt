@@ -1,5 +1,20 @@
-ZANKO 2006 - Afterglow  (v0.8.0, Multiplayer)
+ZANKO 2006 - Afterglow  (v0.8.1, Sounds)
 
+- 0.8.1: sounds.
+  * Revolver: the hammer cocks on the draw and after every shot;
+    the reload is heard step by step (crane out, empties
+    punched out and landing, speedloader in, spin, crane shut).
+  * Inspects have sounds: blade ringing, knife flips, the bat
+    on the shoulder, knuckles cracking.
+  * Jumping and landing, eating, drinking, pills, bandaging,
+    sleeping, the phone alarm when you wake rested, TVs and
+    tapes, manga pages, the map, the bag, rummaging while you
+    search, map markers.
+  * Multiplayer: other players' shots, swings and footsteps
+    are heard where they are.
+  * Greyed-out buttons buzz when clicked.
+  * Insanity: with a loaded revolver in hand, once a minute
+    there is a 1% chance your hand turns it on you.
 - 0.8.0: multiplayer.
   * Up to 8 players in one town. Main menu > Multiplayer: one
     player hosts, the others join with the host's IP (UDP port

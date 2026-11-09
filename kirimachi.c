@@ -454,6 +454,7 @@ static unsigned int worldSeed;
 static Sound sJingle;
 static Sound sImpact, sSplat, sBone, sStinger, sBreath, sScream;
 static Sound sStep, sSwing, sHit, sClang, sGlass, sShot, sClick, sHurt, sScreech, sGroan[2], sStatic, sDrone, sHeart, sPick, sWood, sPlace, sPhone, sReload, sTick;
+static Sound sCock, sCylOpen, sCylClose, sEject, sShell, sLoader, sSpin, sBlade, sJump, sLand, sEat, sDrink, sPill, sBandage, sCloth, sPaper, sRummage, sSigh, sTV, sTape;
 static Sound groanPool[8];
 static bool audioOk = false;
 static Sound mkS(float *b, int n) {
@@ -488,7 +489,7 @@ static void genSounds(void) {
     n = SR * 6 / 10; for (int i = 0; i < n; i++) { float tt = fmodf(T, 0.2f); b[i] = (sinf(tt * 2 * PI * 320) * 0.6f + nz() * 0.4f) * expf(-tt * 40); } sPlace = mkS(b, n);
     n = SR * 2; for (int i = 0; i < n; i++) { float on = fmodf(T, 1.0f) < 0.6f && fmodf(T * 20, 1) < 0.5f; b[i] = on * (sinf(T * 2 * PI * 1300) * 0.3f + sinf(T * 2 * PI * 1700) * 0.3f); } sPhone = mkS(b, n);
     n = SR * 8 / 10; for (int i = 0; i < n; i++) { float tt = T < 0.4f ? T : T - 0.4f; b[i] = nz() * expf(-tt * 70) * 0.7f + sinf(tt * 2 * PI * 1900) * expf(-tt * 50) * 0.3f; } sReload = mkS(b, n);
-    n = SR / 14; for (int i = 0; i < n; i++) b[i] = sinf(T * 2 * PI * (1200 + T * 6000)) * 0.25f * expf(-T * 30); aBlip = mkS(b, n); aBlipOk = true;
+    n = SR / 14; for (int i = 0; i < n; i++) b[i] = sinf(T * 2 * PI * (1200 + T * 6000)) * 0.25f * expf(-T * 30); aBlip = mkS(b, n); aBlipOk = true; aMakeErr();
     // impact: low body thud with a dropping pitch, a crunch, and a short noise burst
     n = SR * 45 / 100; lp = 0; { float ph = 0; for (int i = 0; i < n; i++) { float f = 95 * expf(-T * 9) + 38; ph += f / SR; lp += (nz() - lp) * 0.18f;
         float crunch = (hash2(i / 90, 7, 3) > 0.55f ? nz() : 0) * expf(-T * 22);
@@ -515,6 +516,30 @@ static void genSounds(void) {
         }
         sJingle = mkS(b, n);
     }
+    // ---- revolver mechanics: small, bright metal clicks with a short ring
+#define RING(f, k) (sinf(T * 2 * PI * (f)) * expf(-T * (k)))
+    n = SR * 18 / 100; for (int i = 0; i < n; i++) { float t2 = T - 0.07f; b[i] = nz() * expf(-T * 260) * 0.8f + RING(3100, 60) * 0.25f + (t2 > 0 ? nz() * expf(-t2 * 300) * 0.9f + sinf(t2 * 2 * PI * 2400) * expf(-t2 * 70) * 0.3f : 0); } sCock = mkS(b, n);   // hammer: two-stage ratchet
+    n = SR * 22 / 100; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.5f; b[i] = (nz() - lp) * 0.5f * sinf(fminf(T / 0.12f, 1) * PI) + (T > 0.12f ? nz() * expf(-(T - 0.12f) * 200) * 0.7f : 0) + RING(1750, 30) * 0.12f; } sCylOpen = mkS(b, n);   // crane slides out, stops with a tick
+    n = SR * 25 / 100; for (int i = 0; i < n; i++) b[i] = nz() * expf(-T * 160) * 1.0f + RING(1250, 26) * 0.35f + RING(2630, 40) * 0.2f + sinf(T * 2 * PI * 180) * expf(-T * 40) * 0.4f; sCylClose = mkS(b, n);   // snapped shut
+    n = SR * 35 / 100; for (int i = 0; i < n; i++) { float v = sinf(T * 2 * PI * 140) * expf(-T * 50) * 0.5f; for (int k = 0; k < 6; k++) { float tk = T - 0.03f - k * 0.022f; if (tk > 0) v += sinf(tk * 2 * PI * (3900 + k * 420)) * expf(-tk * 55) * 0.16f; } b[i] = v; } sEject = mkS(b, n);   // rod punched, empties rattle out
+    n = SR * 6 / 10; for (int i = 0; i < n; i++) { float v = 0; const float bt[4] = {0, 0.16f, 0.27f, 0.34f}; for (int k = 0; k < 4; k++) { float tk = T - bt[k]; if (tk > 0) v += (sinf(tk * 2 * PI * 5200) * 0.6f + sinf(tk * 2 * PI * 7300) * 0.4f) * expf(-tk * 45) * (0.5f - k * 0.1f); } b[i] = v; } sShell = mkS(b, n);   // brass bouncing on the ground
+    n = SR * 3 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.3f; b[i] = lp * 0.6f * (T < 0.12f ? T / 0.12f : expf(-(T - 0.12f) * 40)) + (T > 0.13f ? (nz() * expf(-(T - 0.13f) * 220) * 0.8f + sinf((T - 0.13f) * 2 * PI * 900) * expf(-(T - 0.13f) * 40) * 0.3f) : 0); } sLoader = mkS(b, n);   // rounds slide into the chambers
+    n = SR * 9 / 10; for (int i = 0; i < n; i++) { float rate = 26 * expf(-T * 2.2f) + 3, ph = (26 / 2.2f) * (1 - expf(-T * 2.2f)) + 3 * T; float c = fmodf(ph, 1.0f); (void)rate; b[i] = (c < 0.08f ? nz() * 0.55f * expf(-c * 60) : 0) * expf(-T * 1.6f) + RING(2200, 3) * 0.04f; } sSpin = mkS(b, n);   // ratchet clicks slowing down
+    n = SR * 7 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.6f; b[i] = (nz() - lp) * 0.35f * sinf(fminf(T / 0.25f, 1) * PI) + (RING(3300, 5) * 0.18f + RING(4870, 7) * 0.1f + RING(6400, 9) * 0.06f) * fminf(T * 30, 1); } sBlade = mkS(b, n);   // steel sliding, ringing
+    // ---- body
+    n = SR * 2 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.12f; b[i] = lp * 2.2f * sinf(fminf(T / 0.2f, 1) * PI); } sJump = mkS(b, n);
+    n = SR * 3 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.1f; b[i] = (lp * 3.0f + sinf(T * 2 * PI * (70 - T * 60)) * 0.9f) * expf(-T * 16); } sLand = mkS(b, n);
+    n = SR * 9 / 10; lp = 0; for (int i = 0; i < n; i++) { float c = fmodf(T, 0.3f); lp += (nz() - lp) * 0.45f; float cr = hash2(i / 50, 4, 2) > 0.6f ? nz() : 0; b[i] = (lp * 0.6f + cr * 0.7f) * expf(-c * 14) * (c < 0.18f); } sEat = mkS(b, n);   // three bites
+    n = SR * 9 / 10; for (int i = 0; i < n; i++) { float c = fmodf(T, 0.3f); float f = 260 + 500 * c; b[i] = sinf(c * 2 * PI * f) * expf(-c * 16) * 0.7f * (c < 0.2f); } sDrink = mkS(b, n);   // three gulps
+    n = SR * 5 / 10; for (int i = 0; i < n; i++) { float v = 0; for (int k = 0; k < 7; k++) { float tk = T - k * 0.035f - (k > 3 ? 0.08f : 0); if (tk > 0) v += sinf(tk * 2 * PI * (2600 + k * 530)) * expf(-tk * 80) * 0.18f; } float tg = T - 0.38f; b[i] = v + (tg > 0 ? sinf(tg * 2 * PI * 300) * expf(-tg * 30) * 0.5f : 0); } sPill = mkS(b, n);   // pills rattle, a swallow
+    n = SR * 7 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.7f; float cr = hash2(i / 25, 6, 1) > 0.5f ? 1 : 0.3f; b[i] = (nz() - lp) * 0.6f * cr * sinf(fminf(T / 0.7f, 1) * PI); } sBandage = mkS(b, n);   // cloth tearing, wrapping
+    n = SR * 25 / 100; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.2f; b[i] = lp * 1.8f * sinf(fminf(T / 0.25f, 1) * PI) * (0.7f + 0.3f * sinf(T * 90)); } sCloth = mkS(b, n);   // bag / jacket rustle
+    n = SR * 3 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.75f; b[i] = (nz() - lp) * 0.7f * sinf(fminf(T / 0.3f, 1) * PI) * (hash2(i / 300, 2, 8) > 0.3f ? 1 : 0.4f); } sPaper = mkS(b, n);   // paper unfolding, a page turning
+    n = SR * 45 / 100; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.35f; float k = hash2(i / 400, 5, 5); b[i] = (lp * 1.2f + (k > 0.75f ? nz() * 0.4f : 0)) * sinf(fminf(T / 0.45f, 1) * PI) * (0.5f + 0.5f * sinf(T * 37)); } sRummage = mkS(b, n);   // hands through drawers
+    n = SR * 12 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.05f; b[i] = lp * 2.6f * sinf(fminf(T / 1.2f, 1) * PI) * (T < 0.3f ? T / 0.3f : 1); } sSigh = mkS(b, n);
+    n = SR * 4; lp = 0; for (int i = 0; i < n; i++) { float x = nz(); lp += (x - lp) * 0.5f; b[i] = ((x - lp) * 0.3f + sinf(T * 2 * PI * 15734 * 0.25f) * 0.03f + sinf(T * 2 * PI * 60) * 0.06f) * fminf(fminf(T, 4 - T) * 8, 1); } sTV = mkS(b, n);   // CRT hiss and hum
+    n = SR * 8 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.2f; float cl = T < 0.02f ? nz() : 0; b[i] = cl * 0.8f + (sinf(T * 2 * PI * (90 + 40 * fminf(T * 3, 1))) * 0.3f + lp * 0.3f) * fminf(T * 4, 1) * expf(-fmaxf(T - 0.5f, 0) * 8); } sTape = mkS(b, n);   // cassette in, motor spins up
+#undef RING
 #undef T
     MemFree(b);
     for (int i = 0; i < 8; i++) groanPool[i] = LoadSoundAlias(sGroan[i & 1]);
@@ -1138,8 +1163,8 @@ static bool KD(int k) { return vin.on ? vin.down[k] : IsKeyDown(k); }
 static bool KP(int k) { return vin.on ? vin.pressed[k] : IsKeyPressed(k); }
 static bool MD(void) { return vin.on ? vin.lmb : IsMouseButtonDown(MOUSE_BUTTON_LEFT); }
 static bool MP(void) { return vin.on ? vin.lmbP : IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
-static Vector2 padLookPx(void);
-static Vector2 MDel(void) { return vin.on ? vin.md : Vector2Add(GetMouseDelta(), padLookPx()); }
+static Vector2 padLookPx(void); static bool inputLocked;
+static Vector2 MDel(void) { if (inputLocked) return (Vector2){0, 0}; return vin.on ? vin.md : Vector2Add(GetMouseDelta(), padLookPx()); }
 static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
 #include "zk_input.h"
 
@@ -1153,7 +1178,9 @@ static struct { bool avail, menu, on[CH_N]; int key; float speed, frozenTod; cha
 enum { NM_OFF, NM_HOST, NM_CLIENT };
 static int netMode = NM_OFF, mySlot = 0; static bool netPvp = false;
 typedef struct { unsigned int ip; unsigned short port; } NetAddr;
-typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held; char name[16]; NetAddr addr; double heard; } RPlayer;
+typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held; char name[16]; NetAddr addr; double heard;
+    unsigned char ev, evDone; bool evInit; float stepAcc; Vector3 stepLast; } RPlayer;   // ev: their shot / swing counters (3 bits each), for sounds
+static unsigned char netShotN = 0, netSwingN = 0;   // mine, sent in the state flags
 static RPlayer rps[MP_MAX];   // every player in the session by slot (the host is slot 0); rps[mySlot] is unused (that is pl)
 static void netPlayerDamage(int slot, float dmg, float bleed);   // creature or PvP damage to a remote player
 static void netCreatureHit(int idx, float dmg);                   // a client hit a creature: the host applies it
@@ -1215,6 +1242,12 @@ static void updateSanity(float dt, Vector3 aim) {
     } else {
         pl.corrupt = fminf(100, pl.corrupt + dt * 100.0f / 600.0f * (pl.sanity < 12 ? 1.0f : 0.5f));
         if (pl.corrupt >= 100) pl.turned = true;
+        // insane with a loaded revolver in hand: once a minute, a 1% chance the hand turns it on you
+        static float turnRoll = 0; turnRoll += dt;
+        if (turnRoll >= 60) { turnRoll = 0;
+            bool god = cht.avail && cht.on[CH_GOD];
+            if (pl.hands.t == IT_REVOLVER && pl.mag > 0 && !god && animId == ANIM_NONE && !pl.invOpen && !pl.mapOpen && !pl.sleeping && pl.watchT <= 0 && fr(0, 1) < 0.01f) {
+                animPlay(ANIM_TURNGUN); pl.reloadT = 0; pl.blocking = false; say("Your hand is not yours."); } }
     }
 }
 
@@ -2021,7 +2054,8 @@ int main(int argc, char **argv) {
                 {IT_BAT, ANIM_INSPECT, 0.7f, -1, 0, false, "vm_bat_inspect"}, {IT_BAT, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_bat_inspect_shoulder"},
                 {IT_KNIFE, ANIM_INSPECT, 0.35f, -1, 0, false, "vm_knife_inspect_flip"}, {IT_KNIFE, ANIM_INSPECT, 0.7f, -1, 0, false, "vm_knife_inspect_twirl"},
                 {IT_AXE, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_axe_inspect"}, {IT_AXE, ANIM_INSPECT, 0.66f, -1, 0, false, "vm_axe_inspect_thumb"},
-                {IT_KATANA, ANIM_INSPECT, 0.53f, -1, 0, false, "vm_katana_inspect_edge"}, {IT_REVOLVER, -1, 0, 0.05f, 4, false, "vm_hitmarker"}};
+                {IT_KATANA, ANIM_INSPECT, 0.53f, -1, 0, false, "vm_katana_inspect_edge"}, {IT_REVOLVER, -1, 0, 0.05f, 4, false, "vm_hitmarker"},
+                {IT_REVOLVER, ANIM_TURNGUN, 0.25f, -1, 6, false, "vm_turn1"}, {IT_REVOLVER, ANIM_TURNGUN, 0.6f, -1, 6, false, "vm_turn2"}, {IT_REVOLVER, ANIM_TURNGUN, 0.93f, -1, 6, false, "vm_turn3"}};
             int NV = (int)(sizeof V / sizeof V[0]);
             if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;
                 invAdd(IT_AMMO, 24); pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.pos.y = groundAt(V3(SPAWN_X, 30, SPAWN_Z), 0.3f, 40) + 0.05f; pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0.05f; }
@@ -2032,8 +2066,15 @@ int main(int argc, char **argv) {
                 char hb[96] = "[hold E] Search desk  [SPACE] vault"; keySubst(hb, sizeof hb); TraceLog(LOG_INFO, "KEYTEST hint '%s'", hb);
                 bindK[A_JUMP][0] = old; bindK[A_USE][1] = 0; keysSave(); state = ST_PLAY; DisableCursor(); }
             if (vm == 1 && frame > 30) { int q = (frame - 31) / 5, k = (frame - 31) % 5;
-                if (q >= NV && !getenv("KIRI_VMSEQ")) { TraceLog(LOG_INFO, "VM: %d stills", NV); break; }
-                if (q >= NV) {   // then the revolver in motion at 30 fps: draw, three shots, reload, inspect (vmseq_####.png)
+                if (q >= NV && !getenv("KIRI_VMSEQ")) {   // last: let the insanity turn play out in full and check it ends the run
+                    static int tf = 0; if (tf == 0) { cht.on[CH_GOD] = false; pl.hands = (Slot){IT_REVOLVER, 1, 0}; pl.weapon = 1; pl.mag = 6; animId = ANIM_NONE; animPlay(ANIM_TURNGUN); }
+                    tf++;
+                    if (tf == 400 || state == ST_DEAD) { TraceLog(LOG_INFO, "VM: turn test: state %s, hp %.0f, selfShot %d, anim %d", state == ST_DEAD ? "DEAD" : "not dead", pl.hp, selfShot, animId);
+                        if (state == ST_DEAD) { static int dd = 0; if (++dd < 30) goto vmDone; TakeScreenshot("vm_turn_dead.png"); }
+                        TraceLog(LOG_INFO, "VM: %d stills", NV); break; }
+                }
+                vmDone:;
+                if (q >= NV && getenv("KIRI_VMSEQ")) {   // then the revolver in motion at 30 fps: draw, three shots, reload, inspect (vmseq_####.png)
                     static int sf = 0; static const float segT[4] = {0.85f, 1.5f, REV_RELOAD, 3.0f}; float tt = sf / 30.0f; int sg = 0;
                     while (sg < 4 && tt >= segT[sg]) { tt -= segT[sg]; sg++; }
                     if (sg >= 4) { TraceLog(LOG_INFO, "VM: %d stills, %d sequence frames", NV, sf); break; }
@@ -2044,7 +2085,7 @@ int main(int argc, char **argv) {
                     if (sg == 3) { if (animId != ANIM_INSPECT) animPlay(ANIM_INSPECT); animT = tt; pl.mag = 6; }
                     if (sf > 0) { char nm[64]; snprintf(nm, sizeof nm, "vmseq_%04d.png", sf - 1); TakeScreenshot(nm); }
                     sf++; }
-                else {
+                else if (q < NV) {
                 bool vSkip = getenv("KIRI_VMONLY") && strncmp(V[q].nm, getenv("KIRI_VMONLY"), strlen(getenv("KIRI_VMONLY")));
                 if (vSkip && k == 0) frame += 4;
                 if (!vSkip && k == 0) { pl.hands = (Slot){(short)V[q].it, 1, 0}; pl.weapon = V[q].it == IT_REVOLVER ? 1 : 0; pl.mag = V[q].mag; pl.flash = V[q].torch; pl.batt = 100; animId = ANIM_NONE; pl.swingT = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; pl.vy = 0; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f; }
@@ -2312,6 +2353,7 @@ int main(int argc, char **argv) {
             else if (state == ST_CONTROLS) { bool wasCap = capA >= 0; controlsPanel(); if (state == ST_CONTROLS && !wasCap && capA < 0 && escP()) { keysSave(); state = settingsBack; } }
             else if (state == ST_DEAD || state == ST_WIN) {
                 bool win = state == ST_WIN;
+                if (selfShot && !win) DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), BLACK);   // it ends on black
                 Rectangle tp = p3Panel(0, 0, 15, 600, 110, false);
                 aGlow(win ? "SURVIVED" : pl.turned ? "TURNED" : "YOU DIED", tp.width / 2, 14 * aU, 64, win ? C_CYAN : C_RED);
                 p3End(0);

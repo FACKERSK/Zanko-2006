@@ -153,6 +153,38 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     float shakeHit = pl.hitStopT > 0 ? fr(-0.03f, 0.03f) : 0;
     // weapon styles: 0 blade (alternating diagonal slashes), 1 knife (stab), 2 blunt (horizontal sweep), 3 heavy (two-handed overhead chop)
     int style = ht == IT_KATANA ? 0 : ht == IT_KNIFE ? 1 : (ht == IT_AXE || ht == IT_SLEDGE) ? 3 : 2;
+    {   // sounds keyed to points in the animations: each fires once as the animation passes it
+        static int sA = -1, sHt = -2; static float sU = 0, sShot = 9, sFall = 9, sLd = 9;
+        if (A != sA || ht != sHt) sU = -1;
+        #define AT(x) (sU < (x) && u2 >= (x))
+        if (A == ANIM_EQUIP && gun) { if (AT(0.5f)) play(sCock, 0.55f); }
+        if (A == ANIM_RELOAD && gun) {
+            if (AT(0.04f)) play(sCock, 0.25f);   // hammer let down
+            if (AT(0.11f)) play(sCylOpen, 0.6f);
+            if (AT(0.25f)) play(sEject, 0.65f);
+            if (AT(0.33f)) play(sCloth, 0.35f);   // the loader from the belt
+            if (AT(0.53f)) play(sLoader, 0.6f);
+            if (AT(0.6f)) play(sClick, 0.45f);    // knob twisted, rounds released
+            if (AT(0.73f)) play(sSpin, 0.5f);
+            if (AT(0.85f)) play(sCylClose, 0.75f);
+            if (AT(0.91f)) play(sCock, 0.5f);
+        }
+        if (A == ANIM_INSPECT) {
+            if (gun) { if (AT(0.05f)) play(sCock, 0.25f); if (AT(0.16f)) play(sCylOpen, 0.55f); if (AT(0.25f)) play(sSpin, 0.55f); if (AT(0.61f)) play(sCylClose, 0.7f); if (AT(0.91f)) play(sCock, 0.45f); }
+            else if (melee && style == 0) { if (AT(0.05f)) play(sCloth, 0.3f); if (AT(0.2f)) play(sBlade, 0.35f); if (AT(0.48f)) play(sBlade, 0.25f); if (AT(0.64f)) play(sBlade, 0.2f); }
+            else if (melee && style == 1) { if (AT(0.18f)) play(sSwing, 0.25f); if (AT(0.3f)) play(sSwing, 0.2f); if (AT(0.42f)) play(sSwing, 0.2f); if (AT(0.52f)) play(sClick, 0.4f); if (AT(0.6f)) play(sSwing, 0.25f); }
+            else if (melee && style == 2) { if (AT(0.12f)) play(sCloth, 0.4f); if (AT(0.28f)) play(sStep, 0.3f); if (AT(0.4f)) play(sStep, 0.3f); if (AT(0.6f)) play(sSwing, 0.35f); if (AT(0.79f)) play(sWood, 0.3f); }
+            else if (melee) { if (AT(0.08f)) play(sCloth, 0.4f); if (AT(0.56f)) play(sBlade, 0.15f); }
+            else { if (AT(0.3f)) play(sBone, 0.18f); if (AT(0.42f)) play(sBone, 0.14f); if (AT(0.6f)) play(sCloth, 0.3f); }   // knuckles cracking, hands shaken out
+        }
+        if (A == ANIM_EQUIP && melee && style == 1 && AT(0.3f)) play(sSwing, 0.2f);
+        if (A == ANIM_TURNGUN) { if (AT(0.01f)) play(sHeart, 1.0f); if (AT(0.2f)) play(sBreath, 0.7f); if (AT(0.45f)) play(sHeart, 1.0f); if (AT(0.62f)) play(sCloth, 0.4f); if (AT(0.8f)) play(sCock, 0.8f); if (AT(0.85f)) play(sHeart, 1.0f); }
+        #undef AT
+        if (gun && sShot < 0.12f && revShotT >= 0.12f && revShotT < 0.5f && A == ANIM_NONE) play(sCock, 0.45f);   // the thumb rolls the hammer back after a shot
+        if (sFall < 0.42f && cyFallT >= 0.42f && cyFallMask) play(sShell, 0.5f);   // the empties land
+        if (sLd < 0.5f && ldFallT >= 0.5f) play(sClang, 0.2f);   // the empty speedloader lands
+        sA = A; sHt = ht; sU = u2; sShot = revShotT; sFall = cyFallT; sLd = ldFallT;
+    }
     static float prevSw = 0; static int swingN = 0, lastKills = -1;
     if (pl.swingT > prevSw + 0.02f) swingN++;   // a new swing started: combos alternate direction
     prevSw = pl.swingT;
@@ -208,6 +240,15 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         float f1 = ezOut(u2 / 0.25f), back = ph(u2, 0.45f, 1);
         R.p = Vector3Add(R.p, Vector3Scale(V3(0.08f, -0.08f, 0.03f), f1 * (1 - back))); R.r.z += (1.2f * f1) * (1 - back); R.r.x += (-0.6f * f1) * (1 - back);
         R.p.x += bell(u2, 0.2f, 0.3f) * 0.015f;
+    } break;
+    case ANIM_TURNGUN: if (gun) {   // insanity: the arm brings the revolver up, the wrist turns it round, the muzzle comes to the face. It shakes the whole way.
+        float a = ph(u2, 0, 0.3f), b = ph(u2, 0.3f, 0.75f), c = ph(u2, 0.75f, 0.97f), tr = 0.003f + 0.006f * u2;
+        R.p = Vector3Lerp(R.p, V3(0.05f, -0.17f, -0.36f), ez(a));
+        R.p = Vector3Lerp(R.p, V3(0.02f, -0.26f, -0.46f), ez(b)); R.r.y += PI * ez(b); R.r.x = Lerp(R.r.x, 0.4f, b); R.r.z += 0.25f * bell(u2, 0.3f, 0.75f);
+        R.p = Vector3Lerp(R.p, V3(0.0f, -0.26f, -0.36f), ez(c)); R.r.x += 0.13f * c;   // arm out, muzzle angled up to the mouth just below the eyes
+        R.p.x += sinf(t * 37) * tr + sinf(t * 23) * tr * 0.6f; R.p.y += cosf(t * 41) * tr; R.r.z += sinf(t * 29) * 0.03f;
+        R.p.x -= bell(u2, 0.12f, 0.24f) * 0.03f + bell(u2, 0.5f, 0.62f) * 0.02f;   // it fights you, twice
+        L.vis = false;
     } break;
     case ANIM_HOLSTER: { float e = ez(u2); R.p.y -= e * 0.4f; R.r.x += e * 0.9f; L.p.y -= e * 0.4f; break; }
     case ANIM_INSPECT:
