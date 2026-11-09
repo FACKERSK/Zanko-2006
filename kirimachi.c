@@ -2045,11 +2045,13 @@ int main(int argc, char **argv) {
                     if (sf > 0) { char nm[64]; snprintf(nm, sizeof nm, "vmseq_%04d.png", sf - 1); TakeScreenshot(nm); }
                     sf++; }
                 else {
-                if (k == 0) { pl.hands = (Slot){(short)V[q].it, 1, 0}; pl.weapon = V[q].it == IT_REVOLVER ? 1 : 0; pl.mag = V[q].mag; pl.flash = V[q].torch; pl.batt = 100; animId = ANIM_NONE; pl.swingT = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; pl.vy = 0; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f; }
-                if (k == 3) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; }
+                bool vSkip = getenv("KIRI_VMONLY") && strncmp(V[q].nm, getenv("KIRI_VMONLY"), strlen(getenv("KIRI_VMONLY")));
+                if (vSkip && k == 0) frame += 4;
+                if (!vSkip && k == 0) { pl.hands = (Slot){(short)V[q].it, 1, 0}; pl.weapon = V[q].it == IT_REVOLVER ? 1 : 0; pl.mag = V[q].mag; pl.flash = V[q].torch; pl.batt = 100; animId = ANIM_NONE; pl.swingT = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; pl.vy = 0; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f; }
+                if (!vSkip && k == 3) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; }
                     if (!strcmp(V[q].nm, "vm_hitmarker")) { hitMarkT = 0.3f; hitMarkKind = 2; }
                     if (V[q].shot >= 0) { revShotT = V[q].shot; pl.kick = fmaxf(0, 1 - V[q].shot * 6); pl.muzzle = V[q].shot < 0.07f ? 0.2f : 0; } }
-                if (k == 4) { char nm[64]; snprintf(nm, sizeof nm, "%s.png", V[q].nm); TakeScreenshot(nm); } } }
+                if (!vSkip && k == 4) { char nm[64]; snprintf(nm, sizeof nm, "%s.png", V[q].nm); TakeScreenshot(nm); } } }
         }
         {   // walk test: KIRI_WALK=1 walks the player (real physics) down the whole touge into town, along the coast road and every avenue
             static int wk = -1, walkTun = -1; static Vector3 route[20000]; static int nR = 0, ri0 = 0, seg[64], nSeg = 0, stuck = 0, falls = 0, jumps = 0, shots = 0; static float prog = 0, distSinceShot = 0, stuckT = 0; static Vector3 lastP;

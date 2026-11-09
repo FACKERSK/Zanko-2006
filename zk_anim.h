@@ -318,7 +318,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             Color st = {120, 126, 140, 255}, st2 = {92, 97, 110, 255}, dk = {16, 16, 18, 255}, wd = {138, 84, 48, 255}, wd2 = {108, 64, 36, 255};
             ADRAW("viewmodels/revolver4", G, WHITE,
                   BX(T_WOOD, 0, -0.005f, 0.012f, 0.03f, 0.11f, 0.045f, wd), BX(T_WOOD, 0.0155f, -0.004f, 0.01f, 0.002f, 0.07f, 0.03f, wd2), BX(T_WOOD, -0.0155f, -0.004f, 0.01f, 0.002f, 0.07f, 0.03f, wd2),
-                  BX(T_METAL, 0, 0.022f, 0.036f, 0.022f, 0.06f, 0.006f, st),                 // backstrap
+                  BX(T_METAL, 0, 0.062f, 0.012f, 0.022f, 0.036f, 0.034f, st),                // frame behind the trigger, down into the grip (the web of the hand sits under it)
                   BX(T_METAL, 0, 0.046f, -0.04f, 0.024f, 0.02f, 0.08f, st),                  // frame under the cylinder
                   BX(T_METAL, 0, 0.075f, -0.015f, 0.026f, 0.06f, 0.018f, st),                // recoil shield
                   BX(T_METAL, 0, 0.088f, 0.004f, 0.02f, 0.03f, 0.022f, st),                  // frame hump behind it
@@ -389,10 +389,10 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             // the right thumb: its base sits in the web of the hand; it lies along the frame, or reaches up to roll the hammer back
             {   Matrix PtoH = P;   // G = P * H, so P takes gun space into hand space
                 Vector3 spur = Vector3Transform(Vector3Transform(V3(0, 0.113f, 0.03f), MatrixMultiply(MatrixMultiply(MatrixTranslate(0, -0.088f, -0.012f), MatrixRotateX(ha)), MatrixTranslate(0, 0.088f, 0.012f))), PtoH);
-                Vector3 base = V3(-0.012f, 0.054f, 0.024f);
-                Vector3 kn = Vector3Lerp(V3(-0.028f, 0.068f, 0.012f), V3(-0.036f, 0.108f, 0.048f), thumbK);
-                Vector3 tip = Vector3Lerp(V3(-0.031f, 0.078f, -0.016f), Vector3Add(spur, V3(-0.006f, 0.004f, 0.012f)), thumbK);
-                drawSeg(H, base, kn, 0.025f); drawSeg(H, kn, tip, 0.021f);
+                Vector3 base = V3(-0.016f, 0.058f, 0.02f);
+                Vector3 kn = Vector3Lerp(V3(-0.03f, 0.07f, 0.002f), V3(-0.034f, 0.104f, 0.044f), thumbK);
+                Vector3 tip = Vector3Lerp(V3(-0.031f, 0.076f, -0.026f), Vector3Add(spur, V3(-0.006f, 0.004f, 0.012f)), thumbK);
+                drawSeg(H, base, kn, 0.022f); drawSeg(H, kn, tip, 0.018f);
             }
             if (pl.muzzle > 0) { setEmis(1); ADRAW("viewmodels/muzzle_flash4", G, WHITE, BX(T_PLAIN, 0, 0.092f, -0.275f, 0.1f, 0.03f, 0.06f, ((Color){255, 220, 120, 255})), BX(T_PLAIN, 0, 0.092f, -0.275f, 0.03f, 0.1f, 0.06f, ((Color){255, 220, 120, 255})),
                                        BX(T_PLAIN, 0, 0.092f, -0.29f, 0.05f, 0.05f, 0.09f, ((Color){255, 245, 200, 255}))); setEmis(0); }
