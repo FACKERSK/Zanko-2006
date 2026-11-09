@@ -2,6 +2,7 @@
 // defaults in zk_design.h before the world is generated. The Mod Maker edits the same tables live and saves them here.
 // Format (text): "val NAME value" lines, and "arr NAME rows cols" followed by one row of numbers per line.
 #include "zk_mapdesc.h"
+static bool mobjLoadFile(const char *path); static void mobjClear(void); static unsigned int mobjHash(unsigned int h);
 static int mapGen = 0;   // bumped whenever the map tables change (Mod Maker): caches built from them start over
 #define MAP_NARR ((int)(sizeof mapArrs / sizeof mapArrs[0]))
 #define MAP_NVAL ((int)(sizeof mapVals / sizeof mapVals[0]))
@@ -64,10 +65,16 @@ static unsigned int mapHash(void) {   // multiplayer: both sides must have gener
     for (int i = 0; i < MAP_NARR; i++) { MapArr *a = &mapArrs[i]; int rows = mapRows(a); const unsigned char *b = a->p; size_t sz = (size_t)rows * a->cols * mapElem(a->type);
         for (size_t k = 0; k < sz; k++) { h ^= b[k]; h *= 16777619u; } h ^= (unsigned)rows; h *= 16777619u; }
     for (int i = 0; i < MAP_NVAL; i++) { const unsigned char *b = mapVals[i].p; for (int k = 0; k < 4; k++) { h ^= b[k]; h *= 16777619u; } }
-    return h;
+    return mobjHash(h);
 }
 static bool modFind(const char *rel, char *out, int outSize);
-static void mapLoad(void) {   // at start: a mod's map wins over Data/map.zmap, which wins over the built-in one
+static void objsLoad(void) {   // placed objects: a mod's Data/objects.zobj, else Data/objects.zobj, else none
+    char mp[800]; mobjClear();
+    if (modFind("Data/objects.zobj", mp, sizeof mp) && mobjLoadFile(mp)) return;
+    if (FileExists(P("Data/objects.zobj"))) mobjLoadFile(P("Data/objects.zobj"));
+}
+static void mapLoad(void) {
+    objsLoad();   // at start: a mod's map wins over Data/map.zmap, which wins over the built-in one
     mapSnapshot();
     char mp[800];
     if (modFind("Data/map.zmap", mp, sizeof mp) && mapLoadFile(mp)) { TraceLog(LOG_INFO, "MAP: %s (from a mod), hash %08x", mp, mapHash()); return; }

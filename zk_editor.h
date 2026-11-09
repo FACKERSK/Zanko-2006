@@ -102,7 +102,7 @@ static void edSaveInfo(void) {
     MakeDirectory(edDir); char p[800]; edPath(p, sizeof p, "mod.ini"); FILE *f = fopen(p, "w"); if (!f) return;
     fprintf(f, "name=%s\nauthor=%s\nversion=%s\ndescription=%s\n", edTB[0].buf, edTB[1].buf, edTB[2].buf, edTB[3].buf); fclose(f);
 }
-static bool edSaveMap(void) { edEnsureDirs("Data/map.zmap"); char p[800]; edPath(p, sizeof p, "Data/map.zmap"); edSaveInfo(); bool ok = mapSave(p); edDirty = false; return ok; }
+static bool edSaveMap(void) { edEnsureDirs("Data/map.zmap"); char p[800]; edPath(p, sizeof p, "Data/map.zmap"); edSaveInfo(); bool ok = mapSave(p); edPath(p, sizeof p, "Data/objects.zobj"); ok &= mobjSave(p); edDirty = false; return ok; }
 static void edRebuild(void) { mapGen++; double t0 = GetTime(); genWorld(12345); char b[96]; snprintf(b, sizeof b, "World rebuilt in %.1f s.", GetTime() - t0); edSay(b); }
 // ---- a plain .zip writer (stored, no compression) for sharing a mod
 static unsigned int edCrc(const unsigned char *d, size_t n) { unsigned int c = 0xFFFFFFFFu; for (size_t i = 0; i < n; i++) { c ^= d[i]; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1))); } return ~c; }
@@ -149,6 +149,38 @@ static void edDropped(void) {   // files dragged onto the window: a .png replace
     }
     UnloadDroppedFiles(d);
 }
+// ---- the Build tab: parts placed in 3D, moved, turned and sized with handles (like a block-building studio)
+static int boSel = -1, boTool = 0, boAxis = -1; static bool boSnap = true, boAuto = true; static MObj boOrig; static Vector2 boMouse0; static Vector3 boOff;
+static const Color boCols[8] = {{235, 235, 230, 255}, {150, 150, 145, 255}, {70, 72, 76, 255}, {190, 60, 50, 255}, {220, 190, 90, 255}, {80, 150, 90, 255}, {80, 120, 190, 255}, {150, 110, 80, 255}};
+static float boSnapV(float v, float g) { return boSnap ? roundf(v / g) * g : v; }
+static Vector3 boAxisW(MObj *o, int a, bool local) {   // world direction of an axis (move: world axes; size: the part's own)
+    if (a == 1) return V3(0, 1, 0); float y = local ? o->yaw * DEG2RAD : 0;
+    return a == 0 ? V3(cosf(y), 0, sinf(y)) : V3(-sinf(y), 0, cosf(y));
+}
+static Vector3 boShowSize(MObj *o) { return o->type == MO_BLOCK ? o->s : (o->type == MO_TREE || o->type == MO_CHERRY || o->type == MO_PINE || o->type == MO_CEDAR) ? V3(o->s.y * 0.5f, o->s.y, o->s.y * 0.5f) : o->s; }
+static Matrix boM(MObj *o) { Vector3 z = boShowSize(o); return MatrixMultiply(MatrixMultiply(MatrixScale(z.x, z.y, z.z), MatrixRotateY(-o->yaw * DEG2RAD)), MatrixTranslate(o->p.x, o->p.y + z.y / 2, o->p.z)); }
+static float boPick(Ray ray, MObj *o) {   // distance along the ray to the part, or -1
+    Vector3 z = boShowSize(o), c = V3(o->p.x, o->p.y + z.y / 2, o->p.z);
+    Ray L = {Vector3RotateByAxisAngle(Vector3Subtract(ray.position, c), V3(0, 1, 0), o->yaw * DEG2RAD), Vector3RotateByAxisAngle(ray.direction, V3(0, 1, 0), o->yaw * DEG2RAD)};
+    RayCollision h = GetRayCollisionBox(L, (BoundingBox){Vector3Scale(z, -0.5f), Vector3Scale(z, 0.5f)}); return h.hit ? h.distance : -1;
+}
+static void boDraw(void) {   // the parts, drawn live while they are edited
+    for (int i = 0; i < nMobj; i++) { MObj *o = &mobj[i];
+        if (o->type == MO_BLOCK) drawM(&cube[o->tex], boM(o), o->col);
+        else { Color pc = o->type == MO_VENDING ? (Color){90, 140, 200, 255} : o->type == MO_CAR ? (Color){170, 60, 50, 255} : o->type == MO_LAMP ? (Color){160, 160, 150, 255} : (Color){70, 130, 70, 255}; drawM(&cube[T_PLAIN], boM(o), pc); } }
+}
+static void boHandles(MObj *o, Vector3 *O, Vector3 *E, float *len) {
+    Vector3 z = boShowSize(o); *O = V3(o->p.x, o->p.y + z.y / 2, o->p.z);
+    for (int a = 0; a < 3; a++) { float half = (a == 0 ? z.x : a == 1 ? z.y : z.z) / 2; len[a] = half + 1.6f; E[a] = Vector3Add(*O, Vector3Scale(boAxisW(o, a, boTool == 2), len[a])); }
+}
+static float boSegDist(Vector2 p, Vector2 a, Vector2 b) { Vector2 d = Vector2Subtract(b, a); float L2 = Vector2DotProduct(d, d); float t = L2 > 0 ? clampf(Vector2DotProduct(Vector2Subtract(p, a), d) / L2, 0, 1) : 0; return Vector2Distance(p, Vector2Add(a, Vector2Scale(d, t))); }
+static void boInsert(int type) {
+    if (nMobj >= MAX_MOBJ) { edSay("Too many parts."); return; }
+    Vector3 f = Vector3Subtract(cam.target, cam.position), q = cam.position;   // where the view meets the ground
+    for (int k = 0; k < 400; k++) { q = Vector3Add(q, Vector3Scale(f, 1.0f)); if (q.y < edGroundY(q.x, q.z)) break; }
+    MObj o = {type, V3(boSnapV(q.x, 0.5f), edGroundY(q.x, q.z), boSnapV(q.z, 0.5f)), moDefaultSize(type), 0, T_CONCRETE, boCols[0], 1};
+    mobj[nMobj] = o; boSel = nMobj++; edDirty = true;
+}
 // ---- the project picker
 static bool edPickProject(void) {
     if (getenv("KIRI_EDPROJ")) { snprintf(edName, sizeof edName, "%s", getenv("KIRI_EDPROJ")); snprintf(edDir, sizeof edDir, "%s/%s", P("Mods"), edName); MakeDirectory(edDir); return true; }   // test hook
@@ -177,7 +209,8 @@ static int editorMain(void) {
     SetWindowTitle("Zank\xC5\x8D 2006 Mod Maker"); EnableCursor();
     if (!edPickProject()) { CloseWindow(); return 0; }
     edLoadInfo();
-    { char mp[800]; edPath(mp, sizeof mp, "Data/map.zmap"); if (FileExists(mp)) mapLoadFile(mp); else mapReset(); }
+    { char mp[800]; edPath(mp, sizeof mp, "Data/map.zmap"); if (FileExists(mp)) mapLoadFile(mp); else mapReset(); edPath(mp, sizeof mp, "Data/objects.zobj"); nMobj = 0; if (FileExists(mp)) mobjLoadFile(mp); }
+    mobjLive = true;
     for (int i = 0; i < T_COUNT; i++) edReloadTexture(i);
     edRebuild();
     edModels = LoadDirectoryFilesEx(P("Data/Models"), ".obj", true); edModelsOk = true;
@@ -188,7 +221,7 @@ static int editorMain(void) {
         Rectangle side = {0, 0, 330 * s, H}; Vector2 m = GetMousePosition(); bool inView = m.x > side.width && m.y > 44 * s;
         bool typing = false; for (int i = 0; i < 4; i++) typing |= edTB[i].active;
         // camera: hold the right mouse button to look, WASD to fly, Q/E down/up, Shift faster, wheel sets the speed
-        if (edTab == 0) {
+        if (edTab == 0 || edTab == 4) {
             if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && inView) { Vector2 d = GetMouseDelta(); edYaw -= d.x * 0.004f; edPitch = clampf(edPitch - d.y * 0.004f, -1.5f, 1.5f); }
             if (inView) edSpeed = clampf(edSpeed * (1 + GetMouseWheelMove() * 0.15f), 4, 300);
             if (!typing) { Vector3 f = {sinf(edYaw) * cosf(edPitch), sinf(edPitch), cosf(edYaw) * cosf(edPitch)}, r = {-cosf(edYaw), 0, sinf(edYaw)};
@@ -205,6 +238,13 @@ static int editorMain(void) {
                 Vector2 sc = GetWorldToScreen(w, cam); float d = Vector2Distance(sc, m); if (d < bd) { bd = d; hover = j; } } }
         Ray ray = GetScreenToWorldRay(m, cam);
         if (edTab == 0 && inView && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (hover >= 0 && edLayers[edLayer].kind <= 2 && edBrush > 0) {   // fill in points around it so the line bends as a smooth curve
+                Vector2 c0 = edGet(edLayer, hover); for (int j = 0; j + 1 < edCount(edLayer) && j < 20000; j++) {
+                    if (!edSameGroup(edLayer, j, hover) || !edSameGroup(edLayer, j + 1, hover)) continue;
+                    Vector2 a = edGet(edLayer, j), b = edGet(edLayer, j + 1); if (Vector2Distance(a, b) <= 2.5f || fminf(Vector2Distance(a, c0), Vector2Distance(b, c0)) > edBrush + 4) continue;
+                    MapArr *ma = mapArr(edLayers[edLayer].arr); if (mapRows(ma) + 2 >= ma->cap) break;
+                    edInsert(edLayer, j); if (hover > j) hover++; j--; }
+                n = edCount(edLayer); }
             if (hover >= 0) { edSel = hover; Vector2 p = edGet(edLayer, hover); edDragY = edGroundY(p.x, p.y) + 0.4f; edDragStart = p; edDragging = true; edDragN = 0;
                 int kind = edLayers[edLayer].kind; float R = (kind <= 2) ? edBrush : 0;
                 for (int j = 0; j < n && edDragN < 4096; j++) { if (!edSameGroup(edLayer, j, hover)) continue; Vector2 q = edGet(edLayer, j); float d = Vector2Distance(q, p);
@@ -212,7 +252,7 @@ static int editorMain(void) {
                     edDragIdx[edDragN] = j; edDragW[edDragN] = w; edDragOrig[edDragN] = q; edDragN++; } }
             else edSel = -1; }
         if (edDragging) {
-            if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) edDragging = false;
+            if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) { edDragging = false; if (boAuto && edDirty) edRebuild(); }   // the town follows the line as soon as it is let go
             else if (fabsf(ray.direction.y) > 1e-4f) { float t = (edDragY - ray.position.y) / ray.direction.y; if (t > 0) { Vector2 hit = {ray.position.x + ray.direction.x * t, ray.position.z + ray.direction.z * t}, d = Vector2Subtract(hit, edDragStart);
                 for (int k = 0; k < edDragN; k++) edSetP(edLayer, edDragIdx[k], Vector2Add(edDragOrig[k], Vector2Scale(d, edDragW[k]))); edDirty = true; } } }
         if (edTab == 0 && !typing) {
@@ -221,6 +261,33 @@ static int editorMain(void) {
             if (IsKeyPressed(KEY_F5)) edRebuild();
             if (IsKeyPressed(KEY_N) && edLayers[edLayer].kind == 2 && fabsf(ray.direction.y) > 1e-4f) { float t = (SIDEH - ray.position.y) / ray.direction.y; if (t > 0) edNewStreet((Vector2){ray.position.x + ray.direction.x * t, ray.position.z + ray.direction.z * t}); }
         }
+        if (edTab == 4) {   // Build: pick a part, drag its handles (Move: world arrows, Size: its own sides), Turn: drag sideways
+            Vector3 O, E[3]; float len[3]; int hAx = -1;
+            if (boSel >= 0 && boSel < nMobj && boTool != 1) { boHandles(&mobj[boSel], &O, E, len); Vector2 so = GetWorldToScreen(O, cam); float bd = 10;
+                for (int a = 0; a < 3; a++) { float d = boSegDist(m, so, GetWorldToScreen(E[a], cam)); if (d < bd) { bd = d; hAx = a; } } }
+            if (inView && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (hAx >= 0) { boAxis = hAx; boOrig = mobj[boSel]; boMouse0 = m; }
+                else { int best = -1; float bt = 1e9f; for (int i = 0; i < nMobj; i++) { float t = boPick(ray, &mobj[i]); if (t >= 0 && t < bt) { bt = t; best = i; } }
+                    boSel = best; boAxis = -1;
+                    if (best >= 0) { boOrig = mobj[best]; boMouse0 = m; boAxis = 3;
+                        float t = fabsf(ray.direction.y) > 1e-4f ? (boOrig.p.y - ray.position.y) / ray.direction.y : -1; Vector3 hit = Vector3Add(ray.position, Vector3Scale(ray.direction, t));
+                        boOff = t > 0 ? Vector3Subtract(boOrig.p, hit) : V3(0, 0, 0); } } }
+            if (boAxis >= 0 && boSel >= 0 && boSel < nMobj) { MObj *o = &mobj[boSel];
+                if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) boAxis = -1;
+                else if (boTool == 1) { o->yaw = boOrig.yaw + (m.x - boMouse0.x) * 0.5f; if (boSnap) o->yaw = roundf(o->yaw / 15) * 15; edDirty = true; }
+                else if (boAxis == 3) { if (boTool == 0 && fabsf(ray.direction.y) > 1e-4f) { float t = (boOrig.p.y - ray.position.y) / ray.direction.y; if (t > 0) {
+                    Vector3 hit = Vector3Add(Vector3Add(ray.position, Vector3Scale(ray.direction, t)), boOff); o->p.x = boSnapV(hit.x, 0.5f); o->p.z = boSnapV(hit.z, 0.5f); edDirty = true; } } }
+                else { boHandles(&boOrig, &O, E, len); Vector2 so = GetWorldToScreen(O, cam), se = GetWorldToScreen(E[boAxis], cam), d = Vector2Subtract(se, so); float L = Vector2Length(d);
+                    if (L > 2) { float tw = Vector2DotProduct(Vector2Subtract(m, boMouse0), Vector2Scale(d, 1 / L)) / L * len[boAxis]; Vector3 ax = boAxisW(&boOrig, boAxis, boTool == 2);
+                        if (boTool == 0) { o->p = Vector3Add(boOrig.p, Vector3Scale(ax, tw)); o->p.x = boSnapV(o->p.x, 0.5f); o->p.y = boSnapV(o->p.y, 0.25f); o->p.z = boSnapV(o->p.z, 0.5f); }
+                        else if (boOrig.type == MO_BLOCK || boAxis == 1) { float *sz = boAxis == 0 ? &o->s.x : boAxis == 1 ? &o->s.y : &o->s.z, base = boAxis == 0 ? boOrig.s.x : boAxis == 1 ? boOrig.s.y : boOrig.s.z;
+                            *sz = fmaxf(0.1f, boSnapV(base + tw * (boAxis == 1 ? 1 : 2), 0.25f)); }
+                        edDirty = true; } } }
+            if (!typing && boSel >= 0 && boSel < nMobj) {
+                if (IsKeyPressed(KEY_DELETE)) { mobj[boSel] = mobj[--nMobj]; boSel = -1; edDirty = true; }
+                else if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_D) && nMobj < MAX_MOBJ) { mobj[nMobj] = mobj[boSel]; mobj[nMobj].p.x += 1; boSel = nMobj++; edDirty = true; } }
+            if (!typing && IsKeyPressed(KEY_ONE)) boTool = 0; if (!typing && IsKeyPressed(KEY_TWO)) boTool = 1; if (!typing && IsKeyPressed(KEY_THREE)) boTool = 2;
+        }
         if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S)) edSay(edSaveMap() ? "Saved." : "Could not save.");
         // ---- draw
         float amb = 0.82f * gs.bright, fogD = 0.006f, zero = 0, one = 1, snap[2] = {16384, 16384}; int nl = 0;
@@ -228,8 +295,18 @@ static int editorMain(void) {
         SetShaderValue(sh, locMuzzle, &zero, SHADER_UNIFORM_FLOAT); SetShaderValue(sh, locAmb, &amb, SHADER_UNIFORM_FLOAT); SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT);
         SetShaderValue(sh, locSnap, snap, SHADER_UNIFORM_VEC2); SetShaderValue(sh, locNL, &nl, SHADER_UNIFORM_INT); SetShaderValue(sh, locDesat, &zero, SHADER_UNIFORM_FLOAT); SetShaderValue(sh, locRage, &zero, SHADER_UNIFORM_FLOAT); (void)one;
         BeginDrawing(); ClearBackground(fogC);
+        if (edTab == 4) {
+            BeginMode3D(cam); drawWorld(cam.position, (float)GetTime()); boDraw(); rlDrawRenderBatchActive();
+            if (boSel >= 0 && boSel < nMobj) { MObj *o = &mobj[boSel]; Vector3 z = boShowSize(o); rlPushMatrix(); rlTranslatef(o->p.x, o->p.y + z.y / 2, o->p.z); rlRotatef(-o->yaw, 0, 1, 0);
+                DrawCubeWires(V3(0, 0, 0), z.x + 0.05f, z.y + 0.05f, z.z + 0.05f, (Color){111, 214, 208, 255}); rlPopMatrix(); rlDrawRenderBatchActive(); rlDisableDepthTest();
+                if (boTool != 1) { Vector3 O, E[3]; float len[3]; boHandles(o, &O, E, len); Color hc[3] = {{230, 70, 60, 255}, {90, 220, 90, 255}, {80, 140, 240, 255}};
+                    for (int a = 0; a < 3; a++) { DrawLine3D(O, E[a], hc[a]); if (boTool == 0) DrawSphere(E[a], 0.28f, hc[a]); else DrawCube(E[a], 0.45f, 0.45f, 0.45f, hc[a]); } }
+                rlDrawRenderBatchActive(); rlEnableDepthTest(); }
+            EndMode3D();
+            for (int i = 0; i < nMobj; i++) if (mobj[i].type != MO_BLOCK && Vector3DistanceSqr(mobj[i].p, edPos) < 80 * 80) { Vector2 sp = GetWorldToScreen(V3(mobj[i].p.x, mobj[i].p.y + boShowSize(&mobj[i]).y + 0.5f, mobj[i].p.z), cam); if (sp.x > side.width) aTextC(moNames[mobj[i].type], sp.x, sp.y, 12, WHITE, false); }
+        }
         if (edTab == 0) {
-            BeginMode3D(cam); drawWorld(cam.position, (float)GetTime()); rlDrawRenderBatchActive(); rlDisableDepthTest();
+            BeginMode3D(cam); drawWorld(cam.position, (float)GetTime()); boDraw(); rlDrawRenderBatchActive(); rlDisableDepthTest();
             for (int L = 0; L < ED_NL; L++) { const EdLayer *e = &edLayers[L]; int c = edCount(L); bool act = L == edLayer; Color lc = act ? e->col : aA(e->col, 90);
                 if (e->kind == 5 && !act) continue;
                 for (int j = 0; j < c; j++) { Vector2 p = edGet(L, j); Vector3 a = V3(p.x, edGroundY(p.x, p.y) + 0.4f, p.y);
@@ -245,8 +322,8 @@ static int editorMain(void) {
         aPanel(side);
         float y = 14 * s; aText("Mod Maker", 18 * s, y, 22, C_BONE, true); y += 30 * s;
         { char b[96]; snprintf(b, sizeof b, "Project: %s%s", edName, edDirty ? "  (unsaved)" : ""); aText(b, 18 * s, y, 13, C_CYAN, false); } y += 26 * s;
-        const char *tabs[4] = {"Map", "Textures", "Models", "Mod"};
-        for (int i = 0; i < 4; i++) if (aButton((Rectangle){(14 + i * 76) * s, y, 72 * s, 30 * s}, tabs[i], edTab != i)) { edTab = i; edTexSel = edTexSel; }
+        const char *tabs[5] = {"Map", "Build", "Textures", "Models", "Mod"}; const int tabId[5] = {0, 4, 1, 2, 3};
+        for (int i = 0; i < 5; i++) if (aButton((Rectangle){(14 + i * 61) * s, y, 58 * s, 30 * s}, tabs[i], edTab != tabId[i])) edTab = tabId[i];
         y += 44 * s;
         if (edTab == 0) {
             aText("Layer", 18 * s, y, 15, C_BONE2, true); y += 22 * s;
@@ -256,6 +333,7 @@ static int editorMain(void) {
             if (aButton((Rectangle){168 * s, y, 146 * s, 30 * s}, "Delete point", edSel >= 0 && edLayers[edLayer].kind < 4)) edDelete(edLayer, edSel); y += 36 * s;
             if (aButton((Rectangle){14 * s, y, 146 * s, 30 * s}, "Rebuild (F5)", true)) edRebuild();
             if (aButton((Rectangle){168 * s, y, 146 * s, 30 * s}, "Save (Ctrl+S)", true)) edSay(edSaveMap() ? "Saved." : "Could not save."); y += 36 * s;
+            boAuto = aToggle(18 * s, y, "Rebuild when a point is let go", boAuto); y += 32 * s;
             if (aButton((Rectangle){14 * s, y, 300 * s, 28 * s}, "Reset to the built-in map", true)) { mapReset(); edSel = -1; edDirty = true; edRebuild(); } y += 36 * s;
             if (edLayers[edLayer].kind == 2 && edSel >= 0) { int s2 = edStreetOf(edSel); if (s2 >= 0) { char b[96];
                 snprintf(b, sizeof b, "Street %d: width %.1f m, %s", s2, dStreets[s2][2] / 10.0f, (const char *[]){"street", "avenue (lines)", "stairs", "bridge"}[dStreets[s2][3] & 3]); aText(b, 18 * s, y, 13, C_BONE, false); y += 22 * s;
@@ -265,6 +343,29 @@ static int editorMain(void) {
             aText("RMB look  WASD fly  Q/E down/up  wheel speed", 18 * s, H - 66 * s, 12, C_BONE2, false);
             aText("LMB drag a point  Ins add  Del delete", 18 * s, H - 50 * s, 12, C_BONE2, false);
             aText("Streets: N new street, Shift+Del remove street", 18 * s, H - 34 * s, 12, C_BONE2, false);
+        } else if (edTab == 4) {
+            const char *tools[3] = {"Move (1)", "Turn (2)", "Size (3)"};
+            for (int i = 0; i < 3; i++) if (aButton((Rectangle){(14 + i * 101) * s, y, 97 * s, 30 * s}, tools[i], boTool != i)) boTool = i; y += 40 * s;
+            boSnap = aToggle(18 * s, y, "Snap to grid (0.5 m, 15 deg)", boSnap); y += 32 * s;
+            aText("Insert", 18 * s, y, 15, C_BONE2, true); y += 22 * s;
+            for (int t = 0; t < MO_N; t++) { if (aButton((Rectangle){(14 + (t % 2) * 152) * s, y, 148 * s, 25 * s}, moNames[t], true)) boInsert(t); if (t % 2) y += 28 * s; }
+            y += 10 * s;
+            if (boSel >= 0 && boSel < nMobj) { MObj *o = &mobj[boSel]; char b[128];
+                snprintf(b, sizeof b, "%s  %.2f x %.2f x %.2f m, %.0f deg", moNames[o->type], o->s.x, o->s.y, o->s.z, o->yaw); aText(b, 18 * s, y, 13, C_BONE, true); y += 24 * s;
+                if (o->type == MO_BLOCK) {
+                    if (aButton((Rectangle){14 * s, y, 40 * s, 26 * s}, "<", true)) { o->tex = (o->tex + T_COUNT - 1) % T_COUNT; edDirty = true; }
+                    if (aButton((Rectangle){274 * s, y, 40 * s, 26 * s}, ">", true)) { o->tex = (o->tex + 1) % T_COUNT; edDirty = true; }
+                    aTextC(texNames[o->tex], 164 * s, y + 4 * s, 13, C_BONE, false); y += 32 * s;
+                    for (int c = 0; c < 8; c++) { Rectangle sw = {(16 + c * 37) * s, y, 32 * s, 24 * s}; DrawRectangleRec(sw, boCols[c]); if (o->col.r == boCols[c].r && o->col.g == boCols[c].g && o->col.b == boCols[c].b) DrawRectangleLinesEx(aGrow(sw, 2), 2, C_CYAN);
+                        if (aMPressed() && CheckCollisionPointRec(m, sw)) { o->col = boCols[c]; edDirty = true; } } y += 34 * s;
+                    bool so = aToggle(18 * s, y, "Solid (you collide with it)", o->solid != 0); if (so != (o->solid != 0)) { o->solid = so; edDirty = true; } y += 32 * s; }
+                if (aButton((Rectangle){14 * s, y, 146 * s, 28 * s}, "Duplicate", nMobj < MAX_MOBJ)) { mobj[nMobj] = *o; mobj[nMobj].p.x += 1; boSel = nMobj++; edDirty = true; }
+                if (aButton((Rectangle){168 * s, y, 146 * s, 28 * s}, "Delete", true)) { mobj[boSel] = mobj[--nMobj]; boSel = -1; edDirty = true; } y += 36 * s; }
+            else { aText(TextFormat("%d parts. Click one to select it.", nMobj), 18 * s, y, 13, C_BONE2, false); y += 24 * s; }
+            if (aButton((Rectangle){14 * s, y, 146 * s, 28 * s}, "Preview in game", true)) { mobjLive = false; edRebuild(); mobjLive = true; edSay("Props shown as in the game until the next rebuild."); }
+            if (aButton((Rectangle){168 * s, y, 146 * s, 28 * s}, "Save (Ctrl+S)", true)) edSay(edSaveMap() ? "Saved." : "Could not save.");
+            aText("Drag a part to move it, drag the arrows / cubes", 18 * s, H - 50 * s, 12, C_BONE2, false);
+            aText("Ctrl+D duplicate  Del delete  RMB look  WASD fly", 18 * s, H - 34 * s, 12, C_BONE2, false);
         } else if (edTab == 1) {
             aText("Pick a texture, then drop a .png onto the window.", 18 * s, y, 13, C_BONE2, false); y += 24 * s;
             int rows = (int)((H - y - 230 * s) / (25 * s)); if (rows < 4) rows = 4;
@@ -303,7 +404,12 @@ static int editorMain(void) {
             if (fr2 == 31) { edTab = 1; edTexSel = 3; } if (fr2 == 40) TakeScreenshot("ed_tex.png");
             if (fr2 == 41) edTab = 2; if (fr2 == 50) TakeScreenshot("ed_models.png");
             if (fr2 == 51) edTab = 3; if (fr2 == 60) { TakeScreenshot("ed_mod.png"); ensureDir("Exports"); char zp[800]; snprintf(zp, sizeof zp, "%s/%s.zip", P("Exports"), edName); TraceLog(LOG_INFO, "EDTEST export %d files", edExportZip(zp)); }
-            if (fr2 == 62) { TraceLog(LOG_INFO, "EDTEST done, map hash %08x", mapHash()); break; } }
+            if (fr2 == 62) { edTab = 4; edPos = V3(222, 12, 100); edYaw = 0.2f; edPitch = -0.45f; nMobj = 0; }
+            if (fr2 == 66) { boInsert(MO_BLOCK); mobj[0].s = V3(6, 3, 0.4f); mobj[0].yaw = 30; mobj[0].tex = T_BRICK; boInsert(MO_BLOCK); mobj[1].p.x += 4; mobj[1].col = boCols[3]; boInsert(MO_TREE); mobj[2].p.x -= 5; boInsert(MO_VENDING); mobj[3].p.z += 3; boSel = 0; boTool = 0; }
+            if (fr2 == 72) TakeScreenshot("ed_build.png");
+            if (fr2 == 73) { boTool = 2; } if (fr2 == 80) TakeScreenshot("ed_build2.png");
+            if (fr2 == 81) { edSaveMap(); mobjLive = false; edRebuild(); mobjLive = true; } if (fr2 == 90) TakeScreenshot("ed_build3.png");
+            if (fr2 == 92) { TraceLog(LOG_INFO, "EDTEST done, map hash %08x, %d parts", mapHash(), nMobj); break; } }
     }
     CloseWindow(); return 0;
 }

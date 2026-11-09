@@ -1,4 +1,22 @@
-ZANKO 2006 - Afterglow  (v0.8.3, Mod Maker and the seafront)
+ZANKO 2006 - Afterglow  (v0.8.4, Build tab and the mountain)
+
+- 0.8.4: building in the Mod Maker, the mountain tunnel.
+  * Mod Maker Build tab: insert blocks and props (trees,
+    cherry, garden pine, cedar, vending machine, car, lamp
+    post), move them with arrows, turn them, size them with
+    handles, snap to 0.5 m / 15 degrees, pick any texture and
+    colour, solid or not, duplicate and delete. Parts are
+    saved with the mod and built into the town with collision.
+  * Map tab: dragging a point adds points around it so roads
+    and lines bend as smooth curves; the town rebuilds when the
+    point is let go.
+  * The old tunnel at the end of the touge runs into a real
+    mountain rising behind the portal.
+  * The seawall, its railing and the sea-side pavement run
+    unbroken along the whole coast road; the river water ends
+    at the coast road.
+  * No more ground slopes hanging into tunnel mouths; raised
+    pavements stop short of junctions.
 
 - 0.8.3: the Mod Maker, kerbs, the seawall.
   * Mod Maker (Root/ModMaker.exe, or Open Mod Maker in the

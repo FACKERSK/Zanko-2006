@@ -942,6 +942,7 @@ static void finalizeMeshes(void) {
     }
 }
 #include "zk_layout.h"
+#include "zk_objs.h"
 static bool onRoad(float x, float z) { return fmodf(x, PITCH) < ROADW || fmodf(z, PITCH) < ROADW; }
 static void spawnCreatureT(Vector3 nearP, float minD, float maxD, bool alerted, int forceType);
 static void spawnCreature(Vector3 nearP, float minD, float maxD, bool alerted) { spawnCreatureT(nearP, minD, maxD, alerted, -1); }
@@ -1029,6 +1030,7 @@ static void genWorld(unsigned int seed) {
     }
     bakeHeightfield();
     genLayoutWorld();
+    genObjs();   // placed objects (Mod Maker Build tab)
     // scarce extras: 2 axes, 1 katana, 3 ammo stashes
     int want[6] = {IT_AXE, IT_AXE, IT_KATANA, IT_AMMO, IT_AMMO, IT_AMMO};
     for (int w = 0; w < 6; w++) {

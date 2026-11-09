@@ -1,4 +1,5 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.8.4|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.4.zip|2026-11-09|Build tab, mountain tunnel
 0.8.3|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.3.zip|2026-11-09|Mod Maker, kerbs, seawall
 0.8.2|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.2.zip|2026-11-09|Settings, tunnels, trains
 0.8.1|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.1.zip|2026-11-09|Sounds

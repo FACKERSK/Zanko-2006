@@ -38,7 +38,7 @@ static float coast_d(float x, float z); static bool seaSide(float x, float z); s
 static bool inRiverRaw(float x, float z) {
     if (!inPoly(dRiver, DRIVER_N, x, z)) return false;
     if (nCoast > 1 && coast_d(x, z) < 6.6f) return false;   // the coast road carries on over the river mouth (a culvert under it)
-    if (seaSide(x, z)) return false;   // beyond the coast road the river has reached the bay: sea, not a channel with walls
+    if (seaSide(x, z) || (nCoast > 1 && coast_d(x, z) > 5.1f && coast_d(x, z) < 60 && coastSeaward(x, z))) return false;   // beyond the coast road the river has reached the bay: beach and sea, not a channel with walls
     if (nStreet > 0 && mainRoadAt(x, z, 0.5f)) return false;   // a street crossing without a drawn bridge: the river runs under it
     for (int b = 0; b < DBRIDGES_N; b++) { float ax = dBridges[b][0], az = dBridges[b][1], dx = dBridges[b][2] - ax, dz = dBridges[b][3] - az, L2 = dx * dx + dz * dz;
         float t = L2 > 0 ? clampf(((x - ax) * dx + (z - az) * dz) / L2, -0.2f, 1.2f) : 0, qx = ax + dx * t - x, qz = az + dz * t - z;
@@ -293,6 +293,14 @@ static void bakeHeightfield(void) {
                 c = br->fy + br->h + 4 + fminf(fmaxf(a, 0), 40) * 0.75f + vnoise(x * 0.07f, z * 0.07f, 31) * 3;
                 wl = 1 - clampf((fabsf(l) - (br->w / 2 + 6)) / 30, 0, 1); wl = wl * wl * (3 - 2 * wl); }
             if (c > h) h = Lerp(h, c, wl * wa); }
+        for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; if (br->kind != 1) continue; float a, l; boreLocal(br, x, z, &a, &l);   // the old tunnel runs into a real mountain: a broad massif rises behind the portal
+            if (a < -8 || a > br->len + 200) continue;
+            float ac = br->len * 0.45f, r = sqrtf((a - ac) * (a - ac) + l * l * 0.8f), k = clampf(1 - r / 130, 0, 1); k = k * k * (3 - 2 * k);
+            float c = br->fy + 6 + 62 * k + vnoise(x * 0.04f, z * 0.04f, 41) * 6 * k, wf = clampf(a / 4, 0, 1); wf = wf * wf * (3 - 2 * wf); if (a < 0) continue;   // only behind the portal face: the road and the cutting in front stay open
+            c = fminf(c, br->fy + br->h + 4 + a * 1.1f + fmaxf(fabsf(l) - br->w / 2 - 2, 0) * 0.9f);   // it climbs from the portal at a steep slope, not as a sheer wall
+            if (fabsf(l) < br->w / 2 + 10) c = fmaxf(c, br->fy + br->h + 4);   // always rock over the bore
+            { float td = nTouge > 1 ? pathDist(tougeP, nTouge, x, z, NULL) : 1e9f; float k2 = clampf((td - 7) / 14, 0, 1); wf *= k2 * k2 * (3 - 2 * k2); }   // never over the touge where it winds past the mountain
+            if (c > h) h = Lerp(h, c, wf); }
         for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; if (br->kind != 1) continue; float a, l; boreLocal(br, x, z, &a, &l);
             if (a > boreDepth(br) || a < -22) continue;   // the cutting: rock rising on both sides of the road in front of the portal
             float side = fabsf(l) - (br->w / 2 + 3.0f); if (side <= 0) continue;
@@ -308,7 +316,9 @@ static bool terrainSkip(float ax, float az) {   // terrain cells inside a headwa
     { float h = terrainH(cx, cz); if (h < SIDEH - 0.3f && h > SEA_Y - 0.6f && coast_d(cx, cz) < 10.5f) {   // a cell that drops from road level to the sand: the seawall and its apron stand there
         float hm = fmaxf(fmaxf(terrainH(ax, az), terrainH(ax + HF_S, az)), fmaxf(terrainH(ax, az + HF_S), terrainH(ax + HF_S, az + HF_S))); if (hm > SIDEH - 0.5f) return true; } }
     for (int b = 0; b < nBore; b++) { float a, l; boreLocal(&bores[b], cx, cz, &a, &l);
-        if (a > 0 && a < boreDepth(&bores[b]) && fabsf(l) < bores[b].w / 2 + 1.6f) return true; }
+        if (a > 0 && a < boreDepth(&bores[b]) && fabsf(l) < bores[b].w / 2 + 1.6f) return true;
+        { float bx, bz; for (int c = 0; c < 4; c++) { bx = ax + (c & 1) * HF_S; bz = az + (c >> 1) * HF_S; float a2, l2; boreLocal(&bores[b], bx, bz, &a2, &l2);   // a cell with a corner in the bore mouth would hang a slope across the opening
+            if (a2 > -0.5f && a2 < boreDepth(&bores[b]) + 0.5f && fabsf(l2) < bores[b].w / 2 + 0.5f && fabsf(l) < bores[b].w / 2 + HF_S + 1) return true; } } }
     return false;
 }
 
@@ -322,7 +332,32 @@ static bool ribbonGuard(const Vector3 *p, float qx, float qz, float o) {   // wa
     if (p == guardRiver && nStreet > 0 && (mainRoadAt(qx, qz, 0.4f) || coast_d(qx, qz) < 7.5f || seaSide(qx, qz))) return true;   // a street crosses the river: no wall across it
     return false;
 }
+static bool coastStreetGap(float qx, float qz, float o) {   // a street that runs out over the seawall leaves a gap in it
+    return fabsf(o) >= 4.4f && nStreet > 0 && coast_d(qx, qz) > 4.0f && mainRoadAt(qx, qz, 0.3f) && (streetAcrossCoast(qx, qz) || streetInside(qx, qz, 0.8f));
+}
+static int coastKept(float oA, float oB, int *idx) {   // coast points whose offset lines do not fold back over the road in a bend
+    int k = 0;
+    for (int i = 0; i < nCoast; i++) { Vector2 nn = pnorm(coastP, nCoast, i); bool ok = true;
+        for (int e = 0; e < 2; e++) { float o = e ? oB : oA; if (fabsf(o) < 0.01f) continue; if (coast_d(coastP[i].x + nn.x * o, coastP[i].z + nn.y * o) < fabsf(o) - 0.6f) ok = false; }
+        if (ok) idx[k++] = i; }
+    return k;
+}
+static void coastRibbon(int t, float oA, float oB, float yA, float yB, Color c, bool (*skip)(Vector3 q), bool wall) {   // continuous along the whole coast road: folded bend points are bridged, not left as holes
+    static int idx[MAX_PATH]; int k = coastKept(oA, wall ? oA : oB, idx);
+    for (int q = 0; q + 1 < k; q++) { int i = idx[q], j = idx[q + 1]; if (j - i > 12) continue;   // a long fold (a hairpin at a tunnel mouth): leave it open
+        Vector2 n0 = pnorm(coastP, nCoast, i), n1 = pnorm(coastP, nCoast, j); Vector3 a = coastP[i], b = coastP[j];
+        float mo = (oA + oB) / 2, mx = (a.x + n0.x * mo + b.x + n1.x * mo) / 2, mz = (a.z + n0.y * mo + b.z + n1.y * mo) / 2;
+        if (skip && skip(V3(mx, (a.y + b.y) / 2, mz))) continue;
+        { float oo = fminf(fabsf(oA), fabsf(oB)); bool cut = false; for (int k = 1; k < 4; k++) { float u = k / 4.0f, x0 = a.x + n0.x * oA, z0 = a.z + n0.y * oA, x1 = b.x + n1.x * oA, z1 = b.z + n1.y * oA;
+            if (coast_d(Lerp(x0, x1, u), Lerp(z0, z1, u)) < oo - 0.6f) cut = true; } if (cut) continue; }   // a bridged bend must not cut across the road
+        if (coastStreetGap(mx, mz, wall ? oA : oB) || coastStreetGap(mx, mz, oA)) continue;
+        if (wall) { Vector3 a0 = V3(a.x + n0.x * oA, a.y + yA, a.z + n0.y * oA), a1 = V3(b.x + n1.x * oA, b.y + yA, b.z + n1.y * oA), b0 = V3(a0.x, a.y + yB, a0.z), b1 = V3(a1.x, b.y + yB, a1.z);
+            Vector3 nn = V3(n0.x, 0, n0.y); quad(t, a0, a1, b1, b0, nn, c); quad(t, b0, b1, a1, a0, Vector3Negate(nn), c); }
+        else { Vector3 a0 = V3(a.x + n0.x * oA, a.y + yA, a.z + n0.y * oA), a1 = V3(b.x + n1.x * oA, b.y + yA, b.z + n1.y * oA), b0 = V3(a.x + n0.x * oB, a.y + yB, a.z + n0.y * oB), b1 = V3(b.x + n1.x * oB, b.y + yB, b.z + n1.y * oB);
+            quad(t, a0, a1, b1, b0, V3(0, 1, 0), c); quad(t, b0, b1, a1, a0, V3(0, 1, 0), c); } }
+}
 static void ribbon(int t, const Vector3 *p, int n, float oA, float oB, float yA, float yB, Color c, bool (*skip)(Vector3 q)) {
+    if (p == coastP && (fabsf(oA) > 3.0f || fabsf(oB) > 3.0f)) { coastRibbon(t, oA, oB, yA, yB, c, skip, false); return; }
     for (int i = 0; i + 1 < n; i++) {
         Vector2 n0 = pnorm(p, n, i), n1 = pnorm(p, n, i + 1);
         { Vector3 m = Vector3Lerp(p[i], p[i + 1], 0.5f); Vector2 nm = Vector2Scale(Vector2Add(n0, n1), 0.5f); float oo = (oA + oB) / 2;
@@ -335,6 +370,7 @@ static void ribbon(int t, const Vector3 *p, int n, float oA, float oB, float yA,
     }
 }
 static void wallRibbon(int t, const Vector3 *p, int n, float o, float y0, float y1, Color c, bool (*skip)(Vector3 q)) {
+    if (p == coastP) { coastRibbon(t, o, o, y0, y1, c, skip, true); return; }
     for (int i = 0; i + 1 < n; i++) {
         Vector2 n0 = pnorm(p, n, i), n1 = pnorm(p, n, i + 1);
         Vector3 m = Vector3Lerp(p[i], p[i + 1], 0.5f); if (skip && skip(V3(m.x + n0.x * o, m.y, m.z + n0.y * o))) continue;
@@ -746,7 +782,7 @@ static void genLayoutWorld(void) {
         if (k == 0 || k == 1) for (int i = 0; i + 1 < n; i++) for (int sd = -1; sd <= 1; sd += 2) {   // a raised pavement along each side: kerbstone, kerb face, slab
             Vector2 n0 = pnorm(p, n, i), n1 = pnorm(p, n, i + 1); float oA = sd * w / 2, oB = sd * (w / 2 + 1.4f), oM = sd * (w / 2 + 0.7f);
             Vector3 m = Vector3Lerp(p[i], p[i + 1], 0.5f); Vector2 nm = Vector2Scale(Vector2Add(n0, n1), 0.5f); float qx = m.x + nm.x * oM, qz = m.z + nm.y * oM;
-            bool ends = true; for (int e = 0; e < 2 && ends; e++) { const Vector3 *pe = &p[i + e]; Vector2 ne = e ? n1 : n0; float ex = pe->x + ne.x * oM, ez = pe->z + ne.y * oM; if (!cityLand(ex, ez) || mainRoadAt(ex, ez, 0.6f) || mainRoadAt(pe->x + ne.x * oB, pe->z + ne.y * oB, 0.3f)) ends = false; }
+            bool ends = true; for (int e = 0; e < 2 && ends; e++) { const Vector3 *pe = &p[i + e]; Vector2 ne = e ? n1 : n0; float ex = pe->x + ne.x * oM, ez = pe->z + ne.y * oM; if (!cityLand(ex, ez) || mainRoadAt(ex, ez, 0.6f) || mainRoadAt(pe->x + ne.x * oB, pe->z + ne.y * oB, 2.0f)) ends = false; }
             if (!ends || !cityLand(qx, qz) || mainRoadAt(qx, qz, 0.6f) || coast_d(qx, qz) < 7.0f || inRiverRaw(qx, qz) || !pointFree(qx, qz, 0.55f, SIDEH + 0.5f)) continue;
             float yt = SIDEH + 0.15f;
             Vector3 a0 = V3(p[i].x + n0.x * oA, yt, p[i].z + n0.y * oA), a1 = V3(p[i + 1].x + n1.x * oA, yt, p[i + 1].z + n1.y * oA);
