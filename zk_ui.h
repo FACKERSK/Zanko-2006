@@ -177,8 +177,8 @@ static void drawInventory(void) {
     aWindow(ip, pl.back.t >= 0 ? TextFormat("Pockets + %s", idef[pl.back.t].name) : "Pockets");
     slotGrid(ip.x + 18 * s, ip.y + 56 * s, cols, ns, 2 << 8, cell);
     if (pl.back.t < 0) aText("Find a bag (school bag, duffel, hiking pack) for more space.", ip.x + 18 * s, ip.y + 56 * s + cell + 20 * s, 12, C_BONE2, false);
-    if (pl.wounds > 0) aText(TextFormat("Bleeding from %d wound%s: right-click a bandage or rags.", pl.wounds, pl.wounds > 1 ? "s" : ""), ip.x + 18 * s, ip.y + ip.height - 70 * s, 13, (Color){230, 90, 70, 255}, true);
-    aText("Drag to move   Right-click: use / equip / take   Drop outside the panels to leave it", ip.x + 18 * s, ip.y + ip.height - 42 * s, 11, (Color){170, 166, 156, 240}, false);
+    if (pl.wounds > 0) aText(TextFormat("Bleeding from %d wound%s: right-click a bandage or rags to hold it, then click.", pl.wounds, pl.wounds > 1 ? "s" : ""), ip.x + 18 * s, ip.y + ip.height - 70 * s, 13, (Color){230, 90, 70, 255}, true);
+    aText("Drag to move   Right-click: hold / equip / take   Drop outside the panels to leave it", ip.x + 18 * s, ip.y + ip.height - 42 * s, 11, (Color){170, 166, 156, 240}, false);
     aText("Hover an item and press 1-6 to put it on the quickbar.   Tab closes.", ip.x + 18 * s, ip.y + ip.height - 24 * s, 11, (Color){170, 166, 156, 240}, false);
     slotTooltip(ip); dragGhost(cell);
     p3End(1);

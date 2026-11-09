@@ -109,12 +109,12 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
         if (a >= -0.5f && a <= b->len + 2 && fabsf(l) <= b->w / 2 + 0.6f) return i + 1; }
     return 0;
 }
-static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool mainRoadAt(float x, float z, float m); static float polyEdgeDist(const float (*p)[2], int n, float x, float z);
+static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool coastSeaward(float x, float z); static bool mainRoadAt(float x, float z, float m); static float polyEdgeDist(const float (*p)[2], int n, float x, float z);
 static float baseGroundY(float x, float z, float y) {
     if (cityLand(x, z)) return inHole(x, z) ? -1e9f : SIDEH;
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
     float h = terrainH(x, z);
-    if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coastSigned(x, z) > 5.0f && polyEdgeDist(dSea, DSEA_N, x, z) < 16) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
+    if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coast_d(x, z) > 5.0f && coastSeaward(x, z)) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
     return h;
 }
 static float baseGround(float x, float z) { return baseGroundY(x, z, 1e9f); }
@@ -174,13 +174,16 @@ static void genTerrain(void) {
             m.texcoords[v * 2] = x / 5; m.texcoords[v * 2 + 1] = z / 5;
             float sh = 0.82f + 0.18f * nn.y;
             // tint: wet sand at the waterline, dark cedar on the mountain, grey rock near its top
-            float r = 1, g = 1, b = 1;
-            if (y < -2.5f && y > -4.8f && !cityLand(x, z)) { r = 1.9f; g = 1.25f; b = 1.0f; }   // sand below the seawall
-            if (y > -3.9f && y < SIDEH + 0.5f && !cityLand(x, z) && hfReady) { float cs = coastSigned(x, z); if (cs > 2 && cs < 9) { r = 2.0f; g = 1.28f; b = 2.6f; } }   // the concrete face of the seawall, not grass
+            float r = 1, g = 1, b = 1, flat = 0;   // flat > 0: the vertex colour replaces the grass texture by that much (see the shader)
+            if (!cityLand(x, z)) {   // blended per vertex, so there are no saw-tooth edges between grass, sand and concrete
+                float sand = clampf((-1.6f - y) / 1.2f, 0, 1);   // sand below the seawall and under the water
+                float face = 0; if (hfReady && y > -4.4f && y < SIDEH) { float cd = coast_d(x, z); face = clampf((SIDEH - 0.35f - y) / 0.5f, 0, 1) * clampf((y + 3.9f) / 0.5f, 0, 1) * clampf((12 - cd) / 3, 0, 1); }   // the seawall's concrete
+                float sr = Lerp(0.78f, 0.6f, face), sg = Lerp(0.72f, 0.6f, face), sb = Lerp(0.56f, 0.58f, face); flat = fmaxf(sand, face);
+                r = Lerp(r, sr, flat); g = Lerp(g, sg, flat); b = Lerp(b, sb, flat); }
             float mt = clampf((y - 12) / 14, 0, 1); r = Lerp(r, 0.55f, mt); g = Lerp(g, 0.72f, mt); b = Lerp(b, 0.62f, mt);
             float rk = clampf((y - 34) / 10, 0, 1); r = Lerp(r, 1.45f, rk); g = Lerp(g, 0.95f, rk); b = Lerp(b, 1.05f, rk);
             m.colors[v * 4] = (unsigned char)clampf(255 * sh * r, 0, 255); m.colors[v * 4 + 1] = (unsigned char)clampf(255 * sh * g, 0, 255);
-            m.colors[v * 4 + 2] = (unsigned char)clampf(255 * sh * b, 0, 255); m.colors[v * 4 + 3] = 255;
+            m.colors[v * 4 + 2] = (unsigned char)clampf(255 * sh * b, 0, 255); m.colors[v * 4 + 3] = flat > 0.01f ? (unsigned char)(255 * (0.6f - 0.09f * flat)) : 255;
             v++;
         }
     }

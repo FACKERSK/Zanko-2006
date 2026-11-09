@@ -102,7 +102,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     int ht = pl.hands.t; bool melee = ht >= 0 && idef[ht].cat == CAT_MELEE, gun = ht == IT_REVOLVER;
     float u2 = animDur > 0 ? clampf(animT / animDur, 0, 1) : 1; int A = animId != ANIM_NONE && animT < animDur ? animId : ANIM_NONE;
     HandP R = {V3(0.22f, -0.25f, -0.44f), V3(-0.95f, 0.12f, -0.3f), 0, true}, L = {V3(-0.22f, -0.32f, -0.42f), V3(-0.3f, 0, 0.2f), 1, false};
-    float spinX = 0, spinY = 0, itemUp = 0;   // item spin inside the hand (inspect flips), and how far it is tossed up out of it
+    float spinX = 0, spinY = 0, itemUp = 0, spinC = 0;   // item spin inside the hand (inspect flips), and how far it is tossed up out of it
     float heavy = ht >= 0 ? clampf(idef[ht].weight / 5.0f, 0.1f, 1) : 0.05f;
     // ---- revolver mechanics: hammer, cylinder index, crane, ejector, speedloader, all driven from the game state
     static int cyCur = 0, cySpent = -1, cyLastMag = -1, cyFallMask = 0; static bool cyEjected = false, cyFallPending = false, ldDropped = false;
@@ -142,11 +142,17 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     // ---- idle poses per held thing
     if (pl.build) { R = (HandP){V3(0.22f, -0.25f, -0.4f), V3(-0.3f, 0, 0), 0, true}; }
     else if (gun) { R = (HandP){V3(0.15f, -0.215f, -0.36f), V3(0.04f, 0.06f, 0), 0, true}; }   // one-handed: the left hand is free for the flashlight
-    else if (!melee) { R = (HandP){V3(0.17f, -0.21f, -0.36f), V3(-0.25f, 0.15f, -0.12f), 2, true}; L = (HandP){V3(-0.17f, -0.22f, -0.37f), V3(-0.25f, -0.15f, 0.12f), 2, true}; }
+    else if (ht >= 0 && isConsumable(ht)) { R = (HandP){V3(0.17f, -0.23f, -0.42f), V3(-0.15f, 0.3f, -0.15f), 0, true}; L.vis = false; }   // food, a bottle or a bandage held low in the right hand
+    else if (!melee) { R = (HandP){V3(0.16f, -0.175f, -0.38f), V3(-0.12f, 0.22f, -0.6f), 2, true}; L = (HandP){V3(-0.16f, -0.185f, -0.4f), V3(-0.12f, -0.22f, 0.6f), 2, true}; }   // a loose guard: knuckles forward, wrists turned in so the thumbs ride on top
     else if (heavy > 0.45f) L.vis = true;   // two-handed: the left hand grips below the right
     // two hand sets: the left holds the flashlight while it is on, the right holds fists or the weapon
-    bool torch = pl.flash && !pl.build && !(melee && heavy > 0.45f);
-    if (torch) L = (HandP){V3(-0.13f, -0.165f, -0.47f), V3(0.3f, 0.32f, 0.05f), 0, true};   // the phone, upright in the palm, screen toward you, light on the back
+    // the phone comes up from the pocket and flips open when the light goes on; folds shut and drops away when it goes off
+    static float torchK = 0; bool torchWant = pl.flash && !pl.build && !(melee && heavy > 0.45f);
+    torchK = clampf(torchK + (torchWant ? 1.0f : -1.0f) * vdt * 3.4f, 0, 1);
+    bool torch = torchK > 0.001f; float phoneOpen = ph(torchK, 0.5f, 0.95f);
+    if (torch) { float e = ezOut(torchK);   // the phone, upright in the palm, screen toward you, light on the back
+        L = (HandP){Vector3Lerp(V3(-0.24f, -0.62f, -0.3f), V3(-0.13f, -0.165f, -0.47f), e), Vector3Lerp(V3(1.2f, 0.8f, 0.5f), V3(0.3f, 0.32f, 0.05f), e), 0, true};
+        L.r.z += bell(torchK, 0.45f, 0.95f) * 0.25f; }   // a flick of the wrist to snap it open
     // ---- melee swing (wind-up, strike, recovery) and the fist jab
     float dur = pl.swingDur > 0 ? pl.swingDur : 0.6f, s = pl.swingT > 0 ? 1 - pl.swingT / dur : 0;
     float wu = ez(s / 0.3f), st = ezOut((s - 0.3f) / 0.15f), rc = ez((s - 0.45f) / 0.55f);
@@ -258,12 +264,12 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             R.p = Vector3Lerp(R.p, up, a * (1 - e)); R.r.z = Lerp(R.r.z, -1.45f, a * (1 - e)); R.r.y += (0.7f * a - 1.4f * b) * (1 - e); R.r.x += 0.25f * a * (1 - e);
             R.r.z += c * 0.9f; R.r.x += c * 0.35f; R.p.y += c * 0.02f;   // edge toward the eye
             if (u2 > 0.6f && u2 < 0.82f) { L.vis = true; L.grip = 1; float sl = d; L.p = Vector3Add(R.p, V3(-0.12f + sl * 0.18f, 0.03f, -0.03f)); L.r = V3(0.1f, 0, -0.3f); }
-        } else if (melee && style == 1) {   // knife: three quick flips in the air, caught, then a twirl through the fingers
-            float a = ph(u2, 0, 0.14f), e = ph(u2, 0.84f, 1), fl = ph(u2, 0.18f, 0.52f), tw = ph(u2, 0.58f, 0.8f);
-            R.p = Vector3Lerp(R.p, V3(0.1f, -0.2f, -0.38f), a * (1 - e)); R.r = Vector3Lerp(R.r, V3(-0.5f, 0.2f, -0.2f), a * (1 - e));
-            spinX = fl * 6 * PI; itemUp = bell(u2, 0.18f, 0.52f) * 0.16f; R.grip = (u2 > 0.2f && u2 < 0.5f) ? 1 : 0;
-            spinY = tw * 2 * PI; R.r.z += bell(u2, 0.58f, 0.8f) * 0.3f;
-            R.p.y -= bell(u2, 0.5f, 0.58f) * 0.02f;   // the catch
+        } else if (melee && style == 1) {   // knife: raised, the wrist turns it to show both faces of the blade, then one short flip about its middle and a catch
+            float a = ph(u2, 0, 0.14f), e = ph(u2, 0.86f, 1), fl = ph(u2, 0.66f, 0.82f);
+            R.p = Vector3Lerp(R.p, V3(0.09f, -0.19f, -0.4f), a * (1 - e)); R.r.x += 0.15f * a * (1 - e); R.r.z += -0.35f * a * (1 - e);
+            R.r.y += (ez(ph(u2, 0.14f, 0.32f)) * 1.1f - ez(ph(u2, 0.36f, 0.56f)) * 2.0f + ez(ph(u2, 0.58f, 0.66f)) * 0.9f) * (1 - e);   // one face, then the other
+            spinX = -ez(fl) * 2 * PI; spinC = 0.07f; itemUp = bell(u2, 0.66f, 0.82f) * 0.09f; R.grip = (u2 > 0.665f && u2 < 0.815f) ? 1 : 0;
+            R.p.y += bell(u2, 0.64f, 0.7f) * 0.02f - bell(u2, 0.81f, 0.87f) * 0.018f;   // the little lift that throws it, the dip of the catch
         } else if (melee && style == 2) {   // bat / pipe / crowbar: rested on the shoulder, two taps, then a toss-spin and catch
             float a = ph(u2, 0, 0.2f), off = ph(u2, 0.5f, 0.6f), e = ph(u2, 0.84f, 1);
             float sh = a * (1 - off);
@@ -466,9 +472,12 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
                 L.p = lp; if (torch && ((A == ANIM_RELOAD && u2 > 0.94f) || (A == ANIM_INSPECT && u2 > 0.42f))) { L.r = V3(0.3f, 0.32f, 0.05f); L.grip = 0; }
             }
         } else if (melee) {
-            Matrix I = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixRotateX(spinX), MatrixRotateY(spinY)), MatrixTranslate(0, itemUp, 0)), H);
+            Matrix I = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixTranslate(0, -spinC, 0), MatrixRotateX(spinX)), MatrixRotateY(spinY)), MatrixTranslate(0, itemUp + spinC, 0)), H);   // spun about spinC up the item
             drawHeld(I, ht); drawHandAsset(H, true, R.grip == 1 ? 1 : 0);
             if (L.vis && !torch && (A != ANIM_INSPECT || (style == 3 && L.grip == 0))) { Matrix L2 = MatrixMultiply(MatrixTranslate(0, -0.17f, 0), H); drawHandAsset(L2, false, 0); L.vis = false; }
+        } else if (ht >= 0 && isConsumable(ht)) {   // held for use; while it is being eaten or applied the other hand has it
+            if (A != ANIM_EAT && A != ANIM_DRINK && A != ANIM_PILL && A != ANIM_BANDAGE) drawItemType(ht, MatrixMultiply(MatrixMultiply(MatrixScale(0.6f, 0.6f, 0.6f), MatrixTranslate(0, -0.035f, -0.01f)), H));
+            drawHandAsset(H, true, (A == ANIM_EAT || A == ANIM_DRINK || A == ANIM_PILL || A == ANIM_BANDAGE) ? 2 : 0);
         } else drawHandAsset(H, true, R.grip);
         Vector3 wrist = Vector3Transform(V3(0.04f, -0.06f, 0.06f), MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixRotateZ(R.r.z), MatrixRotateX(R.r.x)), MatrixRotateY(R.r.y)), MatrixTranslate(R.p.x, R.p.y, R.p.z)));
         drawArm(B, wrist, V3(0.36f, -0.8f, 0.2f));
@@ -477,7 +486,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     if (L.vis) {
         drawHand(B, L, false);
         if (showTorch) {   // a 2006 flip phone (keitai): keypad half in the hand, screen half open above it; the back LED is the light
-            Matrix Hl = handM(B, L), Top = MatrixMultiply(MatrixMultiply(MatrixTranslate(0, 0.0f, 0), MatrixRotateX(-0.22f)), MatrixMultiply(MatrixTranslate(0, 0.075f, 0.0f), Hl));
+            Matrix Hl = handM(B, L), Top = MatrixMultiply(MatrixMultiply(MatrixTranslate(0, 0.0f, 0), MatrixRotateX(-0.22f + (1 - phoneOpen) * 2.85f)), MatrixMultiply(MatrixTranslate(0, 0.075f, 0.0f), Hl));
             ADRAW("viewmodels/keitai_base", Hl, WHITE, BX(T_PLAIN, 0, 0.02f, 0.004f, 0.05f, 0.1f, 0.018f, ((Color){150, 30, 40, 255})), BX(T_PLAIN, 0, 0.02f, 0.0135f, 0.042f, 0.085f, 0.002f, ((Color){200, 200, 205, 255})),
                   BX(T_PLAIN, 0, 0.072f, 0.004f, 0.05f, 0.012f, 0.02f, ((Color){60, 60, 66, 255})));
             ADRAW("viewmodels/keitai_top", Top, WHITE, BX(T_PLAIN, 0, 0.05f, 0.004f, 0.05f, 0.1f, 0.016f, ((Color){150, 30, 40, 255})), BX(T_PLAIN, 0, 0.083f, -0.0045f, 0.022f, 0.012f, 0.002f, ((Color){30, 30, 34, 255})));

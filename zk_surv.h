@@ -30,7 +30,7 @@ static void applyTraits(void) {
 #define HINT_N 12
 static const char *hintTxt[HINT_N] = {
     "Hold E on furniture to search it. Tab: inventory and crafting. M: map.",
-    "Bleeding: Tab, then right-click a bandage or rags. Wounds left open can get infected.",
+    "Bleeding: take a bandage or rags in hand (right-click it in Tab) and click to apply. Wounds left open can get infected.",
     "Night is falling. More spirits walk at night. Get under a roof, light a fire, save batteries.",
     "Thirsty: rain barrels (blue drums) and fountains give unboiled water. Boil it at a fire (Tab > Crafting).",
     "Sick: you lose food and water faster. Charcoal (craft at a fire from a plank) cuts it short.",

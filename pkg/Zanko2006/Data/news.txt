@@ -1,4 +1,31 @@
-ZANKO 2006 - Afterglow  (v0.8.2, Settings and tunnels)
+ZANKO 2006 - Afterglow  (v0.8.3, Mod Maker and the seafront)
+
+- 0.8.3: the Mod Maker, kerbs, the seawall.
+  * Mod Maker (Root/ModMaker.exe, or Open Mod Maker in the
+    launcher's Mods tab): a map editor that flies through the
+    town in game graphics. Drag the points of the coast road,
+    streets, railway, touge, river, sea, town outline, bridges,
+    lots, parks and spots; add and delete points, make new
+    streets, change street width and type, rebuild the town
+    in place and save it as a mod. Textures and models are
+    replaced by dropping a .png or .obj onto the window. The
+    Mod tab saves name, author, version and description and
+    exports a .zip to share.
+  * The map is a file now (Data/map.zmap); a mod can carry its
+    own. Multiplayer refuses a player with a different map.
+  * Streets have raised pavements with a kerbstone and a kerb
+    face; the coast road has raised pavements on both sides.
+  * The seawall stands along the whole coast road again, with
+    a sand beach at its foot sloping into the water (no more
+    grass shelf hanging over the sea). The river ends at the
+    coast road instead of running out into the bay.
+  * Food, drinks and medicine are taken into the hand (right
+    click in the bag or the quickbar key) and used with the
+    attack button. Nothing is used up, and no animation plays,
+    when you are full, not thirsty or there is nothing to treat.
+  * The phone opens and closes when the flashlight goes on and
+    off; a new knife inspect; fists held in a guard.
+  * Stop lines only where both ends are on the street.
 
 - 0.8.2: settings, the old tunnel, trains.
   * Settings has tabs: Video, Audio, Gameplay, Controls and

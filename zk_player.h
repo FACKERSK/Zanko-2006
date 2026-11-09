@@ -448,7 +448,7 @@ static void updatePlayer(float dt) {
             pl.involT = fr(1.5f, 6.0f) * (1.25f - pl.corrupt / 100.0f);
             int kk = ri(3);
             if (kk == 0) { pl.tyaw += fr(-0.9f, 0.9f); pl.tpitch += fr(-0.3f, 0.3f); }
-            else if (kk == 1 && pl.weapon == 0 && pl.swingCd <= 0) { pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; play(sSwing, 0.6f); netSwingN++; }
+            else if (kk == 1 && pl.weapon == 0 && !isConsumable(pl.hands.t) && pl.swingCd <= 0) { pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; play(sSwing, 0.6f); netSwingN++; }
             else { pl.pos.x += fr(-0.8f, 0.8f); pl.pos.z += fr(-0.8f, 0.8f); resolve(&pl.pos, 0.3f, 1.7f, 0.42f); }
         }
     }
@@ -623,11 +623,12 @@ static void updatePlayer(float dt) {
         if (pl.reloadT <= 0) { int need = 6 - pl.mag; pl.mag += invTake(IT_AMMO, need); }
     }
     {   // guard: hold the right mouse button with a melee weapon or fists
-        bool want = !pl.invOpen && !pl.build && pl.weapon == 0 && pl.climbT <= 0 && (actD(A_GUARD) || forceGuard) && pl.swingT <= 0 && pl.stam > 2;
+        bool want = !pl.invOpen && !pl.build && pl.weapon == 0 && !isConsumable(pl.hands.t) && pl.climbT <= 0 && (actD(A_GUARD) || forceGuard) && pl.swingT <= 0 && pl.stam > 2;
         if (want) { if (!pl.blocking) pl.blockT = 0; pl.blocking = true; pl.blockT += dt; } else pl.blocking = false;
     }
-    if (actP(A_INSPECT) && !animBusy() && pl.swingT <= 0 && !pl.build) animPlay(ANIM_INSPECT);
+    if (actP(A_INSPECT) && !animBusy() && pl.swingT <= 0 && !pl.build && !isConsumable(pl.hands.t)) animPlay(ANIM_INSPECT);
     if (pl.build) { if (actP(A_ATTACK)) placeBuild(); }
+    else if (isConsumable(pl.hands.t)) { if (actP(A_ATTACK)) useHeld(); }
     else if (actD(A_ATTACK) && !pl.blocking && !(animBusy() && animId != ANIM_EQUIP)) {
         if (pl.weapon == 0 && pl.swingCd <= 0 && pl.stam > 6) {
             const ItemDef *w = weaponDef();

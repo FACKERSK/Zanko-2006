@@ -621,6 +621,13 @@ static void tabMods(Rectangle c) {
     if (aButton((Rectangle){dx + bw + 10 * s, by, bw, 34 * s}, "Refresh", true)) { if (modsDirty) modsWrite(); modsReload(); snprintf(modMsg, sizeof modMsg, "Rescanned the Mods folder."); }
     if (aButton((Rectangle){dx, by + 44 * s, bw, 34 * s}, "Enable All", nModsL > 0)) { for (int i = 0; i < nModsL; i++) mods[i].enabled = true; modsDirty = true; }
     if (aButton((Rectangle){dx + bw + 10 * s, by + 44 * s, bw, 34 * s}, "Disable All", nModsL > 0)) { for (int i = 0; i < nModsL; i++) mods[i].enabled = false; modsDirty = true; }
+    if (aButton((Rectangle){dx, by - 44 * s, dw, 34 * s}, "Open Mod Maker", true)) {   // the map editor and mod tools (a separate program next to the game)
+#if defined(_WIN32)
+        const char *exe = P("Root/ModMaker.exe"); if (!FileExists(exe)) snprintf(modMsg, sizeof modMsg, "Root/ModMaker.exe not found."); else { ShellExecuteA(NULL, "open", exe, "", P("Root"), 1); snprintf(modMsg, sizeof modMsg, "Mod Maker started."); }
+#else
+        char cmd[900]; snprintf(cmd, sizeof cmd, "\"%s\" &", P("Root/modmaker_linux")); snprintf(modMsg, sizeof modMsg, system(cmd) == 0 ? "Mod Maker started." : "Could not start the Mod Maker.");
+#endif
+    }
     if (modMsg[0]) aText(modMsg, lst.x, lst.y + lst.height + 8 * s, 12, C_BONE2, false);
     if (modsDirty) modsWrite();   // the load order is saved as it changes
 }

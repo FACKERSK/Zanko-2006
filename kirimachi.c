@@ -15,7 +15,7 @@
 #define ROADW 10.0f
 #define PITCH (BLOCK + ROADW)
 #define CITY (NB * PITCH + ROADW)
-#define SIDEH 0.15f
+#define SIDEH 0.22f   // sidewalk and kerb height above the road
 #define GH 3.35f
 #define MAX_SOLID 240000
 #define MAX_OPEN 20000
@@ -251,6 +251,7 @@ GLSL_HEAD
 "void main(){\n"
 " vec4 tx=texture(texture0,fragTexCoord)*fragColor*colDiffuse;\n"
 " if(tx.a<0.5) discard;\n"
+" if(fragColor.a<0.6){ float k=clamp((0.6-fragColor.a)*11.0,0.0,1.0); tx.rgb=mix(tx.rgb,fragColor.rgb*colDiffuse.rgb,k); }\n"   // vertex alpha 0.51-0.6: the vertex colour replaces the texture (terrain sand and concrete)
 " vec3 n=normalize(fragNormal);\n"
 " vec3 toF=fragPos-viewPos; float dist=length(toF); vec3 dir=toF/max(dist,0.0001);\n"
 " vec3 col;\n"
@@ -296,7 +297,7 @@ static Vector2 uvOf(int t, Vector3 p, Vector3 n) {
 }
 // ---- building frames: a building is generated in its own straight (local) coordinates, then turned to face its street.
 // Frame 0 is the world. world = C + RotY(phi)(local - C) with RotY(phi): x' = x cos + z sin, z' = -x sin + z cos (raylib MatrixRotateY).
-#define MAX_XF 4000
+#define MAX_XF 16000
 typedef struct { float cx, cz, c, s; } Xf;
 static Xf xfs[MAX_XF] = {{0, 0, 1, 0}}; static int nXf = 1, curXf = 0;
 static int newXf(float cx, float cz, float phi) { if (fabsf(phi) < 1e-4f || nXf >= MAX_XF) return 0; xfs[nXf] = (Xf){cx, cz, cosf(phi), sinf(phi)}; return nXf++; }
@@ -652,6 +653,7 @@ static void interiorLoot(Rectangle r, int kind, int count) {
     }
 }
 #include "zk_design.h"
+#include "zk_map.h"
 #include "zk_world.h"
 static void shrine(Rectangle lot) {   // roadside hokora with torii and shimenawa; permanent spirit ward
     float cx = lot.x + lot.width / 2, cz = lot.y + lot.height / 2;
@@ -1717,6 +1719,9 @@ static float sw, shh;
 #include "zk_ui.h"
 #include "zk_cheat.h"
 #include "zk_net.h"
+#ifdef ZK_MODMAKER
+#include "zk_editor.h"
+#endif
 static int menuPanel(const char *title, const char **labels, int n, bool *enabled) {
     Rectangle lg = p3Panel(0, -16, 16.5f, 560, 140, false);
     aLogo(lg.width / 2, 22 * aU, 62, "A F T E R G L O W");
@@ -2096,7 +2101,8 @@ int main(int argc, char **argv) {
     genSounds(); musicInit(); textInit();
     aeroLoadFont();
     profLoad(user);
-    loadMods(); cheatsLoad();
+    loadMods(); cheatsLoad(); mapLoad();
+    if (getenv("KIRI_MAPSAVE")) { bool ok = mapSave(getenv("KIRI_MAPSAVE")); TraceLog(LOG_INFO, "MAPSAVE %s: %d hash %08x", getenv("KIRI_MAPSAVE"), ok, mapHash()); CloseWindow(); return 0; }
     loadTextures();
     sh = LoadShaderFromMemory(VS, FS);
     locView = GetShaderLocation(sh, "viewPos"); locFlashDir = GetShaderLocation(sh, "flashDir"); locFlashOn = GetShaderLocation(sh, "flashOn");
@@ -2113,6 +2119,9 @@ int main(int argc, char **argv) {
     if (getenv("KIRI_EXPORT")) { CloseAudioDevice(); CloseWindow(); return 0; }   // asset export only
     genWorld(12345);   // backdrop city for pause / death screens
     saInit(P("Textures/ecoglass.png"), P("Textures/facade_a.png"));
+#ifdef ZK_MODMAKER
+    return editorMain();
+#endif
     int rtH = 0, rtW = 0; RenderTexture2D rt = {0};
     float fogc[3] = {0.075f, 0.08f, 0.095f}; Color fogC = {19, 20, 24, 255};
     SetShaderValue(sh, locFog, fogc, SHADER_UNIFORM_VEC3);
@@ -2129,8 +2138,14 @@ int main(int argc, char **argv) {
         float dt = fminf(GetFrameTime(), 0.05f), t = (float)GetTime();
         {   // look test: KIRI_LOOK="x y z yaw pitch name;..." stands there at noon (y < -500: on the ground), waits, takes name.png, quits
             static const char *lk = NULL; static int li = 0, lf = 0; static char spec[2048]; if (frame == 1) { lk = getenv("KIRI_LOOK"); if (lk) snprintf(spec, sizeof spec, "%s", lk); }
-            if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12; DisableCursor();
+            if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; if (getenv("KIRI_FLY")) cht.on[CH_NOCLIP] = true; pl.tod = 12; cht.frozenTod = 12; DisableCursor();
                 for (int b = 0; b < nBore; b++) TraceLog(LOG_INFO, "LOOK bore %d: portal %.1f %.1f fy %.1f dir %d kind %d len %.0f", b, bores[b].px, bores[b].pz, bores[b].fy, bores[b].dir, bores[b].kind, bores[b].len);
+                { int nm = 0; for (float x = -2000; x < 2000 && nm < 3; x += 2) for (float z = -2000; z < 2000 && nm < 3; z += 2) if (inPoly(dRiver, DRIVER_N, x, z) && fabsf(coast_d(x, z) - 8) < 1) { TraceLog(LOG_INFO, "LOOK mouth %.0f %.0f cs %.1f", x, z, coastSigned(x, z)); for (float a = 0; a < 6.28f; a += 0.2f) TraceLog(LOG_INFO, "LOOK yaw %.1f cs %.1f sea %d riv %d", a, coastSigned(x + sinf(a) * 25, z + cosf(a) * 25), seaSide(x + sinf(a) * 25, z + cosf(a) * 25), inPoly(dRiver, DRIVER_N, x + sinf(a) * 25, z + cosf(a) * 25)); nm++; x += 40; break; } }
+                { Vector3 w_ = seaSidePt(nCoast / 2, 30); Vector3 c_ = coastP[nCoast / 2 + 3]; Vector3 d_ = Vector3Normalize(V3(w_.x - coastP[nCoast / 2].x, 0, w_.z - coastP[nCoast / 2].z));
+                  TraceLog(LOG_INFO, "LOOK sw c %.1f %.1f d %.3f %.3f", c_.x, c_.z, d_.x, d_.z);
+                  for (float o = 0; o <= 30; o += 2) { float x = c_.x + d_.x * o, z = c_.z + d_.z * o; TraceLog(LOG_INFO, "LOOK sw o %.0f guard %d mr %d h %.2f cd %.1f cs %.1f seaw %d sea %d city %d town %d", o, ribbonGuard(coastP, x, z, 5.2f), mainRoadAt(x, z, 0.3f), terrainH(x, z), coast_d(x, z), coastSigned(x, z), coastSeaward(x, z), seaSide(x, z), cityLand(x, z), inTownRaw(x, z)); } }
+                if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
+                    TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z)); } }
                 TraceLog(LOG_INFO, "LOOK touge end %.1f %.1f %.1f, before %.1f %.1f", tougeP[nTouge - 1].x, tougeP[nTouge - 1].y, tougeP[nTouge - 1].z, tougeP[nTouge - 4].x, tougeP[nTouge - 4].z); }
             if (lk && frame > 10) { char *p = spec; for (int k = 0; k < li && p; k++) { p = strchr(p, ';'); if (p) p++; }
                 if (!p || !*p) { TraceLog(LOG_INFO, "LOOK done"); break; }
@@ -2152,7 +2167,7 @@ int main(int argc, char **argv) {
                 {IT_REVOLVER, ANIM_INSPECT, 0.5f, -1, 6, false, "vm_rev_inspect3_look"}, {IT_REVOLVER, ANIM_INSPECT, 0.78f, -1, 6, false, "vm_rev_inspect4_twirl"},
                 {IT_REVOLVER, -1, 0, -1, 6, true, "vm_rev_phone"}, {IT_KATANA, -1, 0, -1, 0, false, "vm_katana_idle"}, {-1, -1, 0, -1, 0, false, "vm_fists_idle"},
                 {IT_BAT, ANIM_INSPECT, 0.7f, -1, 0, false, "vm_bat_inspect"}, {IT_BAT, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_bat_inspect_shoulder"},
-                {IT_KNIFE, ANIM_INSPECT, 0.35f, -1, 0, false, "vm_knife_inspect_flip"}, {IT_KNIFE, ANIM_INSPECT, 0.7f, -1, 0, false, "vm_knife_inspect_twirl"},
+                {IT_KNIFE, ANIM_INSPECT, 0.26f, -1, 0, false, "vm_knife_inspect_face1"}, {IT_KNIFE, ANIM_INSPECT, 0.5f, -1, 0, false, "vm_knife_inspect_face2"}, {IT_KNIFE, ANIM_INSPECT, 0.73f, -1, 0, false, "vm_knife_inspect_flip"}, {IT_KNIFE, -1, 0, -1, 0, false, "vm_knife_idle"}, {IT_FOOD, -1, 0, -1, 0, false, "vm_food_hold"}, {IT_WATER, -1, 0, -1, 0, false, "vm_water_hold"}, {IT_BANDAGE, -1, 0, -1, 0, true, "vm_bandage_hold"},
                 {IT_AXE, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_axe_inspect"}, {IT_AXE, ANIM_INSPECT, 0.66f, -1, 0, false, "vm_axe_inspect_thumb"},
                 {IT_KATANA, ANIM_INSPECT, 0.53f, -1, 0, false, "vm_katana_inspect_edge"}, {IT_REVOLVER, -1, 0, 0.05f, 4, false, "vm_hitmarker"},
                 {IT_REVOLVER, ANIM_TURNGUN, 0.25f, -1, 6, false, "vm_turn1"}, {IT_REVOLVER, ANIM_TURNGUN, 0.6f, -1, 6, false, "vm_turn2"}, {IT_REVOLVER, ANIM_TURNGUN, 0.93f, -1, 6, false, "vm_turn3"}};
@@ -2592,12 +2607,12 @@ int main(int argc, char **argv) {
                     survPrompt(e, a, true); TraceLog(LOG_INFO, "T_WATER filled: unboiled %d, bottles %d", invCount(IT_DIRTYWATER), invCount(IT_BOTTLE)); }
                 else TraceLog(LOG_INFO, "T_WATER: no rain barrel");
                 pl.nearFire = true; craft(2); pl.nearFire = false; TraceLog(LOG_INFO, "T_BOIL: water %d, unboiled %d", invCount(IT_WATER), invCount(IT_DIRTYWATER));
-                useItem(IT_WATER); TraceLog(LOG_INFO, "T_DRINK: bottles back %d", invCount(IT_BOTTLE));
+                consumeItem(IT_WATER); TraceLog(LOG_INFO, "T_DRINK: bottles back %d", invCount(IT_BOTTLE));
                 // wear + break, repair
                 pl.hands = (Slot){IT_AXE, 1, 996}; weaponWear(1); TraceLog(LOG_INFO, "T_WEAR axe at 990 + hit -> hands %d", pl.hands.t);
                 pl.hands = (Slot){IT_PIPE, 1, 800}; invAdd(IT_HAMMER, 1); invAdd(IT_SCRAP, 1); invAdd(IT_NAILS, 4); craft(6); TraceLog(LOG_INFO, "T_REPAIR pipe 800 -> %d", pl.hands.w);
                 // fracture + splint
-                breakLeg("test"); invAdd(IT_SPLINT, 1); useItem(IT_SPLINT); TraceLog(LOG_INFO, "T_FRACTURE after splint: %d", pl.fracture); pl.fracT = 11.98f;
+                breakLeg("test"); invAdd(IT_SPLINT, 1); consumeItem(IT_SPLINT); TraceLog(LOG_INFO, "T_FRACTURE after splint: %d", pl.fracture); pl.fracT = 11.98f;
                 getSick(50, "test"); TraceLog(LOG_INFO, "T_SICK start %.1f", pl.sick);
                 // garden + spikes
                 Vector3 gp = Vector3Add(pl.pos, V3(-1.5f, 0, 0));

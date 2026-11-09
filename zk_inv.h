@@ -49,10 +49,11 @@ static float meleeCd(void) { return weaponDef()->cd * encSwing(); }
 static float meleeRange(void) { return weaponDef()->range; }
 static const char *weaponName(void) { return pl.hands.t >= 0 ? idef[pl.hands.t].name : "Fists"; }
 // move hands <-> slot i (equip / swap)
+static bool isConsumable(int t) { if (t < 0) return false; int c = idef[t].cat; return c == CAT_FOOD || c == CAT_DRINK || c == CAT_MED; }   // eaten, drunk or applied from the hand only
 static void equipFromSlot(int i) {
     Slot s = pl.sl[i];
     if (s.t < 0) return;
-    if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN)) return;
+    if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN || isConsumable(s.t))) return;
     pl.sl[i] = pl.hands; pl.hands = s; pl.swingT = 0; pl.reloadT = 0; pl.build = false; animPlay(ANIM_EQUIP);
     if (s.t == IT_KATANA) play(sBlade, 0.55f); else if (s.t == IT_REVOLVER) play(sCloth, 0.5f); else { play(sCloth, 0.4f); play(sClick, 0.3f); }
 }
@@ -76,14 +77,37 @@ static void spiritSeal(void);
 static float trMul(int which);
 static void getSick(float amount, const char *why);
 static void giveBack(int t, int n) { int left = invAdd(t, n); if (left) addItem(V3(pl.pos.x, pl.pos.y + 0.02f, pl.pos.z), t, left); }
-static void useItem(int t) {
+static const char *noNeed(int t) {   // why using it now would do nothing (NULL: it would help)
+    switch (t) {
+    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: return pl.food >= 95 ? "You are full." : NULL;
+    case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: return pl.water >= 95 ? "You are not thirsty." : NULL;
+    case IT_PAINKILLER: return (pl.hp >= 99 && pl.fracture == 0 && pl.painT <= 0) ? "Nothing hurts." : NULL;
+    case IT_SPLINT: return pl.fracture != 1 ? (pl.fracture == 2 ? "The leg is already splinted." : "Nothing is broken.") : NULL;
+    case IT_CHARCOAL: return pl.sick <= 0 ? "Your stomach is fine." : NULL;
+    case IT_DISINFECT: return (pl.infect <= 0 && pl.wounds <= 0) ? "No wound to clean." : NULL;
+    case IT_BANDAGE: case IT_RAG: return pl.wounds <= 0 ? "You are not bleeding." : NULL;
+    }
+    return NULL;
+}
+static void consumeItem(int t);
+static void useItem(int t) {   // inventory right-click and the quickbar: weapons and consumables go to the hand, other things are used
     if (t < 0 || !invHas(t)) { if (t >= 0) say(TextFormat("No %s.", idef[t].name)); return; }
     int cat = idef[t].cat;
-    if (cat == CAT_MELEE || cat == CAT_GUN) {
+    if (cat == CAT_MELEE || cat == CAT_GUN || isConsumable(t)) {
         if (pl.hands.t == t) { holster(); return; }
-        for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t == t) { equipFromSlot(i); return; }
+        for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t == t) { equipFromSlot(i); if (pl.hands.t == t && isConsumable(t)) say(TextFormat("%s in hand. %s to %s.", idef[t].name, actKey(A_ATTACK), cat == CAT_FOOD ? "eat" : cat == CAT_DRINK ? "drink" : "use")); return; }
         return;
     }
+    consumeItem(t);
+}
+static void useHeld(void) {   // the attack button with a consumable in hand
+    int t = pl.hands.t; if (!isConsumable(t) || animBusy()) return;
+    const char *why = noNeed(t); if (why) { say(why); if (aErrOk) { SetSoundVolume(aErr, 0.5f * gs.ui); PlaySound(aErr); } return; }
+    consumeItem(t);
+}
+static void consumeItem(int t) {
+    if (t < 0 || !invHas(t)) return;
+    { const char *why = noNeed(t); if (why) { say(why); return; } }   // nothing to gain: no animation, nothing used
     { int a = 0; switch (t) { case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: a = ANIM_EAT; break; case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: a = ANIM_DRINK; break;
         case IT_PAINKILLER: case IT_CHARCOAL: a = ANIM_PILL; break; case IT_BANDAGE: case IT_RAG: case IT_SPLINT: case IT_DISINFECT: a = ANIM_BANDAGE; break; }
       if (a) animUse(a, t); }

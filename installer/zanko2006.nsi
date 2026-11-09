@@ -59,6 +59,7 @@ Section "Game" SecGame
   SetOutPath "$INSTDIR\Root"
   File "..\pkg\Zanko2006\Root\Zanko.exe"
   File "..\pkg\Zanko2006\Root\Launcher.exe"
+  File "..\pkg\Zanko2006\Root\ModMaker.exe"
   SetOutPath "$INSTDIR"
   File /r /x Userdata /x config.ini /x launcher.ini "..\pkg\Zanko2006\Data"
   File /r "..\pkg\Zanko2006\Textures"
@@ -98,6 +99,7 @@ Section "Start menu shortcuts" SecStart
     SetOutPath "$INSTDIR\Root"
     CreateDirectory "$SMPROGRAMS\${APP}"
     CreateShortcut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\Root\Launcher.exe" "" "$INSTDIR\Root\Launcher.exe" 0
+    CreateShortcut "$SMPROGRAMS\${APP}\${APP} Mod Maker.lnk" "$INSTDIR\Root\ModMaker.exe" "" "$INSTDIR\Root\ModMaker.exe" 0
     CreateShortcut "$SMPROGRAMS\${APP}\Uninstall ${APP}.lnk" "$INSTDIR\Uninstall.exe"
   done:
 SectionEnd

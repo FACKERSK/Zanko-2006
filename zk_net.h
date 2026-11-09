@@ -6,7 +6,7 @@ int netOpen(int port); void netClose(void); int netResolve(const char *host, int
 int netSend(const NetAddr *to, const void *buf, int len); int netRecv(void *buf, int max, NetAddr *from); void netAddrStr(const NetAddr *a, char *out, int max);
 
 #define MP_PORT 27015
-#define MP_PROTO 3
+#define MP_PROTO 4   // 4: the join carries the map hash
 enum { P_JOIN = 1, P_WELCOME, P_REJECT, P_STATE, P_PLAYERS, P_CRS, P_REL, P_ACK, P_BYE };
 enum { R_OP = 1, R_DEB, R_VEND, R_CRATE, R_CONT, R_BUILD, R_SOL, R_HIT, R_PDMG, R_SAY };
 static NetAddr hostAddr; static double netJoinT = 0, netSendT = 0, netCrT = 0, netScanT = 0; static bool netJoining = false;
@@ -170,9 +170,10 @@ static void netRecvAll(double now) {
         if (netMode == NM_HOST) {
             int k = slotOf(&from);
             if (t == P_JOIN) {
-                unsigned char proto = RV(&r, unsigned char); char name[16]; rbr(&r, name, 16); name[15] = 0;
+                unsigned char proto = RV(&r, unsigned char); char name[16]; rbr(&r, name, 16); name[15] = 0; unsigned int theirMap = RV(&r, unsigned int);
                 WB w = {0};
                 if (proto != MP_PROTO) { WV(&w, (unsigned char)P_REJECT); char m[64] = "Different game version"; wb(&w, m, 64); netSend(&from, w.b, w.n); continue; }
+                if (theirMap != mapHash()) { WV(&w, (unsigned char)P_REJECT); char m[64] = "Different map: both need the same map mod"; wb(&w, m, 64); netSend(&from, w.b, w.n); continue; }
                 if (k < 0) { for (int s = 0; s < MP_MAX; s++) if (s != mySlot && !rps[s].on) { k = s; break; }
                     if (k < 0) { WV(&w, (unsigned char)P_REJECT); char m[64] = "The game is full (8 players)"; wb(&w, m, 64); netSend(&from, w.b, w.n); continue; }
                     memset(rq[k], 0, sizeof rq[k]); rseq[k] = 0; memset(rseen[k], 0, sizeof rseen[k]); nAck[k] = 0;
@@ -233,7 +234,7 @@ static void netUpdate(float dt) {   // every frame, in every state
     netRecvAll(now);
     if (netMode == NM_OFF) return;
     if (netMode == NM_CLIENT && netJoining) {
-        if (now - netJoinT > 1.0) { netJoinT = now; WB w = {0}; WV(&w, (unsigned char)P_JOIN); WV(&w, (unsigned char)MP_PROTO); char nm[16] = {0}; snprintf(nm, 16, "%s", prof.name); wb(&w, nm, 16); netSend(&hostAddr, w.b, w.n); }
+        if (now - netJoinT > 1.0) { netJoinT = now; WB w = {0}; WV(&w, (unsigned char)P_JOIN); WV(&w, (unsigned char)MP_PROTO); char nm[16] = {0}; snprintf(nm, 16, "%s", prof.name); wb(&w, nm, 16); WV(&w, mapHash()); netSend(&hostAddr, w.b, w.n); }
         static double first = 0; if (first == 0) first = now; if (now - first > 12) { first = 0; netStop("No answer from the host (check the IP, the port and the host's firewall)."); }
         return;
     }
