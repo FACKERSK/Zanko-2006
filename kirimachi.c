@@ -43,7 +43,7 @@ static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2
 #include "zk_items.h"
 #include "zk_jp.h"
 
-enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS };
+enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS, ST_MP };
 
 // ============================================================ utils
 static float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }
@@ -308,8 +308,14 @@ static void xfBox(int f, Vector3 mn, Vector3 mx, Vector3 *wmn, Vector3 *wmx) {  
     for (int k = 0; k < 4; k++) { Vector3 q = xfP(f, (Vector3){k & 1 ? mx.x : mn.x, 0, k & 2 ? mx.z : mn.z});
         wmn->x = fminf(wmn->x, q.x); wmn->z = fminf(wmn->z, q.z); wmx->x = fmaxf(wmx->x, q.x); wmx->z = fmaxf(wmx->z, q.z); }
 }
+static int wallAuditOn = -1, wallAuditN = 0; static Vector3 wallAuditP[24]; static int wallAuditT[24]; static float wallAuditW[24], wallAuditH[24]; static bool roadCentreAt(float x, float z);
 static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color col) {
     Vector3 q[6] = {a, b, c, a, c, d};
+    if (wallAuditOn < 0) wallAuditOn = getenv("KIRI_SHOT") ? 1 : 0;
+    if (wallAuditOn == 1 && fabsf(n.y) < 0.2f) {   // audit: an upright face standing on a road
+        float y0 = fminf(fminf(a.y, b.y), fminf(c.y, d.y)), y1 = fmaxf(fmaxf(a.y, b.y), fmaxf(c.y, d.y));
+        if (y1 - y0 > 0.35f && y0 < SIDEH + 0.6f && y1 > SIDEH + 0.3f) { Vector3 m = xfP(curXf, Vector3Scale(Vector3Add(Vector3Add(a, b), Vector3Add(c, d)), 0.25f));
+            if (roadCentreAt(m.x, m.z)) { if (wallAuditN < 24) { wallAuditP[wallAuditN] = m; wallAuditT[wallAuditN] = t; wallAuditW[wallAuditN] = sqrtf((a.x - c.x) * (a.x - c.x) + (a.z - c.z) * (a.z - c.z)); wallAuditH[wallAuditN] = y1 - y0; } wallAuditN++; } } }
     if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[t], xfP(curXf, q[i]), uvOf(t, q[i], n), wn, col); return; }   // texture follows the walls
     for (int i = 0; i < 6; i++) mbPush(&mb[t], q[i], uvOf(t, q[i], n), n, col);
 }
@@ -447,7 +453,7 @@ static unsigned int worldSeed;
 #define SR 22050
 static Sound sJingle;
 static Sound sImpact, sSplat, sBone, sStinger, sBreath, sScream;
-static Sound sStep, sSwing, sHit, sClang, sGlass, sShot, sClick, sHurt, sScreech, sGroan[2], sStatic, sDrone, sHeart, sPick, sWood, sPlace, sPhone, sReload;
+static Sound sStep, sSwing, sHit, sClang, sGlass, sShot, sClick, sHurt, sScreech, sGroan[2], sStatic, sDrone, sHeart, sPick, sWood, sPlace, sPhone, sReload, sTick;
 static Sound groanPool[8];
 static bool audioOk = false;
 static Sound mkS(float *b, int n) {
@@ -470,6 +476,7 @@ static void genSounds(void) {
     n = SR * 7 / 10; lp = 0; for (int i = 0; i < n; i++) { float hp = nz(); lp += (hp - lp) * 0.3f; float tink = 0; for (int k = 0; k < 6; k++) tink += sinf(T * 2 * PI * (2500 + k * 731)) * expf(-(T - k * 0.07f) * 25) * (T > k * 0.07f); b[i] = (hp - lp) * 1.4f * expf(-T * 10) + tink * 0.12f; } sGlass = mkS(b, n);
     n = SR * 7 / 10; lp = 0; lp2 = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.35f; lp2 += (lp - lp2) * 0.05f; b[i] = (lp * 1.8f * expf(-T * 22) + lp2 * 4 * expf(-T * 6) + sinf(T * 2 * PI * 60) * expf(-T * 12)); } sShot = mkS(b, n);
     n = SR / 20; for (int i = 0; i < n; i++) b[i] = nz() * expf(-T * 120) * 0.8f; sClick = mkS(b, n);
+    n = SR / 14; for (int i = 0; i < n; i++) b[i] = (sinf(T * 2 * PI * 2900) * 0.55f + sinf(T * 2 * PI * 4300) * 0.25f + nz() * 0.15f) * expf(-T * 70); sTick = mkS(b, n);
     n = SR * 4 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.15f; b[i] = (lp * 1.5f + sinf(T * 2 * PI * (220 - T * 200)) * 0.6f) * expf(-T * 8); } sHurt = mkS(b, n);
     n = SR * 9 / 10; lp = 0; for (int i = 0; i < n; i++) { float f = 900 + 500 * sinf(T * 23) + 300 * nz(); float s = sinf(T * 2 * PI * f * (1 + 0.3f * sinf(T * 51))); lp += (nz() - lp) * 0.4f; b[i] = (s * 0.5f + lp * 0.6f) * sinf(fminf(T / 0.9f, 1) * PI) * 0.9f; } sScreech = mkS(b, n);
     for (int g = 0; g < 2; g++) { n = SR * 3 / 2; lp = 0; float ph = 0; for (int i = 0; i < n; i++) { float f = (g ? 55 : 75) + 18 * sinf(T * (g ? 4.3f : 6.1f)) + 8 * nz(); ph += f / SR; float saw = 2 * (ph - floorf(ph)) - 1; lp += (saw + nz() * 0.6f - lp) * 0.06f; b[i] = lp * 2.2f * sinf(T / 1.5f * PI) * (0.7f + 0.3f * sinf(T * 31)); } sGroan[g] = mkS(b, n); }
@@ -686,7 +693,7 @@ static void car(float x, float z, bool alongZ) {
     float cx0 = alongZ ? x - hx + 0.08f : x - hx * 0.55f, cx1 = alongZ ? x + hx - 0.08f : x + hx * 0.35f;
     float cz0 = alongZ ? z - hz * 0.55f : z - hz + 0.08f, cz1 = alongZ ? z + hz * 0.35f : z + hz - 0.08f;
     addSolid(V3(cx0, 0.95f, cz0), V3(cx1, 1.5f, cz1));
-    if (nCar < MAX_CAR) cars[nCar++] = (Car){V3(x, 0, z), alongZ ? (ri(2) ? 0 : PI) : (ri(2) ? PI / 2 : -PI / 2), kind, c};
+    if (nCar < MAX_CAR) cars[nCar++] = (Car){xfP(curXf, V3(x, 0, z)), (alongZ ? (ri(2) ? 0 : PI) : (ri(2) ? PI / 2 : -PI / 2)) + xfYaw(curXf), kind, c};   // stored in the world
     if (fr(0, 1) < 0.35f) addItem(V3(x + (alongZ ? hx + 0.5f : 0), 0.0f, z + (alongZ ? 0 : hz + 0.5f)), randomLoot(1), 1);
 }
 
@@ -929,6 +936,10 @@ static Vector3 seaSidePt(int i, float d) {   // shot tests: a point d metres off
     Vector2 nn = pnorm(coastP, nCoast, i); Vector3 a = V3(coastP[i].x + nn.x * d, 0, coastP[i].z + nn.y * d), b = V3(coastP[i].x - nn.x * d, 0, coastP[i].z - nn.y * d);
     return terrainH(a.x, a.z) < terrainH(b.x, b.z) ? a : b; }
 static Vector3 opCenter(Open *o); static Vector3 opNormal(Open *o);
+static bool roadCentreAt(float x, float z) {   // inside the driven part of a street or the coast road (1 m in from the edges)
+    if (nCoast > 1 && pathDist(coastP, nCoast, x, z, NULL) < 2.7f) return true;
+    for (int s2 = 0; s2 < nStreet; s2++) { float w = dStreets[s2][2] / 10.0f; if (w < 3) continue; if (pathDist(stPts + dStreets[s2][0], dStreets[s2][1], x, z, NULL) < w / 2 - 1.0f) return true; }
+    return false; }
 static void genWorld(unsigned int seed) {
     freeWorld();
     hfReady = false; layoutInit();
@@ -979,15 +990,6 @@ static void genWorld(unsigned int seed) {
             for (int i = 0; i < nHole; i++) cut[nc++] = holes[i];
             cutBox(T_SIDEWALK, (Rectangle){x0, z0, BLOCK, BLOCK}, 0, SIDEH, WHITE, ALL, cut, nc);
         }
-    }
-    // cars on roads
-    for (int k = 0; k < 60; k++) {
-        bool alongZ = ri(2);
-        int line = ri(NB + 1), seg = ri(NB);
-        if (alongZ ? !segV(line, seg) : !segH(seg, line)) continue;
-        float lane = fr(0, 1) < 0.5f ? 2.6f : ROADW - 2.6f;
-        float u = ROADW + seg * PITCH + fr(3, BLOCK - 3);
-        if (alongZ) car(line * PITCH + lane, u, true); else car(u, line * PITCH + lane, false);
     }
     bakeHeightfield();
     genLayoutWorld();
@@ -1114,7 +1116,8 @@ static void spawnParts(Vector3 p, int n, int t, Color tint, float spd, float siz
         break;
     }
 }
-static void say(const char *s) { snprintf(msg, sizeof msg, "%s", s); msgT = 3.0f; }
+static void keySubst(char *buf, size_t n);
+static void say(const char *s) { snprintf(msg, sizeof msg, "%s", s); keySubst(msg, sizeof msg); msgT = 3.0f; }
 static void alertAll(Vector3 p, float radius) {
     // noise: they come to where the sound was, not to where you are
     for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].type != 4 && crs[i].state == CS_WANDER && Vector3Distance(crs[i].pos, p) < radius) {   // spirits ignore noise
@@ -1135,14 +1138,25 @@ static bool KD(int k) { return vin.on ? vin.down[k] : IsKeyDown(k); }
 static bool KP(int k) { return vin.on ? vin.pressed[k] : IsKeyPressed(k); }
 static bool MD(void) { return vin.on ? vin.lmb : IsMouseButtonDown(MOUSE_BUTTON_LEFT); }
 static bool MP(void) { return vin.on ? vin.lmbP : IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
-static Vector2 MDel(void) { return vin.on ? vin.md : GetMouseDelta(); }
+static Vector2 padLookPx(void);
+static Vector2 MDel(void) { return vin.on ? vin.md : Vector2Add(GetMouseDelta(), padLookPx()); }
 static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
+#include "zk_input.h"
 
 // ============================================================ game reset
 #include "zk_animdef.h"
 #include "zk_inv.h"
 enum { CH_GOD, CH_STAM, CH_NEEDS, CH_AMMO, CH_WEAR, CH_ONEHIT, CH_NOCLIP, CH_PEACE, CH_TIME, CH_LIGHT, CH_N };
 static struct { bool avail, menu, on[CH_N]; int key; float speed, frozenTod; char mod[64]; } cht = {.speed = 1, .key = KEY_F8};   // cheat menu state (zk_cheat.h)
+// ---- multiplayer state shared with the creature and player code (zk_net.h does the networking)
+#define MP_MAX 8
+enum { NM_OFF, NM_HOST, NM_CLIENT };
+static int netMode = NM_OFF, mySlot = 0; static bool netPvp = false;
+typedef struct { unsigned int ip; unsigned short port; } NetAddr;
+typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held; char name[16]; NetAddr addr; double heard; } RPlayer;
+static RPlayer rps[MP_MAX];   // every player in the session by slot (the host is slot 0); rps[mySlot] is unused (that is pl)
+static void netPlayerDamage(int slot, float dmg, float bleed);   // creature or PvP damage to a remote player
+static void netCreatureHit(int idx, float dmg);                   // a client hit a creature: the host applies it
 static void cheatsReset(void);
 #include "zk_player.h"
 
@@ -1266,7 +1280,7 @@ static Matrix frameM(Matrix parent, Vector3 pivot, float rx, float ry, float rz)
 // The default file is written from the box definition at the call site the first time it is needed, then loaded from disk.
 typedef struct { int tex; Vector3 off, size; Color col; } ABox;
 typedef struct { char id[64]; Model m; } Asset;
-#define MAX_ASSET 200
+#define MAX_ASSET 320
 static Asset assets[MAX_ASSET]; static int nAsset;
 static int objVn = 0;
 static void objQuad(FILE *f, int *vi, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n) {
@@ -1277,6 +1291,10 @@ static void objQuad(FILE *f, int *vi, Vector3 a, Vector3 b, Vector3 c, Vector3 d
     fprintf(f, "f %d/1/%d %d/2/%d %d/3/%d %d/4/%d\n", k, vn, k + 1, vn, k + 2, vn, k + 3, vn);
     *vi += 4;
 }
+static int assetMat(const ABox *bx, int i) {
+    for (int j = 0; j < i; j++) if (bx[j].tex == bx[i].tex && bx[j].col.r == bx[i].col.r && bx[j].col.g == bx[i].col.g && bx[j].col.b == bx[i].col.b && bx[j].col.a == bx[i].col.a) return j;
+    return i;
+}
 static void writeAssetObj(const char *objPath, const char *id, const ABox *bx, int n) {
     char dir[900]; snprintf(dir, sizeof dir, "%s", GetDirectoryPath(objPath)); MakeDirectory(dir);
     char mtlPath[900]; snprintf(mtlPath, sizeof mtlPath, "%s/%s.mtl", dir, GetFileNameWithoutExt(objPath));
@@ -1285,7 +1303,7 @@ static void writeAssetObj(const char *objPath, const char *id, const ABox *bx, i
     FILE *m = fopen(mtlPath, "w");
     if (m) {
         fprintf(m, "# Zanko 2006 material file for %s\n# map_Kd may point to any PNG; textures from Textures/ (or a mod's Textures/) are swapped in by name.\n", id);
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < n; i++) if (assetMat(bx, i) == i)   // boxes with the same texture and colour share one material (raylib's obj loader stalls on many)
             fprintf(m, "\nnewmtl part%d\nKa 0 0 0\nKd %.3f %.3f %.3f\nKs 0 0 0\nd 1\nillum 1\nmap_Kd %sTextures/%s\n", i, bx[i].col.r / 255.0f, bx[i].col.g / 255.0f, bx[i].col.b / 255.0f, up, texNames[bx[i].tex]);
         fclose(m);
     }
@@ -1298,7 +1316,7 @@ static void writeAssetObj(const char *objPath, const char *id, const ABox *bx, i
     for (int i = 0; i < n; i++) {
         Vector3 mn = Vector3Subtract(bx[i].off, Vector3Scale(bx[i].size, 0.5f)), mx = Vector3Add(bx[i].off, Vector3Scale(bx[i].size, 0.5f));
         float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
-        fprintf(f, "g part%d\nusemtl part%d\n", i, i);
+        fprintf(f, "g part%d\nusemtl part%d\n", i, assetMat(bx, i));
         objQuad(f, &vi, V3(x1, y0, z1), V3(x1, y0, z0), V3(x1, y1, z0), V3(x1, y1, z1), V3(1, 0, 0));
         objQuad(f, &vi, V3(x0, y0, z0), V3(x0, y0, z1), V3(x0, y1, z1), V3(x0, y1, z0), V3(-1, 0, 0));
         objQuad(f, &vi, V3(x0, y0, z1), V3(x1, y0, z1), V3(x1, y1, z1), V3(x0, y1, z1), V3(0, 0, 1));
@@ -1494,6 +1512,7 @@ static void setupLights(Vector3 eye, float t) {
     SetShaderValueV(sh, locLR, lr, SHADER_UNIFORM_FLOAT, n > 0 ? n : 1);
     SetShaderValue(sh, locNL, &n, SHADER_UNIFORM_INT);
 }
+static void drawRemotePlayers(float dt);
 static void drawWorld(Vector3 eye, float t) {
     curEmis = -1; setEmis(0);
     if (terrainOk) { terrain.transform = MatrixIdentity(); DrawModel(terrain, V3(0, 0, 0), 1, WHITE); }
@@ -1598,6 +1617,7 @@ static void drawWorld(Vector3 eye, float t) {
         }
         drawCreature(c);
     }
+    drawRemotePlayers(GetFrameTime());
     for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0) { Part *p = &parts[i]; float s = p->size;
         drawBox(p->t, V3(p->pos.x - s, p->pos.y - s, p->pos.z - s), V3(p->pos.x + s, p->pos.y + s, p->pos.z + s), p->tint); }
     setEmis(1);
@@ -1651,6 +1671,7 @@ static void updateFX(float dt, Vector3 eye) {
 static float sw, shh;
 #include "zk_ui.h"
 #include "zk_cheat.h"
+#include "zk_net.h"
 static int menuPanel(const char *title, const char **labels, int n, bool *enabled) {
     Rectangle lg = p3Panel(0, -16, 16.5f, 560, 140, false);
     aLogo(lg.width / 2, 22 * aU, 62, "A F T E R G L O W");
@@ -1702,20 +1723,33 @@ static void settingsPanel(void) {
     if (aButton((Rectangle){p.width / 2 - 110 * aU, y, 220 * aU, 44 * aU}, "Save & Back", true)) { cfgSave(); SetMasterVolume(cfg.volume); state = settingsBack; }
     p3End(3);
 }
-static void controlsPanel(void) {
-    Rectangle p = p3Panel(3, 0, 0, 640, 752, true);
-    if (aWindow(p, "Controls")) state = settingsBack;
-    const char *l[] = {"Mouse", "Aim (crosshair leads, view follows)", "WASD", "Move (heavy loads slow you down)", "Shift / Ctrl", "Sprint / Sneak", "Space", "Jump - Climb ledges - Vault broken windows",
-                       "LMB", "Swing / Fire / Place build piece", "Hold RMB", "Guard with melee or fists (tap just before a hit: parry)", "I", "Inspect the item in hand", "Hold E", "Search furniture - E: doors, TVs, water, gardens", "Tab", "Inventory + crafting: drag, right-click to use / equip",
-                       "1 - 6", "Quickbar (weapons, food, bandages)", "H", "Put the weapon away (fists)", "G", "Barricade window or doorway - Repair - Reinforce",
-                       "B", "Build mode (wheel / R choose piece)", "R", "Reload", "F", "Flashlight", "Z", "Sleep (bed, or roof + fire)",
-                       "M", "Map: LMB marker - RMB drag rotate / click remove - wheel zoom", "Kamidana", "Build it first: wards only work inside your base",
-                       "Saving", "Automatic: sleep, every 2 min, back to menu", "Esc", "Pause"};
-    for (int i = 0; i < 20; i++) {
-        aText(l[i * 2], p.x + 36 * aU, p.y + (60 + i * 31) * aU, 15, C_CYAN, true);
-        aText(l[i * 2 + 1], p.x + 150 * aU, p.y + (60 + i * 31) * aU, 15, C_BONE, false);
+static int uiFrame = 0;
+static void controlsPanel(void) {   // every action: two keyboard / mouse slots and one gamepad slot, click one then press the new input
+    Rectangle p = p3Panel(3, 0, 0, 1060, 640, true); float s = aU;
+    if (aWindow(p, "Controls")) { capA = -1; keysSave(); state = settingsBack; }
+    bindCapture(uiFrame);
+    float colW = 500 * s, rh = 28 * s, y0 = p.y + 84 * s;
+    aText("Action", p.x + 30 * s, p.y + 56 * s, 13, C_BONE2, true); aText("Key", p.x + 238 * s, p.y + 56 * s, 13, C_BONE2, true); aText("Alt", p.x + 326 * s, p.y + 56 * s, 13, C_BONE2, true); aText("Gamepad", p.x + 414 * s, p.y + 56 * s, 13, C_BONE2, true);
+    aText("Action", p.x + 30 * s + colW, p.y + 56 * s, 13, C_BONE2, true); aText("Key", p.x + 238 * s + colW, p.y + 56 * s, 13, C_BONE2, true); aText("Alt", p.x + 326 * s + colW, p.y + 56 * s, 13, C_BONE2, true); aText("Gamepad", p.x + 414 * s + colW, p.y + 56 * s, 13, C_BONE2, true);
+    int perCol = (A_N + 1) / 2;
+    for (int a = 0; a < A_N; a++) {
+        float x = p.x + 30 * s + (a >= perCol ? colW : 0), y = y0 + (a % perCol) * rh;
+        aText(actName[a], x, y + 6 * s, 13, C_BONE, false);
+        for (int sl = 0; sl < 3; sl++) {
+            Rectangle r = {x + (208 + sl * 88) * s, y, 82 * s, 25 * s};
+            bool cap = capA == a && capS == sl;
+            const char *lab = cap ? "press..." : sl < 2 ? keyName(bindK[a][sl]) : (a <= A_RIGHT ? "L stick" : padName(bindP[a]));
+            if (aButton(r, lab, !(sl == 2 && a <= A_RIGHT)) && capA < 0) { capA = a; capS = sl; capFrame = uiFrame; }
+        }
     }
-    if (aButton((Rectangle){p.width / 2 - 100 * aU, p.y + p.height - 62 * aU, 200 * aU, 42 * aU}, "Back", true)) state = settingsBack;
+    float y = y0 + perCol * rh + 10 * s, x = p.x + 30 * s;
+    aText("Fixed:  mouse / right stick look   Esc / Start pause   B back in menus   F11 fullscreen", x, y, 13, C_BONE2, false); y += 30 * s;
+    padLookSens = aSlider((Rectangle){x, y + 16 * s, 300 * s, 10 * s}, "Gamepad look speed", padLookSens, 0.2f, 3, "%.1f");
+    bool inv = aToggle(x + 380 * s, y + 4 * s, "Invert gamepad Y", padInvertY); if (inv != padInvertY) { padInvertY = inv; keysSave(); }
+    y += 44 * s;
+    aText(capA >= 0 ? "Press a key, mouse button or gamepad button.  Esc cancels, Backspace clears." : padId >= 0 ? TextFormat("Gamepad: %s", GetGamepadName(padId)) : "No gamepad connected.", x, y, 13, capA >= 0 ? C_CYAN : C_BONE2, false);
+    if (aButton((Rectangle){p.x + p.width / 2 - 230 * s, p.y + p.height - 56 * s, 200 * s, 38 * s}, "Reset to defaults", capA < 0)) { keysDefaults(); keysSave(); }
+    if (aButton((Rectangle){p.x + p.width / 2 + 30 * s, p.y + p.height - 56 * s, 200 * s, 38 * s}, "Back", capA < 0)) { keysSave(); state = settingsBack; }
     p3End(3);
 }
 
@@ -1898,7 +1932,7 @@ static int zankoMain(int argc, char **argv) {
 #else
 int main(int argc, char **argv) {
 #endif
-    aeroInitPaths(); cfgLoad();
+    aeroInitPaths(); cfgLoad(); keysLoad();
     char user[32] = "Guest";
     // ---- startup arguments (set in the launcher: Settings > Startup arguments)
     int ramMB = 0, fpsCap = 0; bool argNewGame = false, argNoVsync = false; int argFull = -1;
@@ -1971,7 +2005,110 @@ int main(int argc, char **argv) {
     if (argNewGame) { newGame(); state = ST_PLAY; DisableCursor(); }
     while (!WindowShouldClose()) {
         frame++;
+        inputUpdate(); uiFrame = frame;
         float dt = fminf(GetFrameTime(), 0.05f), t = (float)GetTime();
+        {   // viewmodel stills: KIRI_VM=1 holds each animation at fixed points and takes a picture (vm_*.png), then quits
+            static int vm = -1; if (vm < 0) vm = getenv("KIRI_VM") ? 1 : 0;
+            struct { int it, anim; float at, shot; int mag; bool torch; const char *nm; } V[] = {
+                {IT_REVOLVER, -1, 0, -1, 4, false, "vm_rev_idle"}, {IT_REVOLVER, ANIM_EQUIP, 0.22f, -1, 4, false, "vm_rev_draw"}, {IT_REVOLVER, ANIM_EQUIP, 0.58f, -1, 4, false, "vm_rev_cock"},
+                {IT_REVOLVER, -1, 0, 0.02f, 4, false, "vm_rev_fire"}, {IT_REVOLVER, -1, 0, 0.16f, 3, false, "vm_rev_recock"},
+                {IT_REVOLVER, ANIM_RELOAD, 0.14f, -1, 2, false, "vm_rev_reload1_open"}, {IT_REVOLVER, ANIM_RELOAD, 0.275f, -1, 2, false, "vm_rev_reload2_eject"},
+                {IT_REVOLVER, ANIM_RELOAD, 0.44f, -1, 2, false, "vm_rev_reload3_loader"}, {IT_REVOLVER, ANIM_RELOAD, 0.55f, -1, 2, false, "vm_rev_reload4_insert"},
+                {IT_REVOLVER, ANIM_RELOAD, 0.75f, -1, 2, false, "vm_rev_reload5_spin"}, {IT_REVOLVER, ANIM_RELOAD, 0.86f, -1, 2, false, "vm_rev_reload6_close"},
+                {IT_REVOLVER, ANIM_INSPECT, 0.1f, -1, 6, false, "vm_rev_inspect1"}, {IT_REVOLVER, ANIM_INSPECT, 0.3f, -1, 6, false, "vm_rev_inspect2_spin"},
+                {IT_REVOLVER, ANIM_INSPECT, 0.5f, -1, 6, false, "vm_rev_inspect3_look"}, {IT_REVOLVER, ANIM_INSPECT, 0.78f, -1, 6, false, "vm_rev_inspect4_twirl"},
+                {IT_REVOLVER, -1, 0, -1, 6, true, "vm_rev_phone"}, {IT_KATANA, -1, 0, -1, 0, false, "vm_katana_idle"}, {-1, -1, 0, -1, 0, false, "vm_fists_idle"},
+                {IT_BAT, ANIM_INSPECT, 0.7f, -1, 0, false, "vm_bat_inspect"}, {IT_BAT, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_bat_inspect_shoulder"},
+                {IT_KNIFE, ANIM_INSPECT, 0.35f, -1, 0, false, "vm_knife_inspect_flip"}, {IT_KNIFE, ANIM_INSPECT, 0.7f, -1, 0, false, "vm_knife_inspect_twirl"},
+                {IT_AXE, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_axe_inspect"}, {IT_AXE, ANIM_INSPECT, 0.66f, -1, 0, false, "vm_axe_inspect_thumb"},
+                {IT_KATANA, ANIM_INSPECT, 0.53f, -1, 0, false, "vm_katana_inspect_edge"}, {IT_REVOLVER, -1, 0, 0.05f, 4, false, "vm_hitmarker"}};
+            int NV = (int)(sizeof V / sizeof V[0]);
+            if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;
+                invAdd(IT_AMMO, 24); pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.pos.y = groundAt(V3(SPAWN_X, 30, SPAWN_Z), 0.3f, 40) + 0.05f; pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0.05f; }
+            if (vm == 1 && frame == 18) { settingsBack = ST_PLAY; state = ST_CONTROLS; EnableCursor(); capA = A_RELOAD; capS = 0; }
+            if (vm == 1 && frame == 26) { TakeScreenshot("vm_controls.png"); capA = -1;
+                int old = bindK[A_JUMP][0]; bindSet(A_JUMP, 0, KEY_V); bindSet(A_USE, 1, KEY_V); keysDefaults(); keysLoad();
+                TraceLog(LOG_INFO, "KEYTEST jump %d use-alt %d (V=%d, jump lost V: %s) name '%s' pad A '%s'", bindK[A_JUMP][0], bindK[A_USE][1], KEY_V, bindK[A_JUMP][0] == 0 ? "yes" : "no", keyName(bindK[A_USE][1]), padName(bindP[A_JUMP]));
+                char hb[96] = "[hold E] Search desk  [SPACE] vault"; keySubst(hb, sizeof hb); TraceLog(LOG_INFO, "KEYTEST hint '%s'", hb);
+                bindK[A_JUMP][0] = old; bindK[A_USE][1] = 0; keysSave(); state = ST_PLAY; DisableCursor(); }
+            if (vm == 1 && frame > 30) { int q = (frame - 31) / 5, k = (frame - 31) % 5;
+                if (q >= NV && !getenv("KIRI_VMSEQ")) { TraceLog(LOG_INFO, "VM: %d stills", NV); break; }
+                if (q >= NV) {   // then the revolver in motion at 30 fps: draw, three shots, reload, inspect (vmseq_####.png)
+                    static int sf = 0; static const float segT[4] = {0.85f, 1.5f, REV_RELOAD, 3.0f}; float tt = sf / 30.0f; int sg = 0;
+                    while (sg < 4 && tt >= segT[sg]) { tt -= segT[sg]; sg++; }
+                    if (sg >= 4) { TraceLog(LOG_INFO, "VM: %d stills, %d sequence frames", NV, sf); break; }
+                    pl.hands = (Slot){IT_REVOLVER, 1, 0}; pl.weapon = 1; pl.flash = false; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f;
+                    if (sg == 0) { animPlay(ANIM_EQUIP); animT = tt; pl.mag = 3; revShotT = 9; pl.kick = 0; }
+                    if (sg == 1) { animId = ANIM_NONE; float st = fmodf(tt, 0.5f); pl.mag = 3 - (int)(tt / 0.5f); revShotT = st; pl.kick = fmaxf(0, 1 - st * 6); pl.muzzle = st < 0.05f ? 0.05f : 0; }
+                    if (sg == 2) { if (animId != ANIM_RELOAD) animPlay(ANIM_RELOAD); animT = tt; pl.mag = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; }
+                    if (sg == 3) { if (animId != ANIM_INSPECT) animPlay(ANIM_INSPECT); animT = tt; pl.mag = 6; }
+                    if (sf > 0) { char nm[64]; snprintf(nm, sizeof nm, "vmseq_%04d.png", sf - 1); TakeScreenshot(nm); }
+                    sf++; }
+                else {
+                bool vSkip = getenv("KIRI_VMONLY") && strncmp(V[q].nm, getenv("KIRI_VMONLY"), strlen(getenv("KIRI_VMONLY")));
+                if (vSkip && k == 0) frame += 4;
+                if (!vSkip && k == 0) { pl.hands = (Slot){(short)V[q].it, 1, 0}; pl.weapon = V[q].it == IT_REVOLVER ? 1 : 0; pl.mag = V[q].mag; pl.flash = V[q].torch; pl.batt = 100; animId = ANIM_NONE; pl.swingT = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; pl.vy = 0; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f; }
+                if (!vSkip && k == 3) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; }
+                    if (!strcmp(V[q].nm, "vm_hitmarker")) { hitMarkT = 0.3f; hitMarkKind = 2; }
+                    if (V[q].shot >= 0) { revShotT = V[q].shot; pl.kick = fmaxf(0, 1 - V[q].shot * 6); pl.muzzle = V[q].shot < 0.07f ? 0.2f : 0; } }
+                if (!vSkip && k == 4) { char nm[64]; snprintf(nm, sizeof nm, "%s.png", V[q].nm); TakeScreenshot(nm); } } }
+        }
+        {   // walk test: KIRI_WALK=1 walks the player (real physics) down the whole touge into town, along the coast road and every avenue
+            static int wk = -1, walkTun = -1; static Vector3 route[20000]; static int nR = 0, ri0 = 0, seg[64], nSeg = 0, stuck = 0, falls = 0, jumps = 0, shots = 0; static float prog = 0, distSinceShot = 0, stuckT = 0; static Vector3 lastP;
+            if (wk < 0) wk = getenv("KIRI_WALK") ? 1 : 0;
+            if (wk == 1 && frame == 5) {
+                gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_STAM] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; cht.on[CH_TIME] = true; cht.frozenTod = 12;
+                #define WADD(P, N, REV) do { seg[nSeg++] = nR; for (int q_ = 0; q_ < (N) && nR < 20000; q_++) route[nR++] = (P)[(REV) ? (N) - 1 - q_ : q_]; } while (0)
+                WADD(tougeP, nTouge, 1); WADD(coastP, nCoast, 0);
+                for (int s2 = 0; s2 < nStreet; s2++) if (dStreets[s2][3] == 1 || dStreets[s2][3] == 2) WADD(stPts + dStreets[s2][0], dStreets[s2][1], 0);
+                seg[nSeg] = nR; ri0 = 1; walkTun = 0; pl.pos = route[0]; pl.pos.y = baseGroundY(route[0].x, route[0].z, 99) + 0.2f; pl.vy = 0; lastP = pl.pos; vin.on = true;
+                TraceLog(LOG_INFO, "WALK route: %d points in %d stretches (touge %d, coast %d)", nR, nSeg, nTouge, nCoast); }
+            if (wk == 1 && walkTun >= 0 && walkTun < 4 && frame > 5) {   // pictures of both railway tunnel mouths, from the track and from the side
+                static int tf = 0; tf++;
+                int end = walkTun < 2 ? 0 : nRail - 1, in = walkTun < 2 ? 10 : nRail - 11; Vector3 a = railP[in], b = railP[end]; Vector2 nn = pnorm(railP, nRail, in);
+                Vector3 p = walkTun % 2 == 0 ? a : V3(a.x + nn.x * 9, 0, a.z + nn.y * 9);
+                pl.pos = V3(p.x, baseGroundY(p.x, p.z, 99) + 0.1f, p.z); pl.vy = 0; pl.tyaw = pl.yaw = atan2f(b.x - p.x, b.z - p.z); pl.tpitch = pl.pitch = 0.04f;
+                if (tf == 8) { char fn[64]; snprintf(fn, 64, "walk_train_tunnel_%d.png", walkTun); TakeScreenshot(fn); tf = 0; walkTun++; if (walkTun == 4) { pl.pos = route[0]; pl.pos.y = baseGroundY(route[0].x, route[0].z, 99) + 0.2f; lastP = pl.pos; } }
+            }
+            else             if (wk == 1 && frame > 5 && state == ST_PLAY) {
+                memset(vin.down, 0, sizeof vin.down);
+                if (ri0 >= nR) { TraceLog(LOG_INFO, "WALK done: %d stuck spots, %d falls, %d jumps between stretches, %d screenshots", stuck, falls, jumps, shots); break; }
+                bool newSeg = false; for (int k = 1; k < nSeg; k++) if (seg[k] == ri0) newSeg = true;
+                if (newSeg) { pl.pos = route[ri0]; pl.pos.y = groundAt(V3(route[ri0].x, 60, route[ri0].z), 0.3f, 80) + 0.1f; pl.vy = 0; ri0++; jumps++; lastP = pl.pos; stuckT = 0; }
+                Vector3 tg = route[ri0]; float d = Vector2Distance((Vector2){pl.pos.x, pl.pos.z}, (Vector2){tg.x, tg.z});
+                if (d < 1.6f) ri0++;
+                else { pl.tyaw = pl.yaw = atan2f(tg.x - pl.pos.x, tg.z - pl.pos.z); pl.tpitch = pl.pitch = -0.08f; vin.down[KEY_W] = 1; vin.down[KEY_LEFT_SHIFT] = 1; }
+                float mv = Vector3Distance(pl.pos, lastP); prog += mv; distSinceShot += mv; lastP = pl.pos;
+                stuckT = mv < 0.02f ? stuckT + dt : 0;
+                if (stuckT > 1.5f) { stuck++; if (stuck <= 40) TraceLog(LOG_INFO, "WALK stuck at %.1f %.1f %.1f (route point %d)", pl.pos.x, pl.pos.y, pl.pos.z, ri0); char fn[64]; if (stuck <= 12) { snprintf(fn, 64, "walk_stuck_%02d.png", stuck); TakeScreenshot(fn); }
+                    pl.pos = route[ri0 < nR - 1 ? ri0 + 1 : ri0]; pl.pos.y = groundAt(V3(pl.pos.x, 60, pl.pos.z), 0.3f, 80) + 0.1f; pl.vy = 0; ri0++; stuckT = 0; lastP = pl.pos; }
+                float gy = baseGroundY(pl.pos.x, pl.pos.z, pl.pos.y + 2);
+                if (pl.pos.y < gy - 1.2f || pl.pos.y < -20) { falls++; if (falls <= 40) TraceLog(LOG_INFO, "WALK fell at %.1f %.1f y %.1f (ground %.1f)", pl.pos.x, pl.pos.z, pl.pos.y, gy);
+                    pl.pos.y = gy + 0.2f; pl.vy = 0; }
+                if (distSinceShot > 90) { distSinceShot = 0; char fn[64]; snprintf(fn, 64, "walk_%03d.png", shots++); TakeScreenshot(fn); }
+            }
+        }
+        {   // multiplayer test: KIRI_MPHOST=1 hosts, KIRI_MPJOIN=<ip> joins; both log what they see of each other and of the shared town
+            static int mpRole = -1, wi = -1, ci = -1; static unsigned int ch0 = 0;
+            if (mpRole < 0) mpRole = getenv("KIRI_MPHOST") ? 1 : getenv("KIRI_MPJOIN") ? 2 : 0;
+            if (mpRole == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; netPvp = true; netHost(27015); state = ST_PLAY; TraceLog(LOG_INFO, "MPTEST host up: %s", netStatus); }
+            if (mpRole == 2 && frame == 5) { netJoin(getenv("KIRI_MPJOIN"), 27015); TraceLog(LOG_INFO, "MPTEST joining: %s", netStatus); }
+            if (mpRole && frame > 5) {
+                if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].state == 0) { wi = i; break; }
+                if (ci < 0) for (int i = 0; i < nCont; i++) if (conts[i].kind == CK_FRIDGE || conts[i].kind == CK_SHELF) { ci = i; break; }
+                if (mpRole == 1 && frame == 200) { pl.pos = V3(SPAWN_X, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; }
+                if (mpRole == 2 && gameActive && frame % 60 == 0) { pl.pos = V3(SPAWN_X + 3, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; pl.tyaw = pl.yaw = -PI / 2; pl.tpitch = pl.pitch = 0; }
+                if (mpRole == 1 && frame == 260) { pl.tyaw = pl.yaw = PI / 2; pl.tpitch = pl.pitch = 0; }
+                if (mpRole == 1 && frame == 420 && wi >= 0) { breakWindow(&ops[wi]); lootFill(&conts[ci]); conts[ci].s[0] = (Slot){IT_KATANA, 1, 0}; ch0 = contHash(&conts[ci]); TraceLog(LOG_INFO, "MPTEST host broke window %d and put a katana in container %d", wi, ci); }
+                if (mpRole == 2 && frame == 700) { lootFill(&conts[ci]); TraceLog(LOG_INFO, "MPTEST client sees window %d state %d (1 = broken), container %d first slot item %d (katana %d), solid off %d", wi, ops[wi].state, ci, conts[ci].s[0].t, IT_KATANA, ops[wi].sid >= 0 ? sol[ops[wi].sid].off : -1); }
+                if (frame == 640) { int n = 0; for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { n++; TraceLog(LOG_INFO, "MPTEST %s sees player %d '%s' at %.1f %.1f %.1f alive %d", mpRole == 1 ? "host" : "client", k, rps[k].name, rps[k].pos.x, rps[k].pos.y, rps[k].pos.z, rps[k].alive); }
+                    int cr = 0; for (int i = 0; i < nCr; i++) if (crs[i].on) cr++; TraceLog(LOG_INFO, "MPTEST %s: %d other players, %d creatures, slot %d, tod %.2f", mpRole == 1 ? "host" : "client", n, cr, mySlot, pl.tod); }
+                if (frame == 650) TakeScreenshot(mpRole == 1 ? "mp_host.png" : "mp_client.png");
+                if (mpRole == 2 && frame == 660) { float hp0 = pl.hp; netPlayerDamage(0, 10, 0); TraceLog(LOG_INFO, "MPTEST client hit the host (PvP on), own hp %.0f", hp0); }
+                if (mpRole == 1 && frame == 760) TraceLog(LOG_INFO, "MPTEST host hp after PvP hit: %.0f", pl.hp);
+                if (frame == 800) { netStop("test over"); break; }
+            }
+        }
         musicUpdate(dt, gameActive && (state == ST_PLAY || state == ST_PAUSE));
         static float vtime = 0;
         if (videoMode) { dt = 1.0f / 30.0f; vtime += dt; t = vtime; videoScript(); if (vPhase >= 8 && vT > 40) break; }
@@ -2031,8 +2168,8 @@ int main(int argc, char **argv) {
         Vector3 eye, aim;
         if (state == ST_PLAY) {
             if (cht.avail && KP(cht.key) && !pl.invOpen && !pl.mapOpen) { cht.menu = !cht.menu; if (cht.menu) EnableCursor(); else DisableCursor(); }
-            if (KP(KEY_ESCAPE) && cht.menu) { cht.menu = false; DisableCursor(); }
-            else if (KP(KEY_ESCAPE)) { if (pl.mapOpen) { pl.mapOpen = false; DisableCursor(); } else if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; } }
+            if (escP() && cht.menu) { cht.menu = false; DisableCursor(); }
+            else if (escP()) { if (pl.mapOpen) { pl.mapOpen = false; DisableCursor(); } else if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; } }
             if (cht.menu) { eye = Vector3Add(pl.pos, V3(0, 1.6f, 0)); aim = dirOf(pl.tyaw, pl.tpitch); } else {   // the cheat menu pauses the world
 #if defined(PLATFORM_WEB)
             {   // browser pointer lock: request on click, pause when the browser releases it (Esc)
@@ -2056,17 +2193,21 @@ int main(int argc, char **argv) {
             if (pl.turned && pl.hp > 0) { pl.hp = 0; say("You have become one of them."); }
             eye = Vector3Add(pl.pos, V3(0, 1.6f + (pl.ground ? sinf(pl.bob * 2) * 0.035f : 0), 0));
             aim = dirOf(pl.tyaw, pl.tpitch);
-            if (!shotMode || frame > 44) updateCreatures(dt, aim);
+            if (netMode == NM_CLIENT) netClientCreatures(dt); else if (!shotMode || frame > 44) updateCreatures(dt, aim);
             if (evacOn) { evacT -= dt; if (evacT <= 0) { state = ST_WIN; EnableCursor(); prof.wins++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; } }
             if (pl.hp <= 0 && shotMode) TraceLog(LOG_INFO, "SHOT: died at frame %d pos %.1f %.1f %.1f", frame, pl.pos.x, pl.pos.y, pl.pos.z);
-            if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
+            if (pl.hp <= 0 && netMode != NM_OFF) { state = ST_DEAD; EnableCursor(); prof.deaths++; profSave(); play(sScreech, 1); }   // in a session the town goes on: respawn
+            else if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
             }
         } else {
             float tt = t * 0.05f;
             eye = gameActive ? Vector3Add(pl.pos, V3(0, 1.6f, 0)) : V3(SPAWN_X + sinf(tt) * 1.5f, 2.2f, fmodf(t * 1.2f, 300) + 40);
             aim = gameActive ? dirOf(pl.tyaw, pl.tpitch) : Vector3Normalize(V3(sinf(t * 0.13f) * 0.4f, 0.02f, 1));
             if (audioOk) { if (!IsSoundPlaying(sDrone)) PlaySound(sDrone); SetSoundVolume(sStatic, 0); }
+            if (netMode == NM_HOST && gameActive) updateCreatures(dt, aim);   // the host's menus don't stop the other players' night
+            else if (netMode == NM_CLIENT && gameActive) netClientCreatures(dt);
         }
+        netUpdate(dt);
         updateFX(dt, eye);
         Vector3 shake = V3(fr(-1, 1) * pl.shake * 0.13f, fr(-1, 1) * pl.shake * 0.13f, 0);
         cam.position = Vector3Add(eye, shake);
@@ -2134,17 +2275,24 @@ int main(int argc, char **argv) {
         ClearBackground(BLACK);
         if (backdrop) saBackdrop(t, 0, 0, 0, 1.0f);
         else DrawTexturePro(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
-        if (state == ST_PLAY) { drawHUD(cross, t); if (cht.menu) cheatMenu(t); }
+        if (state == ST_PLAY) { drawHUD(cross, t); drawNameTags(); if (cht.menu) cheatMenu(t); }
         else {
             if (!backdrop) aBackground(state == ST_PAUSE ? 0.75f : 0.85f);
             aCorrupt = gameActive ? pl.stage : 0;
             p3Begin(t);
             if (state == ST_MENU) {
-                const char *l[] = {"Continue", "New Game", "Multiplayer (not in this build)", "Settings", "Controls", "Lore", "Quit"}; bool en[] = {gameActive || saveExists(), true, false, true, true, true, true};
+                const char *l[] = {"Continue", "New Game", "Multiplayer", "Settings", "Controls", "Lore", "Quit"}; bool en[] = {gameActive || saveExists(), netMode == NM_OFF,
+#ifdef PLATFORM_WEB
+                    false,   // browsers cannot open UDP sockets: multiplayer is in the Windows build
+#else
+                    true,
+#endif
+                    true, true, true, true};
                 int r = menuPanel("Seiry\xC5\xAB - Menu", l, 7, en);
                 profilePanel();
                 if (r == 0) { if (gameActive || loadGame()) { state = ST_PLAY; DisableCursor(); } else say("The save could not be read."); }
                 if (r == 1) { if (videoMode) { newGame(); vSetupScene(); vT = 0; state = ST_PLAY; DisableCursor(); } else state = ST_TRAITS; }
+                if (r == 2) state = ST_MP;
                 if (r == 3) { settingsBack = ST_MENU; state = ST_SETTINGS; }
                 if (r == 4) { settingsBack = ST_MENU; state = ST_CONTROLS; }
                 if (r == 5) state = ST_LORE;
@@ -2153,14 +2301,15 @@ int main(int argc, char **argv) {
                 const char *l[] = {"Resume", "Settings", "Controls", "Main Menu"};
                 int r = menuPanel("Paused", l, 4, NULL);
                 profilePanel();
-                if (r == 0 || (KP(KEY_ESCAPE) && frame != pauseFrame)) { state = ST_PLAY; DisableCursor(); }
+                if (r == 0 || (escP() && frame != pauseFrame)) { state = ST_PLAY; DisableCursor(); }
                 if (r == 1) { settingsBack = ST_PAUSE; state = ST_SETTINGS; }
                 if (r == 2) { settingsBack = ST_PAUSE; state = ST_CONTROLS; }
-                if (r == 3) { saveGame(); state = ST_MENU; }
-            } else if (state == ST_LORE) lorePanel();
+                if (r == 3) { saveGame(); if (netMode != NM_OFF) { netStop("Left the game."); gameActive = false; } state = ST_MENU; }
+            } else if (state == ST_LORE) { lorePanel(); if (escP()) state = ST_MENU; }
+            else if (state == ST_MP) mpPanel();
             else if (state == ST_TRAITS) traitsPanel();
-            else if (state == ST_SETTINGS) settingsPanel();
-            else if (state == ST_CONTROLS) controlsPanel();
+            else if (state == ST_SETTINGS) { settingsPanel(); if (state == ST_SETTINGS && escP()) state = settingsBack; }
+            else if (state == ST_CONTROLS) { bool wasCap = capA >= 0; controlsPanel(); if (state == ST_CONTROLS && !wasCap && capA < 0 && escP()) { keysSave(); state = settingsBack; } }
             else if (state == ST_DEAD || state == ST_WIN) {
                 bool win = state == ST_WIN;
                 Rectangle tp = p3Panel(0, 0, 15, 600, 110, false);
@@ -2172,8 +2321,9 @@ int main(int argc, char **argv) {
                 char b[96];
                 snprintf(b, sizeof b, "Survived  %02d:%02d", (int)pl.time / 60, (int)pl.time % 60); aTextC(b, sw / 2, p.y + 56 * aU, 20, C_BONE, false);
                 snprintf(b, sizeof b, "Creatures put down  %d", pl.kills); aTextC(b, sw / 2, p.y + 88 * aU, 20, C_BONE, false);
-                if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 134 * aU, 280 * aU, 46 * aU}, "New Game", true)) state = ST_TRAITS;
-                if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 194 * aU, 280 * aU, 46 * aU}, "Main Menu", true)) state = ST_MENU;
+                if (netMode != NM_OFF && !win) { if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 134 * aU, 280 * aU, 46 * aU}, "Respawn", true)) { resetPlayer(); pl.pos = V3(SPAWN_X, SIDEH + 0.1f, SPAWN_Z); state = ST_PLAY; DisableCursor(); } }
+                else if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 134 * aU, 280 * aU, 46 * aU}, "New Game", true)) state = ST_TRAITS;
+                if (aButton((Rectangle){sw / 2 - 140 * aU, p.y + 194 * aU, 280 * aU, 46 * aU}, "Main Menu", true)) { if (netMode != NM_OFF) { netStop("Left the game."); gameActive = false; } state = ST_MENU; }
                 p3End(1);
             }
             p3Render(aCorrupt);
@@ -2214,6 +2364,7 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_WARDROBE) { Cont *c = &conts[i]; pl.pos = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.2f, 0, cosf(c->yaw) * 1.2f));
                     pl.tyaw = pl.yaw = c->yaw + PI; pl.tpitch = pl.pitch = -0.2f; lootFill(c); slotsAdd(c->s, CSLOTS, IT_HIKEPACK, 1); slotsAdd(c->s, CSLOTS, IT_CROWBAR, 1); openInventory(i); break; } }
             if (frame == 198) TakeScreenshot("shot_inv.png");
+            if (frame == 195) { for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind != CK_PILE) { Cont *c = &conts[i]; pl.pos = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.2f, 0, cosf(c->yaw) * 1.2f)); pl.vy = 0; lootFill(c); openInventory(i); break; } }
             if (frame == 196) SetMousePosition(1180, 330);
             if (frame == 197) TakeScreenshot("shot_inv_hover.png");
             if (frame == 199) { pl.invOpen = false; pl.openC = -1;
@@ -2231,6 +2382,7 @@ int main(int argc, char **argv) {
                 if (stTest >= 0) { Vector3 d_ = Vector3Subtract(stairs[stTest].top, stairs[stTest].bot); TraceLog(LOG_INFO, "STAIRTEST stair dir %.2f %.2f (turned building: %s)", d_.x, d_.z, fabsf(d_.x) > 0.5f && fabsf(d_.z) > 0.5f ? "yes" : "no"); }
                 if (stTest >= 0) { Stair *s = &stairs[stTest]; pl.pos = s->bot; Vector3 d = Vector3Subtract(s->top, s->bot); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = 0; pl.vy = 0; pl.hp = 100; vin.down[KEY_W] = 1; }
             }
+            if (frame > 228 && frame < 300 && frame % 8 == 0 && stTest >= 0) TraceLog(LOG_INFO, "STAIRDBG f%d pos %.1f %.1f %.1f ground %.2f base %.2f land %d", frame, pl.pos.x, pl.pos.y, pl.pos.z, groundAt(pl.pos, 0.3f, 0.42f), baseGroundY(pl.pos.x, pl.pos.z, pl.pos.y), cityLand(pl.pos.x, pl.pos.z));
             if (frame == 300) { if (stTest >= 0) TraceLog(LOG_INFO, "STAIRTEST: start %.2f top %.2f reached y %.2f", stairs[stTest].bot.y, stairs[stTest].top.y, pl.pos.y); TakeScreenshot("shot_upstairs.png"); vin.on = false; }
             if (frame == 301 && stTest >= 0) { vin.on = false; Stair *s = &stairs[stTest]; pl.pos = Vector3Add(s->top, Vector3Scale(Vector3Normalize(V3(s->top.x - s->bot.x, 0, s->top.z - s->bot.z)), 0.6f));
                 Vector3 d = Vector3Subtract(s->bot, s->top); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.55f; pl.flash = true; pl.batt = 100; pl.vy = 0; }
@@ -2403,15 +2555,31 @@ int main(int argc, char **argv) {
             if (frame == 1175) TakeScreenshot("shot_cheats.png");
             if (frame == 1176) { cht.menu = false; for (int i = 0; i < CH_N; i++) cht.on[i] = false; }
             static int wtS = -1; static float wtSide = 0;
-            if (frame == 1177) {   // walk into the wall of a turned building: the player must stay on his side of it
+            if (frame == 1204) {   // walk into the wall of a turned building: the player must stay on his side of it
                 wtS = -1; for (int i = 0; i < nSol; i++) { Solid *s = &sol[i]; Vector3 sz = Vector3Subtract(s->mx, s->mn); if (!s->f || s->off || s->mn.y > 0.3f || sz.y < 2.5f || !(sz.x < 0.35f && sz.z > 3.0f)) continue;
                     if (fabsf(xfs[s->f].s) < 0.3f) continue; wtS = i; break; }
                 if (wtS >= 0) { Solid *s = &sol[wtS]; Vector3 c = Vector3Scale(Vector3Add(s->mn, s->mx), 0.5f); Vector3 L = V3(s->mn.x - 0.7f, SIDEH, c.z); Vector3 W = xfP(s->f, L); Vector3 dir = xfD(s->f, V3(1, 0, 0));
                     pl.pos = W; pl.vy = 0; pl.tyaw = pl.yaw = atan2f(dir.x, dir.z); pl.tpitch = pl.pitch = 0; wtSide = -1; vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_W] = 1; for (int i = 0; i < nCr; i++) crs[i].on = false; } }
-            if (frame > 1177 && frame < 1188 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
-            if (frame == 1188 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
+            if (frame > 1204 && frame < 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
+            if (frame == 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
                 TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
-            if (frame == 1190) break;
+            if (frame == 6) { char wb2[2000] = ""; for (int i = 0; i < wallAuditN && i < 24; i++) { char t2[64]; snprintf(t2, 64, " (%.0f,%.0f t%d w%.1f h%.1f)", wallAuditP[i].x, wallAuditP[i].z, wallAuditT[i], wallAuditW[i], wallAuditH[i]); strcat(wb2, t2); } TraceLog(LOG_INFO, "WALLAUDIT %d upright faces stand on a road:%s", wallAuditN, wb2); if (wallAuditN) { Vector3 q = wallAuditP[0]; int st = -1; for (int s2 = 0; s2 < nStreet; s2++) if (pathDist(stPts + dStreets[s2][0], dStreets[s2][1], q.x, q.z, NULL) < dStreets[s2][2] / 20.0f) st = s2; TraceLog(LOG_INFO, "WALLAUDIT first: coast_d %.1f street %d kind %d touge %.1f north %.1f bores %d", coast_d(q.x, q.z), st, st >= 0 ? dStreets[st][3] : -1, pathDist(tougeP, nTouge, q.x, q.z, NULL), pathDist(northP, nNorth, q.x, q.z, NULL), inBore(q.x, q.z, SIDEH)); } }
+            if (frame == 6) {   // walkability audit: every street and the coast road, centre and edges: solid ground at the drawn height, nothing in the way
+                int holes = 0, blocked = 0, total = 0; char hb[400] = "", bb[400] = "";
+                for (int s2 = -1; s2 < nStreet; s2++) { const Vector3 *p = s2 < 0 ? coastP : stPts + dStreets[s2][0]; int n = s2 < 0 ? nCoast : dStreets[s2][1]; float w = s2 < 0 ? 9.0f : dStreets[s2][2] / 10.0f;
+                    if (s2 >= 0 && dStreets[s2][3] == 3) continue;
+                    for (int i = 0; i < n; i++) { Vector2 nn = pnorm(p, n, i); for (int e = -1; e <= 1; e++) { float o2 = e * (w / 2 - 0.5f); float x = p[i].x + nn.x * o2, z = p[i].z + nn.y * o2; total++;
+                        float g = groundAt(V3(x, SIDEH + 0.4f, z), 0.25f, 0.42f);
+                        if (g < SIDEH - 0.3f) { holes++; if (holes <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f g%.1f)", x, z, g); strcat(hb, t2); } if (holes <= 4) TraceLog(LOG_INFO, "HOLEDBG street %d kind %d at %.1f %.1f: land %d terrain %.2f coast_d %.1f cs %.1f river %d sea %d bore %d", s2, s2 >= 0 ? dStreets[s2][3] : -1, x, z, cityLand(x, z), terrainH(x, z), coast_d(x, z), coastSigned(x, z), inRiverRaw(x, z), seaSide(x, z), inBore(x, z, SIDEH)); }
+                        else if (!pointFree(x, z, 0.3f, SIDEH + 0.25f) && e == 0) { if (blocked < 12) { query(x - 0.3f, z - 0.3f, x + 0.3f, z + 0.3f); for (int q = 0; q < qn; q++) { Solid *so = &sol[qb[q]]; Vector3 L_ = solL(so, V3(x, 0, z)); if (so->mx.y > SIDEH + 0.25f && so->mn.y < SIDEH + 1.8f && L_.x + 0.3f > so->mn.x && L_.x - 0.3f < so->mx.x && L_.z + 0.3f > so->mn.z && L_.z - 0.3f < so->mx.z) TraceLog(LOG_INFO, "BLOCKDBG at %.1f %.1f solid %d f%d mn %.1f %.1f %.1f mx %.1f %.1f %.1f street %d kind %d", x, z, qb[q], so->f, so->mn.x, so->mn.y, so->mn.z, so->mx.x, so->mx.y, so->mx.z, s2, s2 >= 0 ? dStreets[s2][3] : -1); } } blocked++; if (blocked <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f)", x, z); strcat(bb, t2); } } } } }
+                TraceLog(LOG_INFO, "WALKAUDIT %d points: %d with no ground under the road%s | %d blocked on a centre line%s", total, holes, hb, blocked, bb); }
+            if (frame == 1149) TraceLog(LOG_INFO, "FEAT parks %d at %.1f %.1f mirror %.1f %.1f", nFeatPark, featPark.x, featPark.z, featMirror.x, featMirror.z);
+            if (frame == 1191 || frame == 1197) { state = ST_PLAY; pl.hp = 100; cht.menu = false; pl.invOpen = pl.mapOpen = false; gameActive = true; }
+            if (frame == 1191) { Vector3 c = Vector3Add(featPark, Vector3Scale(featParkFace, 13)); pl.pos = V3(c.x, SIDEH + 0.1f, c.z); pl.vy = 0; Vector3 d = Vector3Subtract(featPark, c); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.18f; pl.tod = 13; pl.flash = false; for (int i = 0; i < nCr; i++) crs[i].on = false; }
+            if (frame == 1196) TakeScreenshot("shot_parking.png");
+            if (frame == 1197) { Vector3 c = Vector3Subtract(featMirror, Vector3Scale(featMirrorDir, 9)); pl.pos = V3(c.x, SIDEH + 0.1f, c.z); pl.vy = 0; pl.tyaw = pl.yaw = atan2f(featMirrorDir.x, featMirrorDir.z); pl.tpitch = pl.pitch = 0.05f; }
+            if (frame == 1202) TakeScreenshot("shot_junction.png");
+            if (frame == 1220) break;
         }
     }
     if (gameActive) saveGame();

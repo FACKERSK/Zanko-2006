@@ -1,5 +1,50 @@
-ZANKO 2006 - Afterglow  (v0.7.2, Streets lined with houses)
+ZANKO 2006 - Afterglow  (v0.8.0, Multiplayer)
 
+- 0.8.0: multiplayer.
+  * Up to 8 players in one town. Main menu > Multiplayer: one
+    player hosts, the others join with the host's IP (UDP port
+    27015 by default; over the internet forward the port or use a
+    VPN such as Radmin VPN).
+  * Co-op: creatures hunt whoever is nearest; doors, windows,
+    barricades, junk, containers and everything built are shared.
+  * The host can let players hurt each other (PvP).
+  * If you die you respawn; the town goes on.
+  * Containers hold the same things for everyone in a session.
+  * Inventory panels keep a clear gap: names in a container no
+    longer vanish when the mouse is over it.
+  * Quickbar numbers moved off the item names.
+  * Every road walked end to end: no more falling through the
+    coast road or its sidewalks, no invisible walls on streets
+    (stray bridge railings, a seawall cutting the road at the
+    tunnel mouths, cars and poles in the middle of the street).
+  * The station no longer blocks the streets around it; level
+    crossings where roads cross the railway.
+  * The pass looks like a mountain road: wooded slopes, brush
+    along the verges, and the town opens up below it.
+  * Foliage across town: potted plants at front doors, garden
+    trees, street trees on the avenues, cherry trees along the
+    river, pines on the coast road, shrubs between houses.
+  * No more stone walls across the coast road at its bends.
+  * Coin parking lots, curve mirrors at junctions, stop lines,
+    zebra crossings, overhead wires, post boxes, tsunami signs.
+  * New revolver: six-chamber fluted cylinder with the rounds
+    in it, crane, ejector, hammer and trigger that move. Drawn
+    from the holster and thumb-cocked; the hammer falls and the
+    cylinder turns with every shot. Reload: swing out, eject the
+    empties, speedloader, spin, flick shut. New inspect.
+  * New inspects for the katana, knife, bat / pipe / crowbar and
+    axe / sledge.
+  * Weapons lag and settle on springs when you turn, lean into
+    strafes, dip when you jump and land.
+  * Hit markers on the crosshair: white body, yellow head, red
+    kill, with a tick.
+  * Thumbs are joined to the hands.
+  * Controls: every key can be rebound (Menu > Controls): two
+    keys or mouse buttons per action plus a gamepad button.
+    Saved in Data/keybinds.ini. On-screen hints show your keys.
+  * Gamepad support: left stick move, right stick look, triggers
+    attack and guard; in menus the stick moves the cursor, A
+    clicks, B goes back, Start pauses.
 - 0.7.2: the town, rebuilt along its streets.
   * Houses and shops now line every street and turn to face it,
     with more rows behind them; the empty blocks are filled.

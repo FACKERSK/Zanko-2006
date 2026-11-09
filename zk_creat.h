@@ -97,7 +97,7 @@ static void updateCreatures(float dt, Vector3 aim) {
     int aliveTop = 0, spirits = 0, stalkers = 0, chasing = 0;
     stingCd -= dt;
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
-    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (KD(KEY_LEFT_CONTROL) ? 0.55f : 1.0f);
+    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actD(A_CROUCH) ? 0.55f : 1.0f);
     for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0) { wards[w].life -= dt; if (wards[w].life <= 0) wards[w].on = false; }
     for (int i = 0; i < nCr; i++) {
         Cr *c = &crs[i]; if (!c->on) continue;
@@ -113,45 +113,51 @@ static void updateCreatures(float dt, Vector3 aim) {
             for (int k = 0; k < 6; k++) if (fr(0, 1) < dt * 6) c->tw[k] = fr(-0.6f, 0.6f);
             continue;
         }
-        Vector3 to = V3(pl.pos.x - c->pos.x, 0, pl.pos.z - c->pos.z);
-        float dist = Vector3Length(to), dist3 = Vector3Distance(c->pos, pl.pos);
-        bool lookedAt = Vector3DotProduct(Vector3Normalize(Vector3Subtract(crCenter(c), eye)), aim) > 0.8f && (pl.flash || dist < 12);
+        // ---- the target: the nearest living player (the local one, or a remote one in multiplayer)
+        int tgt = -1; Vector3 tp = pl.pos; bool tfl = pl.flash; Vector3 teye = eye, taim = aim; float tstealth = stealth, tclimb = pl.climbT;
+        {   float bd = pl.hp > 0 ? Vector3DistanceSqr(c->pos, pl.pos) : 1e12f;
+            if (netMode == NM_HOST) for (int k = 0; k < MP_MAX; k++) { RPlayer *r = &rps[k]; if (k == mySlot || !r->on || !r->alive) continue; float d2 = Vector3DistanceSqr(c->pos, r->pos);
+                if (d2 < bd) { bd = d2; tgt = k; tp = r->pos; tfl = r->flash; teye = Vector3Add(r->pos, V3(0, 1.6f, 0)); taim = V3(sinf(r->yaw) * cosf(r->pitch), sinf(r->pitch), cosf(r->yaw) * cosf(r->pitch)); tstealth = 1; tclimb = 0; } } }
+        Vector3 to = V3(tp.x - c->pos.x, 0, tp.z - c->pos.z);
+        float dist = Vector3Length(to), dist3 = Vector3Distance(c->pos, tp);
+        bool lookedAt = Vector3DotProduct(Vector3Normalize(Vector3Subtract(crCenter(c), teye)), taim) > 0.8f && (tfl || dist < 12);
         // ---- line of sight, checked a few times a second
         c->losCheck -= dt;
-        if (c->losCheck <= 0) { c->losCheck = fr(0.18f, 0.3f); c->seen = dist3 < 45 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.3f, 0)), eye); }
+        if (c->losCheck <= 0) { c->losCheck = fr(0.18f, 0.3f); c->seen = dist3 < 45 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.3f, 0)), teye); }
         if (c->type == 4) {   // ---- spirit: drifts through walls, hunts only what it can see, forgets when sight is lost
             spirits++;
             if (dist < nearest) nearest = dist;
             Vector3 fwdS = V3(sinf(c->yaw), 0, cosf(c->yaw));
-            bool sees = c->seen && dist < 24 * stealth && (Vector3DotProduct(fwdS, Vector3Scale(to, 1 / fmaxf(dist, 0.01f))) > -0.2f || dist < 5);
+            bool sees = c->seen && dist < 24 * tstealth && (Vector3DotProduct(fwdS, Vector3Scale(to, 1 / fmaxf(dist, 0.01f))) > -0.2f || dist < 5);
             // after giving up it leaves: heads away from you, ignores you for a while, and fades out once far enough
             c->calm -= dt;
             if (c->calm > 0 && dist > 2.5f) sees = false;
             if (c->state == CS_CHASE) c->chaseT += dt;
             bool giveUp = false;
-            if (sees) { c->losT = 0; c->lastKnown = pl.pos; if (c->state != CS_CHASE) { c->state = CS_CHASE; c->chaseT = 0; sting(c->pos); } }
+            if (sees) { c->losT = 0; c->lastKnown = tp; if (c->state != CS_CHASE) { c->state = CS_CHASE; c->chaseT = 0; sting(c->pos); } }
             else if (c->state == CS_CHASE) { c->losT += dt; if (c->losT > 3.0f) giveUp = true; }
             if (c->state == CS_CHASE && c->chaseT > 40) giveUp = true;   // no spirit hunts forever
-            if (inWard(pl.pos, 0) && c->state == CS_CHASE) giveUp = true;
+            if (inWard(tp, 0) && c->state == CS_CHASE) giveUp = true;
             if (giveUp) { Vector3 away = dist > 0.1f ? Vector3Scale(to, -1 / dist) : V3(1, 0, 0);
                 c->state = CS_WANDER; c->calm = 30; c->chaseT = 0; c->t = 0;
                 c->tgt = Vector3Add(c->pos, Vector3Add(Vector3Scale(away, 45), V3(fr(-10, 10), 0, fr(-10, 10)))); }
             if (c->calm > 0 && c->state == CS_WANDER && dist > 30) { c->on = false; continue; }   // gone
-            Vector3 goal = c->state == CS_CHASE ? (sees ? pl.pos : c->lastKnown) : c->tgt;
+            Vector3 goal = c->state == CS_CHASE ? (sees ? tp : c->lastKnown) : c->tgt;
             if (c->state == CS_WANDER && c->calm <= 0 && (Vector3Distance(V3(goal.x, 0, goal.z), V3(c->pos.x, 0, c->pos.z)) < 1.5f || c->t > 14)) { c->tgt = Vector3Add(c->pos, V3(fr(-18, 18), 0, fr(-18, 18))); c->t = 0; }
             Vector3 dv = V3(goal.x - c->pos.x, 0, goal.z - c->pos.z); float dl = Vector3Length(dv);
-            float spd = c->state == CS_CHASE ? (lookedAt && pl.flash ? 1.2f : 3.6f) : c->calm > 0 ? 2.2f : 0.9f;
+            float spd = c->state == CS_CHASE ? (lookedAt && tfl ? 1.2f : 3.6f) : c->calm > 0 ? 2.2f : 0.9f;
             if (dl > 0.3f) { c->pos.x += dv.x / dl * spd * dt; c->pos.z += dv.z / dl * spd * dt; c->yaw += wrapA(atan2f(dv.x, dv.z) - c->yaw) * fminf(1, dt * 3); }
             for (int w = 0; w < nWard; w++) if (wards[w].on && fabsf(c->pos.y - wards[w].pos.y) < 12) {
                 Vector3 d = V3(c->pos.x - wards[w].pos.x, 0, c->pos.z - wards[w].pos.z); float L = Vector3Length(d);
                 float rr = wards[w].r + 0.4f;
-                if (L < rr) { if (L < 0.01f) { d = V3(1, 0, 0); L = 1; } c->pos.x = wards[w].pos.x + d.x / L * rr; c->pos.z = wards[w].pos.z + d.z / L * rr; if (c->state == CS_CHASE && inWard(pl.pos, 0)) { c->state = CS_WANDER; c->tgt = Vector3Add(c->pos, Vector3Scale(V3(d.x / L, 0, d.z / L), 25)); } }
+                if (L < rr) { if (L < 0.01f) { d = V3(1, 0, 0); L = 1; } c->pos.x = wards[w].pos.x + d.x / L * rr; c->pos.z = wards[w].pos.z + d.z / L * rr; if (c->state == CS_CHASE && inWard(tp, 0)) { c->state = CS_WANDER; c->tgt = Vector3Add(c->pos, Vector3Scale(V3(d.x / L, 0, d.z / L), 25)); } }
             }
-            float gy = c->state == CS_CHASE ? pl.pos.y : groundAt(V3(c->pos.x, c->pos.y + 1, c->pos.z), 0.3f, 1.2f);
+            float gy = c->state == CS_CHASE ? tp.y : groundAt(V3(c->pos.x, c->pos.y + 1, c->pos.z), 0.3f, 1.2f);
             c->pos.y = Lerp(c->pos.y, gy + 0.25f + sinf(c->t * 1.3f) * 0.12f, fminf(1, dt * 2));
-            if (dist < 1.1f && fabsf(pl.pos.y - c->pos.y) < 2.0f && c->state == CS_CHASE && c->seen) {
-                pl.hp -= 9 * dt; pl.sanity -= 4 * dt; pl.hurtT = fmaxf(pl.hurtT, 0.25f); pl.shake = fmaxf(pl.shake, 0.12f);
-                if (fr(0, 1) < dt * 0.6f) addWound(1);
+            if (dist < 1.1f && fabsf(tp.y - c->pos.y) < 2.0f && c->state == CS_CHASE && c->seen) {
+                if (tgt < 0) { pl.hp -= 9 * dt; pl.sanity -= 4 * dt; pl.hurtT = fmaxf(pl.hurtT, 0.25f); pl.shake = fmaxf(pl.shake, 0.12f);
+                    if (fr(0, 1) < dt * 0.6f) addWound(1); }
+                else netPlayerDamage(tgt, 9 * dt, 0);
             }
             for (int k = 0; k < 6; k++) if (fr(0, 1) < dt * 3) c->tw[k] = fr(-0.4f, 0.4f);
             if (dist > 140) c->on = false;
@@ -176,20 +182,20 @@ static void updateCreatures(float dt, Vector3 aim) {
         if (c->stun > 0) { c->stun -= dt; c->wind = 0; continue; }
         // ---- hanging: waits on the ceiling until you pass beneath
         if (c->hanging) {
-            if (dist < 2.2f && pl.pos.y < c->pos.y && c->pos.y - pl.pos.y < 4.5f) {
-                c->hanging = false; c->state = CS_CHASE; c->lastKnown = pl.pos; sting(c->pos); playAt(sScreech, c->pos, 30, 0.9f);
+            if (dist < 2.2f && tp.y < c->pos.y && c->pos.y - tp.y < 4.5f) {
+                c->hanging = false; c->state = CS_CHASE; c->lastKnown = tp; sting(c->pos); playAt(sScreech, c->pos, 30, 0.9f);
                 c->pos.y = groundAt(V3(c->pos.x, c->pos.y - 0.5f, c->pos.z), 0.3f, 0.6f);
             }
             continue;
         }
         // ---- perception
-        float sight = crSightOf(c->type) * stealth * (pl.flash ? 1.25f : 1.0f);
-        bool sees = c->seen && (dist3 < sight || (pl.flash && dist3 < sight * 1.8f && lookedAt)) && fabsf(pl.pos.y - c->pos.y) < 6;
+        float sight = crSightOf(c->type) * tstealth * (tfl ? 1.25f : 1.0f);
+        bool sees = c->seen && (dist3 < sight || (tfl && dist3 < sight * 1.8f && lookedAt)) && fabsf(tp.y - c->pos.y) < 6;
         if (c->type == 7 && dist3 > 13) sees = false;
-        if (sees) { c->losT = 0; c->lastKnown = pl.pos; }
+        if (sees) { c->losT = 0; c->lastKnown = tp; }
         if (c->state == CS_WANDER) {
             if (sees) {
-                c->state = CS_CHASE; c->lastKnown = pl.pos;
+                c->state = CS_CHASE; c->lastKnown = tp;
                 if (c->type != 5 && c->type != 7) playAt(sScreech, c->pos, 35, 0.5f);
                 if (dist < 18) sting(c->pos);
                 if (c->type == 6) c->scream = 0;
@@ -203,13 +209,13 @@ static void updateCreatures(float dt, Vector3 aim) {
         if (c->type == 6 && c->state == CS_CHASE && sees) {
             c->scream -= dt;
             if (c->scream <= 0) { c->scream = 12; playAt(sScream, c->pos, 80, 1.0f); c->wind = 0; c->stun = 1.4f;
-                for (int j = 0; j < nCr; j++) if (crs[j].on && crs[j].state == CS_WANDER && crs[j].type != 4 && Vector3Distance(crs[j].pos, c->pos) < 55) { crs[j].state = CS_CHASE; crs[j].lastKnown = pl.pos; } }
+                for (int j = 0; j < nCr; j++) if (crs[j].on && crs[j].state == CS_WANDER && crs[j].type != 4 && Vector3Distance(crs[j].pos, c->pos) < 55) { crs[j].state = CS_CHASE; crs[j].lastKnown = tp; } }
         }
         // ---- movement
         Vector3 goal; float spd;
         bool frozen = false;
         if (c->state == CS_CHASE) {
-            goal = navGoal(c, sees ? pl.pos : c->lastKnown); spd = c->spd;
+            goal = navGoal(c, sees ? tp : c->lastKnown); spd = c->spd;
             // stutter-dash: they stop dead for a heartbeat, then come at you twice as fast
             c->dashT -= dt;
             if ((c->type == 0 || c->type == 6 || c->type == 2) && dist < 22) {
@@ -241,7 +247,7 @@ static void updateCreatures(float dt, Vector3 aim) {
         if (c->wind > 0) {   // attack wind-up
             c->wind -= dt;
             if (c->wind <= 0) {
-                if (dist < 2.1f && fabsf(pl.pos.y - c->pos.y) < 1.6f && pl.climbT <= 0 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.2f, 0)), eye)) { hurtPlayer((float)crDamageOf(c->type), crBleedOf(c->type)); c->revealT = 3.0f; }
+                if (dist < 2.1f && fabsf(tp.y - c->pos.y) < 1.6f && tclimb <= 0 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.2f, 0)), teye)) { if (tgt < 0) hurtPlayer((float)crDamageOf(c->type), crBleedOf(c->type)); else netPlayerDamage(tgt, (float)crDamageOf(c->type), crBleedOf(c->type)); c->revealT = 3.0f; }
                 c->atkCd = c->type == 9 ? 1.8f : 1.2f;
             }
         } else if (!frozen && dl > 0.05f && spd > 0) {
@@ -264,7 +270,7 @@ static void updateCreatures(float dt, Vector3 aim) {
             }
         }
         c->atkCd -= dt;
-        if (c->state == CS_CHASE && !frozen && c->seen && dist < (c->type == 1 || c->type == 5 ? 1.9f : 1.5f) && c->atkCd <= 0 && c->wind <= 0 && fabsf(pl.pos.y - c->pos.y) < 1.6f) {
+        if (c->state == CS_CHASE && !frozen && c->seen && dist < (c->type == 1 || c->type == 5 ? 1.9f : 1.5f) && c->atkCd <= 0 && c->wind <= 0 && fabsf(tp.y - c->pos.y) < 1.6f) {
             c->wind = c->type == 2 || c->type == 3 ? 0.22f : c->type == 9 ? 0.6f : 0.38f; c->atkCd = 1.2f;
         }
         // ---- sound
@@ -288,6 +294,7 @@ static void updateCreatures(float dt, Vector3 aim) {
         if (!IsSoundPlaying(sDrone)) PlaySound(sDrone);
     }
     // ---- population upkeep
+    if (netMode == NM_HOST) { int k = ri(MP_MAX); if (k != mySlot && rps[k].on && rps[k].alive) { static float rsp = 0; rsp -= dt; if (rsp <= 0) { rsp = 3.0f; int n = 0; for (int j = 0; j < nCr; j++) if (crs[j].on && crs[j].state != CS_DEAD && Vector3Distance(crs[j].pos, rps[k].pos) < 50) n++; if (n < 14 && wildK(rps[k].pos) < 0.2f) spawnCreature(rps[k].pos, 40, 0, false); } } }   // remote players get their own share of the town's creatures
     float wk = wildK(pl.pos);
     static float spawnT = 0, spiritT = 40, ugT = 20; spawnT -= dt; spiritT -= dt; ugT -= dt;
     if (pl.pos.y > -40 && wk < 0.2f && aliveTop < (dayK() > 0.5f ? 32 : 44) && spawnT <= 0) { if (fr(0, 1) < 0.35f) spawnIndoor(pl.pos, 35); else spawnCreature(pl.pos, 45, 0, false); spawnT = 3.0f; }

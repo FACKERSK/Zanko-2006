@@ -143,12 +143,12 @@ static void drawInventory(void) {
     float W = sw, H = shh;
     uiHot = -1; invOverPanel = false; invQHot = -1;
     DrawRectangle(0, 0, (int)W, (int)H, (Color){6, 8, 9, 150});
-    { float asp = (float)GetScreenWidth() / GetScreenHeight(); p3Fov = fmaxf(45, 2 * atanf(0.84f / asp) * RAD2DEG); }   // the three panels fit at any aspect
+    { float asp = (float)GetScreenWidth() / GetScreenHeight(); p3Fov = fmaxf(45, 2 * atanf(0.98f / asp) * RAD2DEG); }   // the three panels fit at any aspect
     p3Begin((float)GetTime()); p3FitMargin = 8 * aU;   // every inventory slab stays fully on screen, whatever the window shape
     float s, cell;
     // ---- survivor: equipment, load, skills
     float pxDeg = 2 * tanf(22.5f * DEG2RAD) / 720.0f * RAD2DEG;   // degrees per reference px on the panel sphere
-    float halfIn = (6 * 70 + 36) / 2.0f + 22;   // side panels hug the pockets panel instead of drifting off-screen
+    float halfIn = (6 * 70 + 36) / 2.0f + 46;   // a clear gap: neighbouring slabs never cover each other's text, even as the view sways with the mouse   // side panels hug the pockets panel instead of drifting off-screen
     Rectangle ep = p3Panel(0, -(halfIn + 150) * pxDeg, 0, 300, 560, true); s = aU; cell = 62 * s;
     aWindow(ep, "Survivor");
     aText("Hands", ep.x + 22 * s, ep.y + 52 * s, 13, C_BONE2, false);
@@ -214,16 +214,16 @@ static void drawInventory(void) {
             Slot sl = {(short)pl.quick[q], (short)(pl.quick[q] >= 0 ? invCount(pl.quick[q]) : 0), 0};
             if (pl.dragFrom == ((4 << 8) | q)) sl.t = -1;
             itemCell(r, sl, hot, pl.quick[q] >= 0 && pl.quick[q] == pl.hands.t);
-            aText(TextFormat("%d", q + 1), r.x + 4 * s, r.y + r.height - 15 * s, 11, C_AMBER, true);
+            aText(TextFormat("%d", q + 1), r.x + 5 * s, r.y + 4 * s, 11, C_AMBER, true);   // top-left: the item name runs along the bottom
         }
         dragGhost(cell);
         p3End(3);
     }
     // ---- hotkeys and drag and drop (slot ids are panel independent)
-    if (uiHot >= 0) { Slot *sl = slotRef(uiHot); for (int q = 0; q < 6; q++) if (KP(KEY_ONE + q) && sl && sl->t >= 0) { pl.quick[q] = sl->t; play(sClick, 0.4f); } }
+    if (uiHot >= 0) { Slot *sl = slotRef(uiHot); for (int q = 0; q < 6; q++) if (actP(A_Q1 + q) && sl && sl->t >= 0) { pl.quick[q] = sl->t; play(sClick, 0.4f); } }
     if (aMPressed() && uiHot >= 0) { Slot *sl = slotRef(uiHot); if (sl && sl->t >= 0) { pl.dragFrom = uiHot; pl.drag = *sl; } }
     else if (aMPressed() && invQHot >= 0 && pl.quick[invQHot] >= 0) { pl.dragFrom = (4 << 8) | invQHot; pl.drag.t = (short)pl.quick[invQHot]; pl.drag.n = (short)invCount(pl.quick[invQHot]); }
-    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && uiHot >= 0) quickTransfer(uiHot);
+    if ((IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || padP(GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) && uiHot >= 0) quickTransfer(uiHot);
     if (pl.dragFrom >= 0 && !aMDown()) {
         if ((pl.dragFrom >> 8) == 4) {   // quickbar slot: reorder, or clear when dropped elsewhere
             int q0 = pl.dragFrom & 255;
@@ -254,7 +254,7 @@ static void drawHUD(Vector2 cross, float t) {
     float W = sw, H = shh, s = aU;
     aCorrupt = pl.stage;
     drawEyelids(W, H);
-    if (pl.sleeping && pl.eyeK > 0.9f) { char b2[64]; snprintf(b2, sizeof b2, "Sleeping...  rest %d%%   [Z] wake", (int)pl.rest); aTextC(b2, W / 2, H * 0.47f, 22, (Color){200, 196, 186, (unsigned char)(255 * (pl.eyeK - 0.9f) * 10)}, false); }
+    if (pl.sleeping && pl.eyeK > 0.9f) { char b2[64]; snprintf(b2, sizeof b2, "Sleeping...  rest %d%%   [Z] wake", (int)pl.rest); keySubst(b2, sizeof b2); aTextC(b2, W / 2, H * 0.47f, 22, (Color){200, 196, 186, (unsigned char)(255 * (pl.eyeK - 0.9f) * 10)}, false); }
     if (pl.watchT > 0 && pl.watchKind != 2) { const char *w = pl.watchKind == 1 ? "Watching anime..." : "Watching the broadcast...";
         DrawRectangle(0, 0, (int)W, (int)H, (Color){0, 0, 0, 90}); aTextC(w, W / 2, H * 0.12f, 18, C_BONE, false); }
     // ---- blood loss shows on screen, not as a number: grey edges that close in
@@ -307,7 +307,7 @@ static void drawHUD(Vector2 cross, float t) {
             int it = pl.quick[q]; Slot sl = {(short)it, (short)(it >= 0 ? invCount(it) : 0)};
             if (it >= 0 && sl.n == 0) sl.t = -1;
             itemCell(r, sl, false, it >= 0 && it == pl.hands.t);
-            aText(TextFormat("%d", q + 1), r.x + 4 * s, r.y + r.height - 14 * s, 10, C_AMBER, true);
+            aText(TextFormat("%d", q + 1), r.x + 5 * s, r.y + 4 * s, 10, C_AMBER, true);
         }
         p3End(11); p3Fit(11, 12 * s);
     }
@@ -321,7 +321,7 @@ static void drawHUD(Vector2 cross, float t) {
                 aProgress((Rectangle){wp.x + 222 * s, wp.y + 20 * s, 44 * s, 8 * s}, k, k > 0.3f ? (Color){150, 190, 140, 255} : (Color){210, 90, 60, 255}); } }
         aText(pl.flash ? "Light" : "Light off", wp.x + 18 * s, wp.y + 70 * s, 11, C_BONE2, false);
         aProgress((Rectangle){wp.x + 80 * s, wp.y + 72 * s, 90 * s, 9 * s}, pl.batt / 100, pl.flash ? (Color){200, 180, 90, 255} : (Color){100, 96, 80, 255});
-        aText("Tab  inventory", wp.x + 184 * s, wp.y + 70 * s, 11, (Color){150, 146, 136, 230}, false);
+        aText(TextFormat("%s  inventory", actKey(A_INV)), wp.x + 184 * s, wp.y + 70 * s, 11, (Color){150, 146, 136, 230}, false);
         p3End(9); p3Fit(9, 12 * s);
     }
     if (pl.build) {   // build list
@@ -362,6 +362,7 @@ static void drawHUD(Vector2 cross, float t) {
         p3End(14); p3Fit(14, 12 * s);
     }
     if (prompt[0]) {   // what E does here
+        keySubst(prompt, sizeof prompt);
         float mw = aMeasure(prompt, 17, false).x / aU;
         Rectangle pr = HUDP(15, 0, H * 0.68f / H * 720 - 360 + 26, mw + 48, pl.searchC >= 0 ? 66 : 50);
         aGadget(pr);
@@ -398,6 +399,13 @@ static void drawHUD(Vector2 cross, float t) {
     int px = (int)fmaxf(2, roundf(2 * s));
     DrawRectangle((int)(cross.x - cs - gp), (int)(cross.y - px / 2), (int)cs, px, cc); DrawRectangle((int)(cross.x + gp), (int)(cross.y - px / 2), (int)cs, px, cc);
     DrawRectangle((int)(cross.x - px / 2), (int)(cross.y - cs - gp), px, (int)cs, cc); DrawRectangle((int)(cross.x - px / 2), (int)(cross.y + gp), px, (int)cs, cc);
+    if (hitMarkT > 0) {   // hit marker: four ticks that pop out and fade; white body, yellow head, red kill
+        float life = hitMarkKind == 2 ? 0.42f : 0.28f, k = clampf(hitMarkT / life, 0, 1), pop = 1 + 0.6f * powf(k, 6);
+        Color hc = hitMarkKind == 2 ? (Color){235, 50, 40, 255} : hitMarkKind == 1 ? (Color){255, 214, 90, 255} : (Color){245, 245, 240, 255}; hc.a = (unsigned char)(255 * fminf(1, k * 1.6f));
+        float r0 = (6 + (hitMarkKind == 2 ? 2 : 0)) * s * pop, r1 = r0 + (hitMarkKind == 2 ? 10 : 7) * s, th = (hitMarkKind == 2 ? 3.0f : 2.2f) * s;
+        for (int q = 0; q < 4; q++) { float ax = (q & 1) ? 1.0f : -1.0f, ay = (q & 2) ? 1.0f : -1.0f; const float d = 0.7071f;
+            DrawLineEx((Vector2){cross.x + ax * d * r0, cross.y + ay * d * r0}, (Vector2){cross.x + ax * d * r1, cross.y + ay * d * r1}, th, hc); }
+    }
     // ---- impact flash: one bright frame, then a red after-image
     if (pl.hitFlash > 0) { float k = pl.hitFlash; DrawRectangle(0, 0, (int)W, (int)H, k > 0.06f ? (Color){255, 245, 235, 70} : (Color){150, 20, 10, (unsigned char)(90 * k / 0.06f)}); }
     // ---- damage flash
