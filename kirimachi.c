@@ -33,15 +33,16 @@
 #define GN 112   // broadphase grid: 8 m cells from -170 m, covering the whole map
 
 enum { T_ASPHALT, T_SIDEWALK, T_CONCRETE, T_FACADE, T_FACADE2, T_TILEWALL, T_BLOCKWALL, T_SHUTTER, T_ROOF, T_GLASS,
-       T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_COUNT };
+       T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_BRICK, T_COUNT };
 static const char *texNames[T_COUNT] = {"asphalt.png", "sidewalk.png", "concrete.png", "facade_a.png", "facade_b.png", "tilewall.png",
     "blockwall.png", "shutter.png", "roof.png", "glass.png", "plaster.png", "tatami.png", "wood.png", "flesh.png", "cloth.png",
-    "metal.png", "vending.png", "sign_v.png", "sign_h.png", "plain.png", "rust.png", "ecoglass.png", "hedge.png", "ofuda.png", "grass.png", "skin.png"};
-static float texSU[T_COUNT] = {4, 1.5f, 3, 3, 3, 1.5f, 0.8f, 2, 4, 1.5f, 2, 0.9f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 1, 3, 1};
-static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2, 1.8f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3.2f, 2, 1, 3};
+    "metal.png", "vending.png", "sign_v.png", "sign_h.png", "plain.png", "rust.png", "ecoglass.png", "hedge.png", "ofuda.png", "grass.png", "skin.png", "brick.png"};
+static float texSU[T_COUNT] = {4, 1.5f, 3, 3, 3, 1.5f, 0.8f, 2, 4, 1.5f, 2, 0.9f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 1, 3, 1, 1.4f};
+static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2, 1.8f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3.2f, 2, 1, 3, 1, 0.7f};
 
 #include "zk_items.h"
 #include "zk_jp.h"
+#include "zk_settings.h"
 
 enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS, ST_MP };
 
@@ -96,6 +97,11 @@ static Image genImage(int k) {
             if (k == T_FACADE2 && y >= 44 && y < 54) c = (y == 44 || y == 53 || x % 6 == 0) ? rgb(150, 150, 150) : rgb(70, 72, 75);
             if (!win && !frame && y > 41 && x >= 12 && x < 52 && vnoise(x * 0.6f, 0, k) > 0.6f) c = rgb(v * 0.6f, v * 0.6f, v * 0.55f);
         } break;
+        case T_BRICK: {   // old red brick in stretcher bond, dark mortar, soot and damp toward the bottom
+            int row = y / 4, off = (row % 2) * 4; bool g = (y % 4 == 0) || ((x + off) % 8 == 0);
+            float tone = hash2((x + off) / 8, row, 13) * 0.35f + 0.82f, damp = (float)y / 32 * 0.25f;
+            c = g ? rgb(58 + 10 * n, 52 + 8 * n, 46 + 6 * n) : rgb((146 + 18 * n) * tone * (1 - damp), (68 + 10 * n) * tone * (1 - damp), (50 + 8 * n) * tone * (1 - damp));
+            if (!g && m2 > 0.7f) c = rgb(70 * tone, 44 * tone, 36 * tone); } break;
         case T_TILEWALL: { bool g = (x % 8 == 0) || (y % 8 == 0); float v = (g ? 90 : 172) + 15 * n - 30 * m2; c = rgb(v * 0.95f, v * 0.97f, v); } break;
         case T_BLOCKWALL: { int row = y / 8; int off = (row % 2) * 8; bool g = (y % 8 == 0) || ((x + off) % 16 == 0); float v = (g ? 70 : 122) + 25 * m + 10 * n; if (m2 > 0.6f) v *= 0.75f; c = rgb(v, v, v * 0.95f); } break;
         case T_SHUTTER: { float v = (y % 4 == 0) ? 60 : (y % 4 == 1 ? 150 : 115); v += 10 * n; c = rgb(v, v * 1.02f, v * 1.05f); if (vnoise(x * 0.3f, y * 0.05f, 4) > 0.68f) c = rgb(110, 60, 35); } break;
@@ -290,7 +296,7 @@ static Vector2 uvOf(int t, Vector3 p, Vector3 n) {
 }
 // ---- building frames: a building is generated in its own straight (local) coordinates, then turned to face its street.
 // Frame 0 is the world. world = C + RotY(phi)(local - C) with RotY(phi): x' = x cos + z sin, z' = -x sin + z cos (raylib MatrixRotateY).
-#define MAX_XF 1400
+#define MAX_XF 4000
 typedef struct { float cx, cz, c, s; } Xf;
 static Xf xfs[MAX_XF] = {{0, 0, 1, 0}}; static int nXf = 1, curXf = 0;
 static int newXf(float cx, float cz, float phi) { if (fabsf(phi) < 1e-4f || nXf >= MAX_XF) return 0; xfs[nXf] = (Xf){cx, cz, cosf(phi), sinf(phi)}; return nXf++; }
@@ -388,6 +394,9 @@ typedef struct { Vector3 pos; float s, hp; int sid; bool alive; } Crate;
 static Crate crates[MAX_CRATE]; static int nCrate;
 typedef struct { Vector3 mn, mx; int sid, kind; float hp, maxhp; bool alive, open; int axis, cont; } Build;
 static Build builds[MAX_BUILD]; static int nBuild;
+// a built piece turned off the world axes keeps its box unrotated in mn/mx and its yaw in axis as 1000 + degrees
+static float buildYaw(const Build *b) { return b->axis >= 1000 ? (b->axis - 1000) * DEG2RAD : 0; }
+static Vector3 buildC(const Build *b) { return V3((b->mn.x + b->mx.x) / 2, b->mn.y, (b->mn.z + b->mx.z) / 2); }
 static int baseShrine = -1;   // the player's kamidana: wards only work within BASE_R of it
 typedef struct { Vector3 pos; int type, amount; bool on; } Item;
 static Item items[MAX_ITEM]; static int nItem;
@@ -546,7 +555,7 @@ static void genSounds(void) {
     SetSoundVolume(sStatic, 0); SetSoundVolume(sDrone, 0.35f);
     audioOk = true;
 }
-static void play(Sound s, float vol) { if (!audioOk) return; SetSoundVolume(s, vol); SetSoundPitch(s, fr(0.92f, 1.08f)); PlaySound(s); }
+static void play(Sound s, float vol) { if (!audioOk) return; SetSoundVolume(s, vol * gs.sfx); SetSoundPitch(s, fr(0.92f, 1.08f)); PlaySound(s); }
 static void playAt(Sound s, Vector3 p, float range, float vol) {
     float d = Vector3Distance(p, pl.pos);
     if (d > range) return;
@@ -1164,7 +1173,7 @@ static bool KP(int k) { return vin.on ? vin.pressed[k] : IsKeyPressed(k); }
 static bool MD(void) { return vin.on ? vin.lmb : IsMouseButtonDown(MOUSE_BUTTON_LEFT); }
 static bool MP(void) { return vin.on ? vin.lmbP : IsMouseButtonPressed(MOUSE_BUTTON_LEFT); }
 static Vector2 padLookPx(void); static bool inputLocked;
-static Vector2 MDel(void) { if (inputLocked) return (Vector2){0, 0}; return vin.on ? vin.md : Vector2Add(GetMouseDelta(), padLookPx()); }
+static Vector2 MDel(void) { if (inputLocked) return (Vector2){0, 0}; if (vin.on) return vin.md; Vector2 m = GetMouseDelta(); if (gs.invertY) m.y = -m.y; return Vector2Add(m, padLookPx()); }
 static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
 #include "zk_input.h"
 
@@ -1244,7 +1253,7 @@ static void updateSanity(float dt, Vector3 aim) {
         if (pl.corrupt >= 100) pl.turned = true;
         // insane with a loaded revolver in hand: once a minute, a 1% chance the hand turns it on you
         static float turnRoll = 0; turnRoll += dt;
-        if (turnRoll >= 60) { turnRoll = 0;
+        if (turnRoll >= 60 && gs.disturb) { turnRoll = 0;
             bool god = cht.avail && cht.on[CH_GOD];
             if (pl.hands.t == IT_REVOLVER && pl.mag > 0 && !god && animId == ANIM_NONE && !pl.invOpen && !pl.mapOpen && !pl.sleeping && pl.watchT <= 0 && fr(0, 1) < 0.01f) {
                 animPlay(ANIM_TURNGUN); pl.reloadT = 0; pl.blocking = false; say("Your hand is not yours."); } }
@@ -1562,7 +1571,10 @@ static void drawWorld(Vector3 eye, float t) {
     }
     for (int i = 0; i < nCrate; i++) if (crates[i].alive && Vector3DistanceSqr(crates[i].pos, eye) < R2) {
         Crate *k = &crates[i]; ADRAW("props/crate", TRS(k->pos, 0, V3(k->s, k->s, k->s)), WHITE, BX(T_WOOD, 0, 0.5f, 0, 1, 1, 1, ((Color){200, 170, 130, 255}))); }
-    for (int i = 0; i < nBuild; i++) if (builds[i].alive && Vector3DistanceSqr(builds[i].mn, eye) < R2) drawBuildPiece(&builds[i]);
+    for (int i = 0; i < nBuild; i++) if (builds[i].alive && Vector3DistanceSqr(builds[i].mn, eye) < R2) {
+        float yw = buildYaw(&builds[i]); if (yw == 0) { drawBuildPiece(&builds[i]); continue; }
+        Vector3 c = buildC(&builds[i]); rlDrawRenderBatchActive(); rlPushMatrix(); rlTranslatef(c.x, 0, c.z); rlRotatef(yw * RAD2DEG, 0, 1, 0); rlTranslatef(-c.x, 0, -c.z);
+        drawBuildPiece(&builds[i]); rlDrawRenderBatchActive(); rlPopMatrix(); }
     drawWater(eye, t);
     for (int i = 0; i < nCont; i++) if (conts[i].on && Vector3DistanceSqr(conts[i].pos, eye) < 46 * 46) drawCont(&conts[i], t);
     for (int i = 0; i < nDeb; i++) if (debs[i].alive && Vector3DistanceSqr(xfP(debs[i].f, debs[i].mn), eye) < R2) { if (debs[i].f) xfPush(debs[i].f); drawDebris(&debs[i]); if (debs[i].f) xfPop(); }
@@ -1740,20 +1752,91 @@ static void profilePanel(void) {
     aText("v" GAME_VERSION, p.x + 24 * s, p.y + 296 * s, 12, (Color){150, 146, 136, 200}, false);
     p3End(2);
 }
-static void settingsPanel(void) {
-    Rectangle p = p3Panel(3, 0, 0, 520, 520, true);
-    if (aWindow(p, "Settings")) state = settingsBack;
-    float x = p.x + 40 * aU, w = 440 * aU, y = p.y + 90 * aU;
-    cfg.sens = aSlider((Rectangle){x, y, w, 10 * aU}, "Mouse sensitivity", cfg.sens * 1000, 0.5f, 6, "%.1f") / 1000; y += 58 * aU;
-    cfg.aimLag = aSlider((Rectangle){x, y, w, 10 * aU}, "Aim lag (lower = heavier view lag)", cfg.aimLag, 2, 16, "%.1f"); y += 58 * aU;
-    cfg.fov = aSlider((Rectangle){x, y, w, 10 * aU}, "Field of view", cfg.fov, 55, 95, "%.0f"); y += 58 * aU;
-    cfg.volume = aSlider((Rectangle){x, y, w, 10 * aU}, "Master volume", cfg.volume, 0, 1, "%.2f"); y += 58 * aU;
-    cfg.music = aSlider((Rectangle){x, y, w, 10 * aU}, "Music volume", cfg.music, 0, 1, "%.2f"); y += 58 * aU;
-    float rh = (float)cfg.renderH; rh = aSlider((Rectangle){x, y, w, 10 * aU}, "Render resolution (PS1 = 240)", rh, 180, 480, "%.0fp"); cfg.renderH = ((int)rh / 30) * 30; y += 46 * aU;
-    bool fs = aToggle(x, y, "Fullscreen (borderless)", cfg.fullscreen);
-    if (fs != (bool)cfg.fullscreen) { cfg.fullscreen = fs; ToggleBorderlessWindowed(); }
-    y += 50 * aU;
-    if (aButton((Rectangle){p.width / 2 - 110 * aU, y, 220 * aU, 44 * aU}, "Save & Back", true)) { cfgSave(); SetMasterVolume(cfg.volume); state = settingsBack; }
+static int setTab = 0;
+static void applyVideo(void) {   // frame cap and vsync take effect immediately
+#if !defined(PLATFORM_WEB)
+    if (cfg.vsync) SetWindowState(FLAG_VSYNC_HINT); else ClearWindowState(FLAG_VSYNC_HINT);
+    SetTargetFPS(gs.fpsCap);
+#endif
+}
+// a "<  value  >" row: clicking either arrow (or the value) steps through the options
+static int setChoice(float x, float y, float w, const char *label, const char **opts, int n, int cur) {
+    float s = aU; aText(label, x, y + 7 * s, 15, (Color){206, 200, 186, 255}, false);
+    float bw = 30 * s, vw = 150 * s, bx = x + w - (2 * bw + vw + 8 * s);
+    if (aButton((Rectangle){bx, y, bw, 28 * s}, "<", true)) cur = (cur + n - 1) % n;
+    if (aButton((Rectangle){bx + bw + 4 * s, y, vw, 28 * s}, opts[cur], true)) cur = (cur + 1) % n;
+    if (aButton((Rectangle){bx + bw + vw + 8 * s, y, bw, 28 * s}, ">", true)) cur = (cur + 1) % n;
+    return cur;
+}
+static int setToggle(float x, float y, float w, const char *label, int v) { static const char *oo[2] = {"Off", "On"}; return setChoice(x, y, w, label, oo, 2, v ? 1 : 0); }
+static void settingsPanel(void) {   // tabs as in most PC games: video, audio, gameplay, controls, accessibility
+    Rectangle p = p3Panel(3, 0, 0, 900, 640, true); float s = aU;
+    if (aWindow(p, "Settings")) { cfgSave(); gsSave(); state = settingsBack; }
+    const char *tabs[5] = {"Video", "Audio", "Gameplay", "Controls", "Accessibility"};
+    float tw = (p.width - 80 * s) / 5;
+    for (int i = 0; i < 5; i++) {
+        Rectangle r = {p.x + 40 * s + i * tw, p.y + 52 * s, tw - 6 * s, 34 * s};
+        if (aButton(r, tabs[i], true)) setTab = i;
+        if (i == setTab) DrawRectangle((int)(r.x + 10 * s), (int)(r.y + r.height + 3 * s), (int)(r.width - 20 * s), (int)fmaxf(2, 3 * s), C_CYAN);
+    }
+    float x0 = p.x + 40 * s, x1 = p.x + p.width / 2 + 20 * s, cw = p.width / 2 - 60 * s, y = p.y + 130 * s, yR = y;
+    const float SL = 58, CH = 42;
+#define SLIDE(X, LBL, V, MN, MX, FMT) do { V = aSlider((Rectangle){X, (X == x0 ? y : yR) + 22 * s, cw, 10 * s}, LBL, V, MN, MX, FMT); if (X == x0) y += SL * s; else yR += SL * s; } while (0)
+#define CHOICE(X, LBL, OPTS, N, V) do { V = setChoice(X, X == x0 ? y : yR, cw, LBL, OPTS, N, V); if (X == x0) y += CH * s; else yR += CH * s; } while (0)
+#define TOG(X, LBL, V) do { V = setToggle(X, X == x0 ? y : yR, cw, LBL, V); if (X == x0) y += CH * s; else yR += CH * s; } while (0)
+    if (setTab == 0) {
+        int fs = cfg.fullscreen; TOG(x0, "Fullscreen (borderless)", fs);
+        if (fs != cfg.fullscreen) { cfg.fullscreen = fs; ToggleBorderlessWindowed(); }
+        int vs = cfg.vsync; TOG(x0, "VSync", vs); if (vs != cfg.vsync) { cfg.vsync = vs; applyVideo(); }
+        static const char *fl[8] = {"30", "60", "90", "120", "144", "165", "240", "Unlimited"};
+        int fi = 4; for (int i = 0; i < 8; i++) if (fpsChoices[i] == gs.fpsCap) fi = i;
+        int fi2 = fi; CHOICE(x0, "Frame rate limit", fl, 8, fi2); if (fi2 != fi) { gs.fpsCap = fpsChoices[fi2]; applyVideo(); }
+        static const char *up[2] = {"Sharp pixels", "Smooth"}; CHOICE(x0, "Upscaling", up, 2, gs.smooth);
+        TOG(x0, "PS1 vertex wobble", gs.wobble);
+        TOG(x0, "Show FPS", gs.showFps);
+        float rh = (float)cfg.renderH; SLIDE(x1, "Render resolution (PS1 = 240)", rh, 180, 480, "%.0fp"); cfg.renderH = ((int)rh / 30) * 30;
+        SLIDE(x1, "Brightness", gs.bright, 0.5f, 1.8f, "%.2f");
+        SLIDE(x1, "Fog", gs.fog, 0.3f, 1.6f, "%.2f");
+        SLIDE(x1, "Field of view", cfg.fov, 55, 95, "%.0f");
+    } else if (setTab == 1) {
+        SLIDE(x0, "Master volume", cfg.volume, 0, 1, "%.2f"); SetMasterVolume(cfg.volume);
+        SLIDE(x0, "Music", cfg.music, 0, 1, "%.2f");
+        SLIDE(x0, "Effects", gs.sfx, 0, 1, "%.2f");
+        SLIDE(x1, "Ambience (static, drone, broadcasts)", gs.amb, 0, 1, "%.2f");
+        SLIDE(x1, "Interface", gs.ui, 0, 1, "%.2f");
+        TOG(x1, "Mute when unfocused", gs.muteUnfocus);
+    } else if (setTab == 2) {
+        SLIDE(x0, "View bob", gs.bob, 0, 1.5f, "%.2f");
+        SLIDE(x0, "Weapon sway", gs.sway, 0, 1.5f, "%.2f");
+        SLIDE(x0, "Camera shake", gs.shake, 0, 1.5f, "%.2f");
+        SLIDE(x0, "Aim lag (lower = heavier)", cfg.aimLag, 2, 16, "%.1f");
+        static const char *hm[2] = {"Hold", "Toggle"};
+        CHOICE(x1, "Sprint", hm, 2, gs.sprintTgl);
+        CHOICE(x1, "Sneak", hm, 2, gs.sneakTgl);
+        CHOICE(x1, "Crosshair", crossStyleNames, 4, gs.crossStyle);
+        CHOICE(x1, "Crosshair colour", crossColNames, 5, gs.crossCol);
+        TOG(x1, "Hit markers", gs.hitMarks);
+        TOG(x1, "Tutorial hints", gs.hints);
+        TOG(x1, "Insanity events", gs.disturb);
+        TOG(x0, "Auto-reload when empty", gs.autoReload);
+        TOG(x0, "Centred weapon", gs.centered);
+        TOG(x0, "Pause when unfocused", gs.pauseUnfocus);
+    } else if (setTab == 3) {
+        cfg.sens = aSlider((Rectangle){x0, y + 22 * s, cw, 10 * s}, "Mouse sensitivity", cfg.sens * 1000, 0.5f, 6, "%.1f") / 1000; y += SL * s;
+        TOG(x0, "Invert mouse Y", gs.invertY);
+        SLIDE(x1, "Gamepad look speed", padLookSens, 0.2f, 3, "%.1f");
+        { int iv = padInvertY; TOG(x1, "Invert gamepad Y", iv); padInvertY = iv; }
+        if (aButton((Rectangle){x0, y + 10 * s, cw, 40 * s}, "Key bindings...", true)) { cfgSave(); gsSave(); keysSave(); state = ST_CONTROLS; }
+    } else {
+        TOG(x0, "Reduce flashing", gs.reduceFlash);
+        SLIDE(x0, "Damage overlay", gs.dmgOverlay, 0, 1, "%.2f");
+        SLIDE(x1, "Insanity colour filter", gs.insanityFx, 0, 1, "%.2f");
+        { int sh = gs.shake > 0.01f; int sh2 = sh; TOG(x1, "Screen shake", sh2); if (sh2 != sh) gs.shake = sh2 ? 1 : 0; }
+    }
+#undef SLIDE
+#undef CHOICE
+#undef TOG
+    if (aButton((Rectangle){p.x + p.width / 2 - 110 * s, p.y + p.height - 60 * s, 220 * s, 42 * s}, "Save & Back", true)) { cfgSave(); gsSave(); keysSave(); SetMasterVolume(cfg.volume); state = settingsBack; }
     p3End(3);
 }
 static int uiFrame = 0;
@@ -1913,7 +1996,7 @@ static void videoScript(void) {
     case 7:   // build a campfire, eat a hot meal
         vAim(Vector3Add(pl.pos, V3(sinf(pl.tyaw) * 2, 0.4f, cosf(pl.tyaw) * 2)), 0.05f);
         if (vT == 20) vPress(KEY_B);
-        if (vT == 30 || vT == 38 || vT == 46) vin.wheel = 1;
+        if (vT == 30 || vT == 38 || vT == 46) vPress(KEY_R);
         if (vT == 60) { vin.lmbP = true; vin.lmb = true; }
         if (vT == 70) vPress(KEY_B);
         if (vT == 90) vPress(KEY_ZERO);
@@ -1965,7 +2048,7 @@ static int zankoMain(int argc, char **argv) {
 #else
 int main(int argc, char **argv) {
 #endif
-    aeroInitPaths(); cfgLoad(); keysLoad();
+    aeroInitPaths(); cfgLoad(); keysLoad(); gsLoad();
     char user[32] = "Guest";
     // ---- startup arguments (set in the launcher: Settings > Startup arguments)
     int ramMB = 0, fpsCap = 0; bool argNewGame = false, argNoVsync = false; int argFull = -1;
@@ -2005,7 +2088,7 @@ int main(int argc, char **argv) {
     SetWindowMinSize(800, 450);
     if (FileExists(P("Data/UI/icon.png"))) { Image ico = LoadImage(P("Data/UI/icon.png")); if (ico.data) { SetWindowIcon(ico); UnloadImage(ico); } }
     SetExitKey(KEY_NULL);
-    if (!cfg.vsync) SetTargetFPS(fpsCap > 0 ? fpsCap : 144); else if (fpsCap > 0) SetTargetFPS(fpsCap);
+    SetTargetFPS(fpsCap > 0 ? fpsCap : gs.fpsCap);
 #if !defined(PLATFORM_WEB)
     if (cfg.fullscreen) ToggleBorderlessWindowed();
 #endif
@@ -2039,7 +2122,24 @@ int main(int argc, char **argv) {
     while (!WindowShouldClose()) {
         frame++;
         inputUpdate(); uiFrame = frame;
+#if !defined(PLATFORM_WEB)
+        { static bool muted = false; bool m = gs.muteUnfocus && !IsWindowFocused(); if (m != muted) { muted = m; SetMasterVolume(m ? 0 : cfg.volume); } }
+#endif
+        if (aBlipOk) SetSoundVolume(aBlip, gs.ui); if (aErrOk) SetSoundVolume(aErr, gs.ui);
         float dt = fminf(GetFrameTime(), 0.05f), t = (float)GetTime();
+        {   // look test: KIRI_LOOK="x y z yaw pitch name;..." stands there at noon (y < -500: on the ground), waits, takes name.png, quits
+            static const char *lk = NULL; static int li = 0, lf = 0; static char spec[2048]; if (frame == 1) { lk = getenv("KIRI_LOOK"); if (lk) snprintf(spec, sizeof spec, "%s", lk); }
+            if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12; DisableCursor();
+                for (int b = 0; b < nBore; b++) TraceLog(LOG_INFO, "LOOK bore %d: portal %.1f %.1f fy %.1f dir %d kind %d len %.0f", b, bores[b].px, bores[b].pz, bores[b].fy, bores[b].dir, bores[b].kind, bores[b].len);
+                TraceLog(LOG_INFO, "LOOK touge end %.1f %.1f %.1f, before %.1f %.1f", tougeP[nTouge - 1].x, tougeP[nTouge - 1].y, tougeP[nTouge - 1].z, tougeP[nTouge - 4].x, tougeP[nTouge - 4].z); }
+            if (lk && frame > 10) { char *p = spec; for (int k = 0; k < li && p; k++) { p = strchr(p, ';'); if (p) p++; }
+                if (!p || !*p) { TraceLog(LOG_INFO, "LOOK done"); break; }
+                float x, y, z, yw, pt; char nm[64]; if (sscanf(p, "%f %f %f %f %f %63[^;]", &x, &y, &z, &yw, &pt, nm) == 6) {
+                    if (lf == 0) { if (y < -500) y = groundAt(V3(x, 200, z), 0.3f, 400) + 0.05f; pl.pos = V3(x, y, z); pl.vy = 0; pl.tyaw = pl.yaw = yw; pl.tpitch = pl.pitch = pt; for (int i = 0; i < nCr; i++) crs[i].on = false; }
+                    pl.vy = 0; pl.pos.y = pl.pos.y;
+                    if (++lf == 24) { TakeScreenshot(TextFormat("%s.png", nm)); lf = 0; li++; } }
+                else { li++; lf = 0; } }
+        }
         {   // viewmodel stills: KIRI_VM=1 holds each animation at fixed points and takes a picture (vm_*.png), then quits
             static int vm = -1; if (vm < 0) vm = getenv("KIRI_VM") ? 1 : 0;
             struct { int it, anim; float at, shot; int mag; bool torch; const char *nm; } V[] = {
@@ -2059,12 +2159,23 @@ int main(int argc, char **argv) {
             int NV = (int)(sizeof V / sizeof V[0]);
             if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;
                 invAdd(IT_AMMO, 24); pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.pos.y = groundAt(V3(SPAWN_X, 30, SPAWN_Z), 0.3f, 40) + 0.05f; pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0.05f; }
+            if (vm == 1 && frame >= 6 && frame < 18) { if (frame == 6) { settingsBack = ST_PLAY; EnableCursor(); } state = ST_SETTINGS; setTab = (frame - 6) / 2 % 5;
+                if ((frame - 6) % 2 == 1 && frame < 16) TakeScreenshot(TextFormat("vm_settings%d.png", (frame - 6) / 2)); }
             if (vm == 1 && frame == 18) { settingsBack = ST_PLAY; state = ST_CONTROLS; EnableCursor(); capA = A_RELOAD; capS = 0; }
             if (vm == 1 && frame == 26) { TakeScreenshot("vm_controls.png"); capA = -1;
                 int old = bindK[A_JUMP][0]; bindSet(A_JUMP, 0, KEY_V); bindSet(A_USE, 1, KEY_V); keysDefaults(); keysLoad();
                 TraceLog(LOG_INFO, "KEYTEST jump %d use-alt %d (V=%d, jump lost V: %s) name '%s' pad A '%s'", bindK[A_JUMP][0], bindK[A_USE][1], KEY_V, bindK[A_JUMP][0] == 0 ? "yes" : "no", keyName(bindK[A_USE][1]), padName(bindP[A_JUMP]));
                 char hb[96] = "[hold E] Search desk  [SPACE] vault"; keySubst(hb, sizeof hb); TraceLog(LOG_INFO, "KEYTEST hint '%s'", hb);
                 bindK[A_JUMP][0] = old; bindK[A_USE][1] = 0; keysSave(); state = ST_PLAY; DisableCursor(); }
+            if (vm == 1 && frame == 27) {   // a wall placed turned 30 degrees by the wheel: its solid must carry a frame and block
+                pl.sl[0] = (Slot){IT_HAMMER, 1, 0}; pl.sl[1] = (Slot){IT_PLANKS, 20, 0}; pl.sl[2] = (Slot){IT_NAILS, 40, 0}; pl.hands = (Slot){-1, 0, 0}; pl.weapon = 0;
+                pl.pos = V3(STN_X + 12, 0, STN_Z + 12); pl.pos.y = groundAt(V3(pl.pos.x, 30, pl.pos.z), 0.3f, 40) + 0.02f; pl.vy = 0; pl.tyaw = pl.yaw = 0; pl.tpitch = pl.pitch = 0.25f; pl.buildKind = BK_WALL; pl.build = true; bkRot = 30; int nb0 = nBuild; placeBuild();
+                Build *b = nb0 < nBuild ? &builds[nBuild - 1] : NULL;
+                TraceLog(LOG_INFO, "BUILDTEST msg '%s' pos %.1f %.1f %.1f", msg, pl.pos.x, pl.pos.y, pl.pos.z); TraceLog(LOG_INFO, "BUILDTEST placed %d axis %d yaw %.1f sid %d frame %d", b != NULL, b ? b->axis : -1, b ? buildYaw(b) * RAD2DEG : 0, b ? b->sid : -1, b && b->sid >= 0 ? sol[b->sid].f : -1);
+                if (b) { Vector3 c = buildC(b); Vector3 d = V3(sinf(buildYaw(b)), 0, cosf(buildYaw(b)));   // walk straight at it through its middle
+                    TraceLog(LOG_INFO, "BUILDTEST point in front free %d, centre free %d", pointFree(c.x - d.x * 0.6f, c.z - d.z * 0.6f, 0.3f, c.y + 0.2f), pointFree(c.x, c.z, 0.05f, c.y + 0.2f)); }
+                bkRot = 15; pl.tyaw = pl.yaw = 0.3f; }
+            if (vm == 1 && frame == 30) { TakeScreenshot("vm_build_rot.png"); pl.build = false; }
             if (vm == 1 && frame > 30) { int q = (frame - 31) / 5, k = (frame - 31) % 5;
                 if (q >= NV && !getenv("KIRI_VMSEQ")) {   // last: let the insanity turn play out in full and check it ends the run
                     static int tf = 0; if (tf == 0) { cht.on[CH_GOD] = false; pl.hands = (Slot){IT_REVOLVER, 1, 0}; pl.weapon = 1; pl.mag = 6; animId = ANIM_NONE; animPlay(ANIM_TURNGUN); }
@@ -2156,6 +2267,7 @@ int main(int argc, char **argv) {
         sw = (float)GetScreenWidth(); shh = (float)GetScreenHeight();
         int wantH = cfg.renderH, wantW = (int)(wantH * sw / shh);
         if (wantH != rtH || wantW != rtW) { if (rtH) UnloadRenderTexture(rt); rt = LoadRenderTexture(wantW, wantH); SetTextureFilter(rt.texture, TEXTURE_FILTER_POINT); rtW = wantW; rtH = wantH; }
+        { static int lastSm = -1; static unsigned int lastId = 0; if (gs.smooth != lastSm || rt.texture.id != lastId) { SetTextureFilter(rt.texture, gs.smooth ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT); lastSm = gs.smooth; lastId = rt.texture.id; } }
         aeroBegin(720);
         if (msgT > 0) msgT -= dt;
 
@@ -2208,6 +2320,10 @@ int main(int argc, char **argv) {
         // ---- update
         Vector3 eye, aim;
         if (state == ST_PLAY) {
+#if !defined(PLATFORM_WEB)
+            static int autoTest = -1; if (autoTest < 0) autoTest = getenv("KIRI_SHOT") || getenv("KIRI_WALK") || getenv("KIRI_VM") || getenv("KIRI_MPHOST") || getenv("KIRI_MPJOIN") ? 1 : 0;
+            if (gs.pauseUnfocus && !autoTest && !IsWindowFocused() && netMode == NM_OFF && !vin.on) { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; }
+#endif
             if (cht.avail && KP(cht.key) && !pl.invOpen && !pl.mapOpen) { cht.menu = !cht.menu; if (cht.menu) EnableCursor(); else DisableCursor(); }
             if (escP() && cht.menu) { cht.menu = false; DisableCursor(); }
             else if (escP()) { if (pl.mapOpen) { pl.mapOpen = false; DisableCursor(); } else if (pl.invOpen) { pl.invOpen = false; pl.openC = -1; DisableCursor(); } else { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; } }
@@ -2232,7 +2348,7 @@ int main(int argc, char **argv) {
             survivalTick(dt);
             cheatTick(dt);
             if (pl.turned && pl.hp > 0) { pl.hp = 0; say("You have become one of them."); }
-            eye = Vector3Add(pl.pos, V3(0, 1.6f + (pl.ground ? sinf(pl.bob * 2) * 0.035f : 0), 0));
+            eye = Vector3Add(pl.pos, V3(0, 1.6f + (pl.ground ? sinf(pl.bob * 2) * 0.035f * gs.bob : 0), 0));
             aim = dirOf(pl.tyaw, pl.tpitch);
             if (netMode == NM_CLIENT) netClientCreatures(dt); else if (!shotMode || frame > 44) updateCreatures(dt, aim);
             if (evacOn) { evacT -= dt; if (evacT <= 0) { state = ST_WIN; EnableCursor(); prof.wins++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; } }
@@ -2250,7 +2366,7 @@ int main(int argc, char **argv) {
         }
         netUpdate(dt);
         updateFX(dt, eye);
-        Vector3 shake = V3(fr(-1, 1) * pl.shake * 0.13f, fr(-1, 1) * pl.shake * 0.13f, 0);
+        Vector3 shake = V3(fr(-1, 1) * pl.shake * 0.13f * gs.shake, fr(-1, 1) * pl.shake * 0.13f * gs.shake, 0);
         cam.position = Vector3Add(eye, shake);
         Vector3 view = (state == ST_PLAY || gameActive) ? dirOf(pl.yaw, pl.pitch) : aim;
         cam.target = Vector3Add(cam.position, view);
@@ -2272,6 +2388,7 @@ int main(int argc, char **argv) {
             }
             Vector3 fc = Vector3Lerp(dark, sky, wk);
             amb = Lerp(amb, 0.95f, wk); fogD = Lerp(fogD, 0.009f, wk);
+            amb *= gs.bright; fogD *= gs.fog;
             fogc[0] = fc.x; fogc[1] = fc.y; fogc[2] = fc.z; fogC = (Color){(unsigned char)(fc.x * 255), (unsigned char)(fc.y * 255), (unsigned char)(fc.z * 255), 255};
             SetShaderValue(sh, locFog, fogc, SHADER_UNIFORM_VEC3);
         }
@@ -2281,10 +2398,11 @@ int main(int argc, char **argv) {
         SetShaderValue(sh, locMuzzle, &muzzle, SHADER_UNIFORM_FLOAT);
         SetShaderValue(sh, locAmb, &amb, SHADER_UNIFORM_FLOAT);
         SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT);
+        if (!gs.wobble) { snap[0] = snap[1] = 16384; }
         SetShaderValue(sh, locSnap, snap, SHADER_UNIFORM_VEC2);
         float desat = (state == ST_PLAY || gameActive) ? (pl.stage == 1 ? 0.35f : pl.stage >= 2 ? 0.65f : 0) + (pl.sanity < 30 ? (30 - pl.sanity) / 60.0f : 0) : 0;
         float rage = ((state == ST_PLAY || gameActive) && pl.stage == 3) ? pl.corrupt / 100.0f * (0.6f + 0.4f * sinf(t * 3)) : 0;
-        desat = clampf(desat, 0, 0.9f);
+        desat = clampf(desat, 0, 0.9f) * gs.insanityFx; rage *= gs.insanityFx;
         SetShaderValue(sh, locDesat, &desat, SHADER_UNIFORM_FLOAT); SetShaderValue(sh, locRage, &rage, SHADER_UNIFORM_FLOAT);
         setupLights(cam.position, t);
         updateBroadcast(t);
@@ -2292,7 +2410,7 @@ int main(int argc, char **argv) {
             static float jt = 4; jt -= dt;
             if (jt <= 0 && audioOk) { jt = fr(12, 20); int best = -1; float bd = 38;
                 for (int i = 0; i < nScreen; i++) if (screens[i].light >= 0) { float d = Vector3Distance(screens[i].c, cam.position); if (d < bd) { bd = d; best = i; } }
-                if (best >= 0) { SetSoundVolume(sJingle, 0.55f * powf(1 - bd / 38, 1.3f)); SetSoundPitch(sJingle, fr(0.86f, 1.0f)); PlaySound(sJingle); } }
+                if (best >= 0) { SetSoundVolume(sJingle, 0.55f * powf(1 - bd / 38, 1.3f) * gs.amb); SetSoundPitch(sJingle, fr(0.86f, 1.0f)); PlaySound(sJingle); } }
         }
         bool backdrop = !gameActive && (state == ST_MENU || state == ST_SETTINGS || state == ST_CONTROLS || state == ST_LORE || state == ST_TRAITS);
         if (!backdrop) {
@@ -2301,10 +2419,11 @@ int main(int argc, char **argv) {
         BeginMode3D(cam);
         drawWorld(cam.position, t);
         if (state == ST_PLAY && pl.build) { Vector3 mn, mx; bool ok = buildGhost(&mn, &mx); rlDrawRenderBatchActive();
+            float cx = (mn.x + mx.x) / 2, cz = (mn.z + mx.z) / 2; rlPushMatrix(); rlTranslatef(cx, 0, cz); rlRotatef(bkYaw * RAD2DEG, 0, 1, 0); rlTranslatef(-cx, 0, -cz);
             DrawBoundingBox((BoundingBox){mn, mx}, ok ? (Color){111, 214, 208, 255} : (Color){200, 50, 40, 255});
             DrawBoundingBox((BoundingBox){Vector3Add(mn, V3(0.02f, 0.02f, 0.02f)), Vector3Subtract(mx, V3(0.02f, 0.02f, 0.02f))}, ok ? (Color){111, 214, 208, 255} : (Color){200, 50, 40, 255});
-            rlDrawRenderBatchActive(); }
-        if (state == ST_PLAY || state == ST_PAUSE) drawViewmodel2(cam.position, aim);
+            rlDrawRenderBatchActive(); rlPopMatrix(); }
+        if ((state == ST_PLAY || state == ST_PAUSE) && !getenv("KIRI_NOHUD")) drawViewmodel2(cam.position, aim);
         EndMode3D();
         EndTextureMode();
         }
@@ -2316,7 +2435,8 @@ int main(int argc, char **argv) {
         ClearBackground(BLACK);
         if (backdrop) saBackdrop(t, 0, 0, 0, 1.0f);
         else DrawTexturePro(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
-        if (state == ST_PLAY) { drawHUD(cross, t); drawNameTags(); if (cht.menu) cheatMenu(t); }
+        static int noHud = -1; if (noHud < 0) noHud = getenv("KIRI_NOHUD") ? 1 : 0;   // clean captures for the website
+        if (state == ST_PLAY && !noHud) { drawHUD(cross, t); drawNameTags(); if (cht.menu) cheatMenu(t); }
         else {
             if (!backdrop) aBackground(state == ST_PAUSE ? 0.75f : 0.85f);
             aCorrupt = gameActive ? pl.stage : 0;
@@ -2371,6 +2491,7 @@ int main(int argc, char **argv) {
             p3Render(aCorrupt);
         }
         if (videoMode && state != ST_PLAY) aDrawCursor();
+        if (gs.showFps) { const char *ft = TextFormat("%d FPS", GetFPS()); int fw = MeasureText(ft, 20); DrawRectangle(GetScreenWidth() - fw - 18, 6, fw + 12, 26, (Color){0, 0, 0, 140}); DrawText(ft, GetScreenWidth() - fw - 12, 9, 20, (Color){111, 214, 208, 255}); }
         EndDrawing();
         if (quitReq) break;
         if (videoMode) videoCapture(frame);
@@ -2520,7 +2641,7 @@ int main(int argc, char **argv) {
             SHOTAT(874, bores[0].px, 0.0f, bores[0].pz - 70, PI, 0.0f, "shot_collapse.png")
             SHOTAT(881, tougeP[40].x, tougeP[40].y + 0.1f, tougeP[40].z, atan2f(tougeP[46].x - tougeP[40].x, tougeP[46].z - tougeP[40].z), 0.05f, "shot_touge.png")
             SHOTAT(888, HAMLET_X, pads[0].y + 0.1f, HAMLET_Z + 14, PI, -0.05f, "shot_hamlet.png")
-            SHOTAT(895, bores[3].px, bores[3].fy, bores[3].pz + 9, PI, 0.0f, "shot_oldtunnel.png")
+            SHOTAT(895, bores[3].px - 9, bores[3].fy, bores[3].pz, PI / 2, 0.0f, "shot_oldtunnel.png")
             { int b_ = streetOfKind(3, 0); const Vector3 *q_ = stPts + dStreets[b_][0]; int n_ = dStreets[b_][1];
               SHOTAT(902, q_[0].x, SIDEH + 0.1f, q_[0].z, atan2f(q_[n_ - 1].x - q_[0].x, q_[n_ - 1].z - q_[0].z), -0.05f, "shot_bridge.png") }
             SHOTAT(909, bores[1].px - 24, 0.2f, bores[1].pz, PI / 2, 0.02f, "shot_portal_se.png")

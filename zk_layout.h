@@ -138,9 +138,9 @@ static Vector2 pnorm(const Vector3 *p, int n, int i) {   // left normal (-dz, dx
 }
 static void addBore(float px, float pz, float fy, int dir, int kind, float len) {
     if (nBore >= MAX_BORE) return;
-    bores[nBore++] = (Bore){px, pz, fy, kind ? 5.0f : 9.0f, kind ? 4.4f : 5.6f, len, dir, kind};
+    bores[nBore++] = (Bore){px, pz, fy, kind == 1 ? 5.0f : kind == 2 ? 7.0f : 9.0f, kind == 1 ? 4.6f : 5.6f, len, dir, kind};   // 0 road, 1 old brick, 2 railway
 }
-static float boreDepth(Bore *b) { return b->kind ? 4.0f : 6.0f; }   // headwall thickness
+static float boreDepth(Bore *b) { return b->kind == 1 ? 4.0f : 6.0f; }   // headwall thickness
 static void boreLocal(Bore *b, float x, float z, float *a, float *l) {
     *a = b->dir == 0 ? x - b->px : b->dir == 1 ? b->px - x : b->dir == 2 ? z - b->pz : b->pz - z;
     *l = (b->dir < 2) ? z - b->pz : x - b->px;
@@ -173,14 +173,17 @@ static void layoutInit(void) {
     // tunnels: the coast road leaves through the hills at both ends; the railway runs into the mountain at both ends
     addBore(WEST_PX, WEST_PZ, 0, 1, 0, 40);                        // 0: coast road, west
     addBore(SOUTH_PX, SOUTH_PZ, 0, 2, 0, 52);                      // 1: coast road, south under the castle hill
-    addBore(RAIL_E_X, RAIL_E_Z, 0, 0, 0, 70);                      // 2: railway, east into the mountain
+    addBore(RAIL_E_X, RAIL_E_Z, 0, 0, 2, 70);                      // 2: railway, east into the mountain
     // the touge: from the avenue's east end up the mountain in hairpins to the old tunnel
     nTouge = loadPath(dTouge, DTOUGE_N, tougeP);
     {   float total = 0; for (int i = 1; i < nTouge; i++) total += Vector3Distance(V3(tougeP[i].x, 0, tougeP[i].z), V3(tougeP[i - 1].x, 0, tougeP[i - 1].z));
         float acc = 0; tougeP[0].y = 0;
         for (int i = 1; i < nTouge; i++) { acc += Vector3Distance(V3(tougeP[i].x, 0, tougeP[i].z), V3(tougeP[i - 1].x, 0, tougeP[i - 1].z)); float t = acc / total; tougeP[i].y = 34.0f * (t * t * 0.35f + t * 0.65f); } }
-    addBore(tougeP[nTouge - 1].x, tougeP[nTouge - 1].z, tougeP[nTouge - 1].y, 3, 1, 62);   // 3: the old brick tunnel at the top
-    addBore(RAIL_W_X, RAIL_W_Z, 0, 1, 0, 50);                      // 4: railway, west
+    {   // 3: the old brick tunnel at the top, straight on from the last stretch of the pass so the road runs into it
+        Vector3 e = tougeP[nTouge - 1], pv = tougeP[nTouge - 6 > 0 ? nTouge - 6 : 0]; float dx = e.x - pv.x, dz = e.z - pv.z;
+        int dir = fabsf(dx) > fabsf(dz) ? (dx > 0 ? 0 : 1) : (dz > 0 ? 2 : 3);
+        addBore(e.x, e.z, e.y, dir, 1, 62); }
+    addBore(RAIL_W_X, RAIL_W_Z, 0, 1, 2, 50);                      // 4: railway, west
     // hamlet lane down from the first straight, ending in a small square
     nLane = loadPath(dLane, DLANE_N, laneP);
     {   float y0; pathDist(tougeP, nTouge, laneP[0].x, laneP[0].z, &y0); float y1 = y0 - 1.5f;
@@ -249,7 +252,15 @@ static void bakeHeightfield(void) {
             if (a < boreDepth(br) - 2 || a > br->len + 30) continue;
             float c = br->fy + br->h + 3.5f, wl = 1 - clampf((fabsf(l) - (br->w / 2 + 5)) / 12, 0, 1); wl = wl * wl * (3 - 2 * wl);
             float wa = clampf((a - (boreDepth(br) - 2)) / 2, 0, 1);
+            if (br->kind == 1) {   // the old tunnel goes into the mountain: the slope climbs steeply over and around it
+                c = br->fy + br->h + 4 + fminf(fmaxf(a, 0), 40) * 0.75f + vnoise(x * 0.07f, z * 0.07f, 31) * 3;
+                wl = 1 - clampf((fabsf(l) - (br->w / 2 + 6)) / 30, 0, 1); wl = wl * wl * (3 - 2 * wl); }
             if (c > h) h = Lerp(h, c, wl * wa); }
+        for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; if (br->kind != 1) continue; float a, l; boreLocal(br, x, z, &a, &l);
+            if (a > boreDepth(br) || a < -22) continue;   // the cutting: rock rising on both sides of the road in front of the portal
+            float side = fabsf(l) - (br->w / 2 + 3.0f); if (side <= 0) continue;
+            float c = br->fy + fminf(side * 1.6f, br->h + 6) + vnoise(x * 0.09f, z * 0.09f, 17) * 1.2f, w = clampf((a + 22) / 16, 0, 1) * clampf(side / 3, 0, 1) * (1 - clampf((side - 10) / 8, 0, 1));   // only the walls of the cutting, not the hills beyond
+            if (c > h) h = Lerp(h, c, w); }
         if (inCore(x, z)) h = SIDEH - 0.01f;   // the town: flat paving; streets are drawn on top of it
         hf[j * N + i] = h;
     }
@@ -475,9 +486,9 @@ static Vector3 boreAt(Bore *b, float a, float l, float y) {
     switch (b->dir) { case 0: return V3(b->px + a, y, b->pz + l); case 1: return V3(b->px - a, y, b->pz + l); case 2: return V3(b->px + l, y, b->pz + a); default: return V3(b->px + l, y, b->pz - a); }
 }
 static void buildBore(Bore *b) {
-    bool old = b->kind == 1; float W = b->w, H = b->h, y = b->fy, L = b->len, D = boreDepth(b);
-    Color wallC = old ? rgb(150, 80, 60) : rgb(200, 205, 200), ceilC = old ? rgb(120, 70, 55) : rgb(150, 150, 145);
-    int wallT = old ? T_BLOCKWALL : T_TILEWALL;
+    bool old = b->kind == 1, rail = b->kind == 2; float W = b->w, H = b->h, y = b->fy, L = b->len, D = boreDepth(b);
+    Color wallC = old ? rgb(235, 225, 215) : rail ? rgb(170, 168, 160) : rgb(200, 205, 200), ceilC = old ? rgb(200, 190, 180) : rgb(150, 150, 145);
+    int wallT = old ? T_BRICK : rail ? T_CONCRETE : T_TILEWALL;
     // headwall: as tall as the ground anywhere in its footprint
     // headwall in 2 m columns, each as tall as the ground behind it, so it steps down with the hillside
     float FW = W / 2 + 14, OW = W / 2 + 0.6f;
@@ -491,22 +502,58 @@ static void buildBore(Bore *b) {
         float l0 = edges[e], l1 = edges[e + 1], top = y + H + 1.5f;
         for (float a = 0; a <= D; a += 1) for (float l = l0; l <= l1 + 0.01f; l += 1) { Vector3 q = boreAt(b, a, l, 0); top = fmaxf(top, terrainH(q.x, q.z) + 0.6f); }
         bool open = l0 >= -OW - 0.01f && l1 <= OW + 0.01f;
-        boreBox(b, 0, D, l0, l1, open ? y + H + 0.5f : y - 1, top, old ? T_BLOCKWALL : T_CONCRETE, hw, true, ALLB);
+        boreBox(b, 0, D, l0, l1, open ? y + H + 0.5f : y - 1, top, old ? T_BRICK : T_CONCRETE, old ? rgb(235, 225, 215) : hw, true, ALLB);
     }
-    boreBox(b, -0.4f, 0, -W / 2 - 1.2f, W / 2 + 1.2f, y + H + 0.5f, y + H + 1.3f, T_CONCRETE, old ? rgb(110, 60, 45) : rgb(215, 215, 208), false, ALLB);   // portal frame
-    boreBox(b, -0.4f, 0, -W / 2 - 1.2f, -W / 2 - 0.6f, y, y + H + 0.5f, T_CONCRETE, old ? rgb(110, 60, 45) : rgb(215, 215, 208), false, ALLB);
-    boreBox(b, -0.4f, 0, W / 2 + 0.6f, W / 2 + 1.2f, y, y + H + 0.5f, T_CONCRETE, old ? rgb(110, 60, 45) : rgb(215, 215, 208), false, ALLB);
+    if (old) {   // a brick arch ring in voussoirs, a keystone, stone springers
+        int nv = 9; for (int k = 0; k < nv; k++) { float t0 = (float)k / nv, t1 = (float)(k + 1) / nv, a0 = PI * t0, a1 = PI * t1, R0 = W / 2 + 0.05f, R1 = W / 2 + 0.75f;
+            float l0 = -cosf(a0) * R1, l1 = -cosf(a1) * R1, yy0 = y + H - 1.6f + sinf(fminf(a0, a1)) * 1.4f, yy1 = y + H - 1.6f + fmaxf(sinf(a0), sinf(a1)) * 1.4f + 0.75f; (void)R0;
+            boreBox(b, -0.45f, 0, fminf(l0, l1), fmaxf(l0, l1), yy0, yy1, T_BRICK, k % 2 ? rgb(200, 150, 130) : rgb(230, 190, 170), false, ALLB); }
+        boreBox(b, -0.55f, 0, -0.35f, 0.35f, y + H - 0.4f, y + H + 0.6f, T_CONCRETE, rgb(170, 165, 150), false, ALLB);   // keystone
+        boreBox(b, -0.45f, 0, -W / 2 - 0.8f, -W / 2, y, y + H - 1.6f, T_CONCRETE, rgb(150, 145, 132), false, ALLB);      // stone jambs
+        boreBox(b, -0.45f, 0, W / 2, W / 2 + 0.8f, y, y + H - 1.6f, T_CONCRETE, rgb(150, 145, 132), false, ALLB);
+        boreBox(b, -0.3f, D, -W / 2 - 1.6f, W / 2 + 1.6f, y + H + 1.2f, y + H + 1.6f, T_CONCRETE, rgb(140, 135, 125), false, ALLB);   // string course
+    } else {
+    boreBox(b, -0.4f, 0, -W / 2 - 1.2f, W / 2 + 1.2f, y + H + 0.5f, y + H + 1.3f, T_CONCRETE, rgb(215, 215, 208), false, ALLB);   // portal frame
+    boreBox(b, -0.4f, 0, -W / 2 - 1.2f, -W / 2 - 0.6f, y, y + H + 0.5f, T_CONCRETE, rgb(215, 215, 208), false, ALLB);
+    boreBox(b, -0.4f, 0, W / 2 + 0.6f, W / 2 + 1.2f, y, y + H + 0.5f, T_CONCRETE, rgb(215, 215, 208), false, ALLB); }
     {   // name plate with the tunnel's name in Japanese
         int face = b->dir == 0 ? 3 : b->dir == 1 ? 1 : b->dir == 2 ? 0 : 2;
         Vector3 p0 = boreAt(b, -0.46f, -2.4f, y + H + 0.55f), p1 = boreAt(b, -0.4f, 2.4f, y + H + 1.35f);
         if (nSign < MAX_SIGN) signs[nSign++] = (Sign){Vector3Min(p0, p1), Vector3Max(p0, p1), old ? rgb(70, 55, 45) : rgb(30, 90, 60), -1, T_SIGNH, SGN_TUN0 + (int)(b - bores), face, true};
     }
     // interior
-    boreBox(b, 0, L + 6, -W / 2 - 0.6f, W / 2 + 0.6f, y - 0.6f, y, old ? T_CONCRETE : T_ASPHALT, old ? rgb(90, 85, 80) : WHITE, true, 16);
+    boreBox(b, 0, L + 6, -W / 2 - 0.6f, W / 2 + 0.6f, y - 0.6f, y, old ? T_CONCRETE : rail ? T_CONCRETE : T_ASPHALT, old ? rgb(90, 85, 80) : rail ? rgb(96, 90, 82) : WHITE, true, 16);
     boreBox(b, D, L + 6, -W / 2 - 0.6f, -W / 2, y, y + H, wallT, wallC, true, ALL);
     boreBox(b, D, L + 6, W / 2, W / 2 + 0.6f, y, y + H, wallT, wallC, true, ALL);
-    boreBox(b, D, L + 6, -W / 2 - 0.6f, W / 2 + 0.6f, y + H, y + H + 0.5f, T_CONCRETE, ceilC, true, ALLB);
-    if (!old) {
+    boreBox(b, D, L + 6, -W / 2 - 0.6f, W / 2 + 0.6f, y + H, y + H + 0.5f, old ? T_BRICK : T_CONCRETE, ceilC, true, ALLB);
+    if (rail) {   // a railway tunnel: ballast, sleepers and two rails, cable troughs, a few lamps; a train stopped inside
+        boreBox(b, 0, L + 6, -1.9f, 1.9f, y, y + 0.12f, T_CONCRETE, rgb(110, 104, 96), false, 16);   // ballast bed
+        for (float a = 0.3f; a < L - 4; a += 0.62f) boreBox(b, a, a + 0.22f, -1.05f, 1.05f, y + 0.12f, y + 0.2f, T_WOOD, rgb(90, 70, 55), false, ALLB);
+        for (int r = 0; r < 2; r++) { float l = r ? 0.53f : -0.53f; boreBox(b, 0, L - 4, l - 0.04f, l + 0.04f, y + 0.2f, y + 0.34f, T_METAL, rgb(150, 150, 150), false, ALLB); }
+        boreBox(b, D, L + 6, -W / 2, -W / 2 + 0.5f, y, y + 0.45f, T_CONCRETE, rgb(140, 138, 130), true, ALL);   // cable troughs, walkways
+        boreBox(b, D, L + 6, W / 2 - 0.5f, W / 2, y, y + 0.45f, T_CONCRETE, rgb(140, 138, 130), true, ALL);
+        for (float a = 10; a < L - 6; a += 15) { boreBox(b, a - 0.3f, a + 0.3f, W / 2 - 0.25f, W / 2, y + 3.2f, y + 3.5f, T_METAL, rgb(80, 80, 80), false, ALLB);
+            Vector3 lp = boreAt(b, a, W / 2 - 0.6f, y + 3.2f); float r = fr(0, 1); addLight(lp, V3(0.95f, 0.9f, 0.7f), 9, r < 0.4f ? 0 : r < 0.7f ? 1 : 2); }
+        // the train: 113-series style commuter cars, stainless with an orange and green band, stopped where the power died
+        int ncar = (int)((L - 18) / 19.5f); if (ncar > 2) ncar = 2;
+        for (int k = 0; k < ncar; k++) {
+            float a0 = 10 + k * 19.5f, a1 = a0 + 19, hw2 = 1.45f, yb = y + 1.05f, yt = y + 4.0f;
+            boreBox(b, a0, a1, -hw2, hw2, yb, yt, T_METAL, rgb(196, 198, 200), true, ALL);                               // body
+            boreBox(b, a0 + 0.2f, a1 - 0.2f, -hw2 - 0.02f, hw2 + 0.02f, y + 2.05f, y + 2.25f, T_PLAIN, rgb(220, 110, 40), false, ALL);   // band
+            boreBox(b, a0 + 0.2f, a1 - 0.2f, -hw2 - 0.02f, hw2 + 0.02f, y + 2.25f, y + 2.4f, T_PLAIN, rgb(40, 120, 70), false, ALL);
+            boreBox(b, a0 + 0.6f, a1 - 0.6f, -hw2 - 0.03f, hw2 + 0.03f, y + 2.55f, y + 3.35f, T_GLASS, rgb(60, 70, 80), false, ALL);    // windows
+            for (int d = 0; d < 4; d++) { float da = a0 + 2.4f + d * 4.6f;                                             // doors
+                boreBox(b, da, da + 1.3f, -hw2 - 0.04f, hw2 + 0.04f, yb + 0.05f, y + 3.45f, T_METAL, rgb(170, 172, 175), false, ALL); }
+            boreBox(b, a0 + 0.3f, a1 - 0.3f, -hw2 + 0.1f, hw2 - 0.1f, yt, yt + 0.25f, T_METAL, rgb(130, 132, 135), false, ALLB);   // roof
+            for (int g = 0; g < 2; g++) { float ga = g ? a1 - 4.2f : a0 + 1.6f;                                           // bogies on the rails
+                boreBox(b, ga, ga + 2.6f, -1.2f, 1.2f, y + 0.34f, yb, T_METAL, rgb(45, 45, 48), true, ALL); }
+            if (k == 0) { boreBox(b, a0 - 0.05f, a0, -0.9f, -0.3f, y + 1.6f, y + 1.9f, T_PLAIN, rgb(255, 240, 200), false, ALL);   // dead headlights, a destination board
+                boreBox(b, a0 - 0.05f, a0, 0.3f, 0.9f, y + 1.6f, y + 1.9f, T_PLAIN, rgb(255, 240, 200), false, ALL);
+                boreBox(b, a0 - 0.05f, a0, -0.7f, 0.7f, y + 3.45f, y + 3.85f, T_PLAIN, rgb(20, 20, 24), false, ALL); }
+            Vector3 tq = boreAt(b, a0 + 8 + k * 3, (k ? -1 : 1) * (hw2 + 0.9f), y); addCont(CK_TRUNK, tq, 0, 0, false);   // luggage left beside the cars
+        }
+        for (float a = 30; a < L - 8; a += 45) { Vector3 cp = boreAt(b, a, (ri(2) ? 1 : -1) * (W / 2 - 0.3f), y + 0.45f); addCont(CK_FIRECAB, cp, b->dir < 2 ? (cp.z > b->pz ? PI : 0) : (cp.x > b->px ? -PI / 2 : PI / 2), 0, true); }
+    } else if (!old) {
         boreBox(b, 0, L + 6, -W / 2, -W / 2 + 0.9f, y, y + 0.22f, T_SIDEWALK, rgb(170, 170, 165), true, ALL);
         boreBox(b, 0, L + 6, W / 2 - 0.9f, W / 2, y, y + 0.22f, T_SIDEWALK, rgb(170, 170, 165), true, ALL);
         for (float a = 1; a < L; a += 6) boreBox(b, a, a + 3, -0.08f, 0.08f, y, y + 0.012f, T_PLAIN, rgb(230, 230, 220), false, 16);
@@ -518,7 +565,11 @@ static void buildBore(Bore *b) {
         for (int k = 0; k < 3; k++) { float a = fr(14, L - 14), l = (ri(2) ? 1 : -1) * 1.9f; Vector3 q = boreAt(b, a, l, 0); car(q.x, q.z, b->dir >= 2);
             if (fr(0, 1) < 0.6f) { Vector3 tq = boreAt(b, a + 2.6f, l, y); addCont(CK_TRUNK, tq, 0, 0, false); } }
     } else {
-        for (float a = D + 2; a < L; a += 3.5f) boreBox(b, a, a + 0.5f, -W / 2, W / 2, y + H - 0.25f, y + H, T_BLOCKWALL, rgb(100, 55, 45), false, ALLB);   // arch ribs
+        for (float a = D + 2; a < L; a += 3.5f) { boreBox(b, a, a + 0.5f, -W / 2, W / 2, y + H - 0.3f, y + H, T_BRICK, rgb(200, 185, 175), false, ALLB);   // brick arch ribs
+            boreBox(b, a, a + 0.5f, -W / 2, -W / 2 + 0.35f, y, y + H, T_BRICK, rgb(200, 185, 175), false, ALLB); boreBox(b, a, a + 0.5f, W / 2 - 0.35f, W / 2, y, y + H, T_BRICK, rgb(200, 185, 175), false, ALLB);
+            boreBox(b, a, a + 0.5f, -W / 2 + 0.35f, -W / 2 + 0.9f, y + H - 0.9f, y + H - 0.3f, T_BRICK, rgb(200, 185, 175), false, ALLB); boreBox(b, a, a + 0.5f, W / 2 - 0.9f, W / 2 - 0.35f, y + H - 0.9f, y + H - 0.3f, T_BRICK, rgb(200, 185, 175), false, ALLB); }
+        boreBox(b, D, L + 6, -W / 2 + 0.35f, -W / 2 + 0.55f, y + H - 0.6f, y + H - 0.3f, T_BRICK, rgb(190, 175, 165), false, ALLB);   // haunches: the vault reads as curved
+        boreBox(b, D, L + 6, W / 2 - 0.55f, W / 2 - 0.35f, y + H - 0.6f, y + H - 0.3f, T_BRICK, rgb(190, 175, 165), false, ALLB);
         // the seal: concrete blocks two rows high; a gap in the top row lets you climb over
         float sa = D + 1.0f;
         for (float l = -W / 2; l < W / 2 - 0.01f; l += 1.0f) boreBox(b, sa, sa + 1.0f, l, l + 0.98f, y, y + 1.0f, T_CONCRETE, rgb(190, 188, 180), true, ALL);
@@ -836,9 +887,9 @@ static void genLayoutWorld(void) {
     }
 }
 static void spawnTunnels(void) {
-    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; int n = br->kind ? 2 : 3;
+    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; int n = br->kind == 1 ? 2 : 3;
         for (int k = 0; k < n; k++) { float a = fr(boreDepth(br) + 10, br->len - 8); Vector3 p = boreAt(br, a, fr(-1.5f, 1.5f), br->fy);
-            int t = br->kind ? (k == 0 ? 8 : 5) : (ri(3) == 0 ? 2 : ri(2) ? 0 : 5); spawnAt(p, t, false); } }
+            int t = br->kind == 1 ? (k == 0 ? 8 : 5) : (ri(3) == 0 ? 2 : ri(2) ? 0 : 5); spawnAt(p, t, false); } }
 }
 
 // ---------------------------------------------------------------- plaza blocks (the avenue cuts through them)

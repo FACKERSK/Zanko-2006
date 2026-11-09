@@ -84,7 +84,7 @@ static void applyBuild(int i, Build b) {
     Build *L = &builds[i]; int sid = (i < nBuild) ? L->sid : -1;
     *L = b; L->sid = sid; if (i >= nBuild) nBuild = i + 1;
     bool solid = b.kind != BK_SHRINE && b.kind != BK_WARD && b.kind != BK_GARDEN && b.kind != BK_SPIKES && b.kind != BK_ALARM;
-    if (solid && L->sid < 0 && b.alive) L->sid = addSolidF(b.mn, b.mx, 0);
+    if (solid && L->sid < 0 && b.alive) buildAddSolid(L);
     if (L->sid >= 0) sol[L->sid].off = !b.alive || (b.kind == BK_DOOR && b.open);
     buildS[i] = *L; buildS[i].sid = 0; if (nBuild > nBuildS) nBuildS = nBuild;
 }

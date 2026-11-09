@@ -93,9 +93,9 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     Vector3 f = aim, r = Vector3Normalize(Vector3CrossProduct(f, V3(0, 1, 0))), u = Vector3CrossProduct(r, f);
     Matrix B = {r.x, u.x, -f.x, eye.x, r.y, u.y, -f.y, eye.y, r.z, u.z, -f.z, eye.z, 0, 0, 0, 1};
     float t = (float)GetTime();
-    float bx = sinf(pl.bob) * 0.012f * (1 + pl.sprintK), by = fabsf(cosf(pl.bob)) * 0.012f * (1 + pl.sprintK * 1.5f);
+    float bx = sinf(pl.bob) * 0.012f * (1 + pl.sprintK) * gs.bob, by = fabsf(cosf(pl.bob)) * 0.012f * (1 + pl.sprintK * 1.5f) * gs.bob;
     float br = sinf(t * 1.6f) * 0.004f;   // breathing
-    Vector3 sway = V3(pl.swayX, pl.swayY - pl.landK * 0.09f + br, 0);
+    Vector3 sway = V3(pl.swayX * gs.sway, (pl.swayY - pl.landK * 0.09f) * gs.sway + br, 0);
     rlDrawRenderBatchActive();
     glClear(0x00000100);   // depth only: the hands never sink into walls, but sort correctly among themselves
     setEmis(0);
@@ -331,6 +331,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         L.p = Vector3Add(L.p, V3(-0.02f * k, -0.07f * k + cosf(pl.bob * 2) * 0.02f * k, 0.04f * k));
     }
     R.p = Vector3Add(R.p, Vector3Add(sway, V3(bx, by, 0))); L.p = Vector3Add(L.p, Vector3Add(sway, V3(bx * 0.8f, by, 0)));
+    if (gs.centered && (gun || melee) && A != ANIM_TURNGUN) { R.p.x -= 0.1f; R.p.y += 0.02f; }   // weapon in the middle of the view
     R.r.z += pl.swayX * 1.5f; L.r.z += pl.swayX * 1.5f;
     R.r.z -= vmRoll * 0.09f; L.r.z -= vmRoll * 0.09f; R.p.x -= vmRoll * 0.008f; L.p.x -= vmRoll * 0.008f;   // lean into a strafe
     R.p.z += vmPushZ * 0.05f; L.p.z += vmPushZ * 0.05f;   // inertia when you start or stop

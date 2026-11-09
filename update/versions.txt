@@ -1,4 +1,5 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.8.2|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.2.zip|2026-11-09|Settings, tunnels, trains
 0.8.1|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.1.zip|2026-11-09|Sounds
 0.8.0|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.8.0.zip|2026-11-09|Multiplayer, new revolver, controls
 0.7.2|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.7.2.zip|2026-11-03|Streets lined with houses

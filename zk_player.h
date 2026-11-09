@@ -93,8 +93,8 @@ static void impactFX(Cr *c, float heavy, bool kill, Vector3 dir) {
     }
     for (int s = 0; s < 2 + (int)(heavy * 2); s++) addSplat(V3(c->pos.x + dir.x * fr(0.3f, 1.8f) + fr(-0.3f, 0.3f), c->pos.y + 0.02f, c->pos.z + dir.z * fr(0.3f, 1.8f) + fr(-0.3f, 0.3f)), fr(0.25f, 0.6f) + heavy * 0.25f);
     if (kill) addSplat(V3(c->pos.x, c->pos.y + 0.021f, c->pos.z), 1.0f + heavy * 0.5f);
-    if (audioOk) { SetSoundPitch(sImpact, 1.1f - heavy * 0.35f + fr(-0.05f, 0.05f)); SetSoundVolume(sImpact, 1.0f); PlaySound(sImpact);
-        SetSoundPitch(sBone, fr(0.85f, 1.05f) - heavy * 0.15f); SetSoundVolume(sBone, kill ? 1.0f : 0.55f); PlaySound(sBone); }
+    if (audioOk) { SetSoundPitch(sImpact, 1.1f - heavy * 0.35f + fr(-0.05f, 0.05f)); SetSoundVolume(sImpact, gs.sfx); PlaySound(sImpact);
+        SetSoundPitch(sBone, fr(0.85f, 1.05f) - heavy * 0.15f); SetSoundVolume(sBone, (kill ? 1.0f : 0.55f) * gs.sfx); PlaySound(sBone); }
     play(sSplat, 0.75f);
 }
 static void meleeHit(Vector3 eye, Vector3 aim) {
@@ -250,13 +250,25 @@ static const char *bkCostText(int k) {
     if (bkHammer[k]) strncat(b, " (hammer)", sizeof b - strlen(b) - 1);
     return b;
 }
+static float bkRot = 0, bkYaw = 0;   // mouse-wheel rotation (degrees) on top of the automatic alignment; the ghost's final yaw (radians)
+static float bkAlignYaw(void) {   // inside or beside a turned building, line up with its walls
+    query(pl.pos.x - 4, pl.pos.z - 4, pl.pos.x + 4, pl.pos.z + 4);
+    for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->f) return xfYaw(s->f); }
+    return 0;
+}
+static void buildAddSolid(Build *b) {   // the piece's collision box, turned with it
+    float yw = buildYaw(b); int f = 0; if (yw != 0) { Vector3 c = buildC(b); f = newXf(c.x, c.z, yw); }
+    b->sid = addSolidF(b->mn, b->mx, f);
+}
 static bool buildGhost(Vector3 *mn, Vector3 *mx) {
     int K = pl.buildKind;
     Vector3 f = Vector3Normalize(V3(sinf(pl.tyaw), 0, cosf(pl.tyaw)));
+    {   float al = bkAlignYaw(), rel = wrapA(pl.tyaw - al); float q = roundf(rel / (PI / 2)) * (PI / 2);
+        bkYaw = wrapA(al + q + bkRot * DEG2RAD); }
     Vector3 c = Vector3Add(pl.pos, Vector3Scale(f, (K == BK_WALL || K == BK_DOOR || K == BK_FLOOR) ? 1.9f : 1.4f));
     c.x = roundf(c.x * 2) / 2; c.z = roundf(c.z * 2) / 2;
     float g = K == BK_FLOOR ? pl.pos.y : groundAt(V3(c.x, pl.pos.y + 0.6f, c.z), 0.3f, 0.6f);
-    bool ax = fabsf(f.x) > fabsf(f.z);
+    bool ax = false;   // the box is laid out facing +z, then turned by bkYaw
     switch (K) {
     case BK_WALL: case BK_DOOR:
         if (ax) { *mn = V3(c.x - 0.1f, g, c.z - 1.0f); *mx = V3(c.x + 0.1f, g + 2.4f, c.z + 1.0f); } else { *mn = V3(c.x - 1.0f, g, c.z - 0.1f); *mx = V3(c.x + 1.0f, g + 2.4f, c.z + 0.1f); } break;
@@ -276,17 +288,22 @@ static bool buildGhost(Vector3 *mn, Vector3 *mx) {
         Vector3 sc = builds[baseShrine].mn; if (Vector3Distance(V3(sc.x, 0, sc.z), V3(c.x, 0, c.z)) > BASE_R) return false;
     }
     if (K == BK_FIRE || K == BK_WARD || K == BK_SPIKES || K == BK_ALARM) return true;
+    Vector3 lmn = *mn, lmx = *mx;   // test the turned box by its world bounds
+    {   float cx = (mn->x + mx->x) / 2, cz = (mn->z + mx->z) / 2, hx = (mx->x - mn->x) / 2, hz = (mx->z - mn->z) / 2, c = fabsf(cosf(bkYaw)), s2 = fabsf(sinf(bkYaw));
+        float ex = hx * c + hz * s2, ez = hx * s2 + hz * c; *mn = V3(cx - ex, mn->y, cz - ez); *mx = V3(cx + ex, mx->y, cz + ez); }
+    bool okk = true;
     query(mn->x, mn->z, mx->x, mx->z);
     for (int k = 0; k < qn; k++) {
         Solid *s = &sol[qb[k]];
         if (s->mx.y <= mn->y + 0.05f || s->mn.y >= mx->y) continue;
         float a0 = mn->x, a1 = mx->x, b0 = mn->z, b1 = mx->z;
         if (s->f) { a0 = b0 = 1e9f; a1 = b1 = -1e9f; for (int q = 0; q < 4; q++) { Vector3 L = solL(s, V3(q & 1 ? mx->x : mn->x, 0, q & 2 ? mx->z : mn->z)); a0 = fminf(a0, L.x); a1 = fmaxf(a1, L.x); b0 = fminf(b0, L.z); b1 = fmaxf(b1, L.z); } }
-        if (a0 < s->mx.x && a1 > s->mn.x && b0 < s->mx.z && b1 > s->mn.z) return false;
+        if (a0 < s->mx.x && a1 > s->mn.x && b0 < s->mx.z && b1 > s->mn.z) { okk = false; break; }
     }
     float pr = 0.35f;
-    if (K != BK_FLOOR && pl.pos.x + pr > mn->x && pl.pos.x - pr < mx->x && pl.pos.z + pr > mn->z && pl.pos.z - pr < mx->z) return false;
-    return true;
+    if (okk && K != BK_FLOOR && pl.pos.x + pr > mn->x && pl.pos.x - pr < mx->x && pl.pos.z + pr > mn->z && pl.pos.z - pr < mx->z) okk = false;
+    *mn = lmn; *mx = lmx;
+    return okk;
 }
 static void placeBuild(void) {
     int K = pl.buildKind; Vector3 mn, mx;
@@ -313,14 +330,20 @@ static void placeBuild(void) {
     if (bi < 0) { if (nBuild >= MAX_BUILD) { say("Too many structures."); return; } bi = nBuild++; }
     Build *b = &builds[bi]; memset(b, 0, sizeof *b);
     b->mn = mn; b->mx = mx; b->kind = K; b->alive = true; b->cont = -1; b->sid = -1;
-    b->axis = (mx.x - mn.x) < (mx.z - mn.z) ? 1 : 0;
+    {   int deg = ((int)lroundf(bkYaw * RAD2DEG) % 360 + 360) % 360;
+        if (deg % 90 == 0) {   // square to the world: keep a plain world box
+            if (deg % 180 == 90) { float cx = (mn.x + mx.x) / 2, cz = (mn.z + mx.z) / 2, hx = (mx.x - mn.x) / 2, hz = (mx.z - mn.z) / 2;
+                b->mn = V3(cx - hz, mn.y, cz - hx); b->mx = V3(cx + hz, mx.y, cz + hx); }
+            b->axis = (b->mx.x - b->mn.x) < (b->mx.z - b->mn.z) ? 1 : 0;
+        } else b->axis = 1000 + deg; }
+    mn = b->mn; mx = b->mx;
     float carp = 1 + 0.12f * skLvl(SK_CARP);
     b->maxhp = b->hp = (K == BK_WALL ? 10 : K == BK_DOOR ? 9 : K == BK_FLOOR ? 12 : 6) * carp;
     if (K == BK_GARDEN) { b->hp = 0; b->maxhp = 36; b->open = true; say("Daikon planted. Ready to harvest in about a day and a half."); }   // hp = hours grown, open = planted
     if (K == BK_SPIKES) { b->hp = b->maxhp = 6; say("Spike trap set. Six bites before it needs rebuilding."); }
     if (K == BK_ALARM) { b->hp = b->maxhp = 1; say("Can alarm strung. It rattles when something walks into it."); }
-    if (K != BK_SHRINE && K != BK_WARD && K != BK_GARDEN && K != BK_SPIKES && K != BK_ALARM) b->sid = addSolid(mn, mx);
-    if (K == BK_CHEST) { b->cont = addCont(CK_CHEST, V3(c.x, mn.y, c.z), b->axis ? PI / 2 : 0, 0, false); }
+    if (K != BK_SHRINE && K != BK_WARD && K != BK_GARDEN && K != BK_SPIKES && K != BK_ALARM) buildAddSolid(b);
+    if (K == BK_CHEST) { b->cont = addCont(CK_CHEST, V3(c.x, mn.y, c.z), b->axis >= 1000 ? buildYaw(b) : b->axis ? PI / 2 : 0, 0, false); }
     if (K == BK_SHRINE) { baseShrine = bi; addWard(V3(c.x, mn.y, c.z), 11.0f, 0, 1); say("Kamidana raised. Spirits cannot come within 11 m of it; spirit wards extend the base (22 m)."); }
     if (K == BK_WARD) { addWard(V3(c.x, mn.y, c.z), WARD_R, 0, 1); say("Spirit ward hung. Spirits cannot enter its circle."); }
     if (K == BK_DOOR) say("Door wall built. [E] opens and closes it.");
@@ -449,8 +472,8 @@ static void updatePlayer(float dt) {
       static float lastFwd = 0; float fw = clampf(am.y, -1, 1); if (fabsf(fw - lastFwd) > 0.5f) vmPushV += (fw - lastFwd) * 0.35f; lastFwd = fw; }   // start / stop: the hands lag
     bool moving = Vector3Length(mv) > 0.1f;
     if (moving) { float ml = Vector3Length(mv); mv = Vector3Scale(mv, (ml > 1 ? 1 : ml < 0.45f ? 0.45f : ml) / ml); }   // a half-tilted stick walks slower
-    bool sneak = actD(A_CROUCH);
-    bool sprint = actD(A_SPRINT) && moving && !pl.exhausted && pl.stam > 0 && !pl.invOpen && pl.fracture == 0 && !pl.blocking;
+    bool sneak = actHeld(A_CROUCH);
+    bool sprint = actHeld(A_SPRINT) && moving && !pl.exhausted && pl.stam > 0 && !pl.invOpen && pl.fracture == 0 && !pl.blocking;
     float spd = (sprint ? 6.6f : sneak ? 1.7f : 3.8f) * encSpeed() * cht.speed;
     if (pl.swingT > 0) spd *= 1.0f - 0.45f * clampf(weaponDef()->weight / 5.0f, 0.15f, 1);
     if (pl.stage >= 2) spd *= 0.9f;
@@ -584,8 +607,11 @@ static void updatePlayer(float dt) {
         else if (!inBed && !(pl.roof && pl.nearFire)) say("Sleep needs a bed, or a roof and a fire.");
         else { pl.sleeping = true; say("You close your eyes. [Z] to wake."); play(sSigh, 0.55f); }
     }
-    if (actP(A_BUILD)) { pl.build = !pl.build; if (pl.build) { say(TextFormat("Build mode: %s place, wheel / %s choose, %s exit", actKey(A_ATTACK), actKey(A_RELOAD), actKey(A_BUILD))); showHint(11); } }
-    if (pl.build) { float w = MWheel(); if (w > 0 || actP(A_RELOAD)) pl.buildKind = (pl.buildKind + 1) % BK_N; if (w < 0) pl.buildKind = (pl.buildKind + BK_N - 1) % BK_N; }
+    if (actP(A_BUILD)) { pl.build = !pl.build; if (pl.build) { say(TextFormat("Build mode: %s place, wheel turns, %s next piece, %s exit", actKey(A_ATTACK), actKey(A_RELOAD), actKey(A_BUILD))); bkRot = 0; showHint(11); } }
+    if (pl.build) {   // wheel turns the piece (15 degree steps, hold Shift for 5), reload picks the next piece
+        float w = MWheel(); float step = IsKeyDown(KEY_LEFT_SHIFT) ? 5.0f : 15.0f;
+        if (w > 0 || padP(GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) bkRot = fmodf(bkRot + step, 360); if (w < 0 || padP(GAMEPAD_BUTTON_LEFT_FACE_LEFT)) bkRot = fmodf(bkRot - step + 360, 360);
+        if (actP(A_RELOAD)) pl.buildKind = (pl.buildKind + 1) % BK_N; if (padP(GAMEPAD_BUTTON_LEFT_FACE_DOWN)) pl.buildKind = (pl.buildKind + BK_N - 1) % BK_N; }
     // ---- attack / build
     pl.swingCd -= dt; pl.shootCd -= dt; pl.kick = fmaxf(0, pl.kick - dt * 6); pl.muzzle -= dt;
     if (pl.swingT > 0) {
@@ -606,7 +632,7 @@ static void updatePlayer(float dt) {
         if (pl.weapon == 0 && pl.swingCd <= 0 && pl.stam > 6) {
             const ItemDef *w = weaponDef();
             pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; pl.stam -= w->stam * (1 - 0.07f * skLvl(SK_FIT)) * encStam();
-            if (audioOk) { SetSoundPitch(sSwing, 1.25f - clampf(w->weight / 5.0f, 0, 0.6f)); SetSoundVolume(sSwing, 0.6f); PlaySound(sSwing); } netSwingN++;
+            if (audioOk) { SetSoundPitch(sSwing, 1.25f - clampf(w->weight / 5.0f, 0, 0.6f)); SetSoundVolume(sSwing, 0.6f * gs.sfx); PlaySound(sSwing); } netSwingN++;
         } else if (pl.weapon == 1 && pl.shootCd <= 0 && pl.reloadT <= 0 && actP(A_ATTACK)) {
             if (pl.mag > 0) {
                 pl.mag--; revShotT = 0; netShotN++; pl.shootCd = 0.45f; pl.kick = 1; pl.muzzle = 0.07f; pl.tpitch += 0.05f; pl.shake = 0.2f; pl.punch = 0.5f;
@@ -614,7 +640,7 @@ static void updatePlayer(float dt) {
             } else { play(sClick, 0.7f); revShotT = 0; pl.shootCd = 0.3f; }
         }
     }
-    if (actP(A_RELOAD) && !pl.build && pl.weapon == 1 && pl.mag < 6 && invHas(IT_AMMO) && pl.reloadT <= 0) { pl.reloadT = REV_RELOAD; animPlay(ANIM_RELOAD); }
+    if ((actP(A_RELOAD) || (gs.autoReload && pl.mag == 0 && pl.shootCd <= 0 && !animBusy())) && !pl.build && pl.weapon == 1 && pl.mag < 6 && invHas(IT_AMMO) && pl.reloadT <= 0) { pl.reloadT = REV_RELOAD; animPlay(ANIM_RELOAD); }
     goto survival;
 survival_ui:
     pl.swingT = fmaxf(0, pl.swingT - dt);

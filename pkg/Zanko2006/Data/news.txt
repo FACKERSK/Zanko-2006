@@ -1,5 +1,29 @@
-ZANKO 2006 - Afterglow  (v0.8.1, Sounds)
+ZANKO 2006 - Afterglow  (v0.8.2, Settings and tunnels)
 
+- 0.8.2: settings, the old tunnel, trains.
+  * Settings has tabs: Video, Audio, Gameplay, Controls and
+    Accessibility.
+  * Video: VSync, frame rate limit (30 to 240 or unlimited),
+    sharp or smooth upscaling, PS1 vertex wobble on/off,
+    brightness, fog, FPS counter.
+  * Audio: separate effects, ambience and interface volumes;
+    mute when the window loses focus.
+  * Gameplay: view bob, weapon sway, camera shake, hold or
+    toggle sprint and sneak, crosshair style and colour, hit
+    markers, tutorial hints, auto-reload, centred weapon,
+    pause when the window loses focus, insanity events on/off.
+  * Controls: invert mouse Y; key bindings from here.
+  * Accessibility: reduce flashing, damage overlay strength,
+    insanity colour filter strength.
+  * The old tunnel at the top of the pass is cut into the
+    mountain: the road runs straight in through a rock cutting
+    to a brick portal; inside it is brick-lined with brick ribs.
+  * The railway tunnels have track, sleepers and walkways
+    instead of road, and a commuter train stopped inside where
+    the power died. No more cars on the rails.
+  * Building: the mouse wheel turns the piece (15 degree steps,
+    hold Shift for 5); R picks the next piece. Inside or next to
+    a turned building the piece lines up with its walls first.
 - 0.8.1: sounds.
   * Revolver: the hammer cocks on the draw and after every shot;
     the reload is heard step by step (crane out, empties

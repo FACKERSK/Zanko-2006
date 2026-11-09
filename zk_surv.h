@@ -43,7 +43,7 @@ static const char *hintTxt[HINT_N] = {
     "Build a Kamidana to claim a base. Garden beds grow daikon. Spike traps and can alarms guard the edges."};
 static int hintQ[8], hintN; static float hintT;
 static void showHint(int id) {
-    if (id < 0 || id >= HINT_N || (prof.hints & (1u << id))) return;
+    if (!gs.hints || id < 0 || id >= HINT_N || (prof.hints & (1u << id))) return;
     prof.hints |= 1u << id; profSave();
     if (hintN < 8) hintQ[hintN++] = id;
 }
@@ -382,7 +382,7 @@ static bool loadGame(void) {
     for (int i = 0; i < nVend; i++) if (vends[i].broken && vends[i].light >= 0) lights[vends[i].light].mode = 2;
     for (int i = 0; i < nOps; i++) if (ops[i].state == 2) ops[i].bsid = addSolidF(ops[i].mn, ops[i].mx, ops[i].f); else ops[i].bsid = -1;
     for (int i = 0; i < nBuild; i++) { Build *b = &builds[i]; b->sid = -1;
-        if (b->alive && b->kind != BK_SHRINE && b->kind != BK_WARD && b->kind != BK_GARDEN && b->kind != BK_SPIKES && b->kind != BK_ALARM) { b->sid = addSolid(b->mn, b->mx); if (b->kind == BK_DOOR && b->open) sol[b->sid].off = true; } }
+        if (b->alive && b->kind != BK_SHRINE && b->kind != BK_WARD && b->kind != BK_GARDEN && b->kind != BK_SPIKES && b->kind != BK_ALARM) { buildAddSolid(b); if (b->sid >= 0 && b->kind == BK_DOOR && b->open) sol[b->sid].off = true; } }
     for (int i = 0; i < nFire; i++) fires[i].light = fires[i].on ? addLight(V3(fires[i].pos.x, fires[i].pos.y + 0.8f, fires[i].pos.z), V3(1.0f, 0.55f, 0.2f), 10, 1) : -1;
     pl.invOpen = pl.mapOpen = pl.sleeping = pl.build = false; pl.watchT = 0; pl.climbT = 0; pl.swingT = 0; pl.hitStopT = 0; pl.searchC = -1; pl.openC = -1; pl.dragFrom = -1; pl.drag.t = -1;
     gameActive = true; evacOn = evacOn && evacT > 0;
