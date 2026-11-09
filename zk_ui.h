@@ -328,7 +328,7 @@ static void drawHUD(Vector2 cross, float t) {
         float bh = BK_N * 26 + 92;
         Rectangle bp = HUDP(10, Wr / 2 - mg - 143 * f, 360 - mg - (104 + 14 + bh / 2) * f, 286, bh);
         aGadget(bp);
-        aText("Build  (wheel / R choose, LMB place, B exit)", bp.x + 16 * s, bp.y + 14 * s, 11, C_CYAN, false);
+        aText(TextFormat("Build  (%s next piece, wheel turns %.0f deg, %s place, %s exit)", actKey(A_RELOAD), bkRot, actKey(A_ATTACK), actKey(A_BUILD)), bp.x + 16 * s, bp.y + 14 * s, 11, C_CYAN, false);
         for (int k = 0; k < BK_N; k++) {
             float yy = bp.y + 36 * s + k * 26 * s;
             bool sel = k == pl.buildKind, ok = bkAfford(k) && (!bkHammer[k] || invHas(IT_HAMMER));
@@ -348,7 +348,7 @@ static void drawHUD(Vector2 cross, float t) {
         p3End(12); p3Fit(12, 12 * s);
     }
     {   // who and where
-        const char *where = pl.pos.y < -40 ? "Subway" : inBore(pl.pos.x, pl.pos.z, pl.pos.y) ? (bores[inBore(pl.pos.x, pl.pos.z, pl.pos.y) - 1].kind ? "Old tunnel" : "Road tunnel") : touge_d(pl.pos.x, pl.pos.z) < 40 ? "The mountain pass" : coast_d(pl.pos.x, pl.pos.z) < 30 && !cityLand(pl.pos.x, pl.pos.z) ? "Coast road" : wk > 0.3f ? "The hills" : "Nanashi no Gonbei";
+        const char *where = pl.pos.y < -40 ? "Subway" : inBore(pl.pos.x, pl.pos.z, pl.pos.y) ? (bores[inBore(pl.pos.x, pl.pos.z, pl.pos.y) - 1].kind == 1 ? "Old tunnel" : bores[inBore(pl.pos.x, pl.pos.z, pl.pos.y) - 1].kind == 2 ? "Railway tunnel" : "Road tunnel") : touge_d(pl.pos.x, pl.pos.z) < 40 ? "The mountain pass" : coast_d(pl.pos.x, pl.pos.z) < 30 && !cityLand(pl.pos.x, pl.pos.z) ? "Coast road" : wk > 0.3f ? "The hills" : "Nanashi no Gonbei";
         Rectangle np = HUDP(13, -Wr / 2 + mg + 130 * f, -360 + mg * 0.7f + 30 * f, 260, 60);
         aGadget(np);
         aText(prof.name, np.x + 16 * s, np.y + 11 * s, 15, (Color){236, 230, 216, 255}, false);
@@ -390,16 +390,18 @@ static void drawHUD(Vector2 cross, float t) {
     aLayerEnd(1);
     // ---- crosshair (GoldenEye-style: moves, view lags behind): the only signal-cyan in view
     float cs = 9 * s, gp = 4 * s + (pl.swingT > 0 ? 3 * s : 0);
-    Color cc = (Color){111, 214, 208, 230};
+    Color cc = crossCols[gs.crossCol < 0 || gs.crossCol > 4 ? 0 : gs.crossCol];
     for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state != CS_DEAD) {
         Vector3 d = Vector3Subtract(crCenter(&crs[i]), cam.position); float dist = Vector3Length(d);
         if (dist < 30 && Vector3DotProduct(Vector3Scale(d, 1 / dist), dirOf(pl.tyaw, pl.tpitch)) > 0.995f) cc = (Color){200, 50, 40, 240};
     }
     if (pl.hitStopT > 0) { cc = (Color){255, 240, 230, 255}; gp *= 0.5f; }
     int px = (int)fmaxf(2, roundf(2 * s));
+    if (gs.crossStyle == 0 || gs.crossStyle == 2) {
     DrawRectangle((int)(cross.x - cs - gp), (int)(cross.y - px / 2), (int)cs, px, cc); DrawRectangle((int)(cross.x + gp), (int)(cross.y - px / 2), (int)cs, px, cc);
-    DrawRectangle((int)(cross.x - px / 2), (int)(cross.y - cs - gp), px, (int)cs, cc); DrawRectangle((int)(cross.x - px / 2), (int)(cross.y + gp), px, (int)cs, cc);
-    if (hitMarkT > 0) {   // hit marker: four ticks that pop out and fade; white body, yellow head, red kill
+    DrawRectangle((int)(cross.x - px / 2), (int)(cross.y - cs - gp), px, (int)cs, cc); DrawRectangle((int)(cross.x - px / 2), (int)(cross.y + gp), px, (int)cs, cc); }
+    if (gs.crossStyle == 1 || gs.crossStyle == 2) { int d = px + (int)fmaxf(1, s); DrawRectangle((int)(cross.x - d / 2), (int)(cross.y - d / 2), d, d, cc); }
+    if (hitMarkT > 0 && gs.hitMarks) {   // hit marker: four ticks that pop out and fade; white body, yellow head, red kill
         float life = hitMarkKind == 2 ? 0.42f : 0.28f, k = clampf(hitMarkT / life, 0, 1), pop = 1 + 0.6f * powf(k, 6);
         Color hc = hitMarkKind == 2 ? (Color){235, 50, 40, 255} : hitMarkKind == 1 ? (Color){255, 214, 90, 255} : (Color){245, 245, 240, 255}; hc.a = (unsigned char)(255 * fminf(1, k * 1.6f));
         float r0 = (6 + (hitMarkKind == 2 ? 2 : 0)) * s * pop, r1 = r0 + (hitMarkKind == 2 ? 10 : 7) * s, th = (hitMarkKind == 2 ? 3.0f : 2.2f) * s;
@@ -407,9 +409,9 @@ static void drawHUD(Vector2 cross, float t) {
             DrawLineEx((Vector2){cross.x + ax * d * r0, cross.y + ay * d * r0}, (Vector2){cross.x + ax * d * r1, cross.y + ay * d * r1}, th, hc); }
     }
     // ---- impact flash: one bright frame, then a red after-image
-    if (pl.hitFlash > 0) { float k = pl.hitFlash; DrawRectangle(0, 0, (int)W, (int)H, k > 0.06f ? (Color){255, 245, 235, 70} : (Color){150, 20, 10, (unsigned char)(90 * k / 0.06f)}); }
+    if (pl.hitFlash > 0 && !(gs.reduceFlash && pl.hitFlash > 0.06f)) { float k = pl.hitFlash; DrawRectangle(0, 0, (int)W, (int)H, k > 0.06f ? (Color){255, 245, 235, 70} : (Color){150, 20, 10, (unsigned char)(90 * k / 0.06f)}); }
     // ---- damage flash
-    if (pl.hurtT > 0) DrawRectangle(0, 0, (int)W, (int)H, (Color){120, 10, 8, (unsigned char)(130 * clampf(pl.hurtT / 0.6f, 0, 1))});
+    if (pl.hurtT > 0) DrawRectangle(0, 0, (int)W, (int)H, (Color){120, 10, 8, (unsigned char)(130 * clampf(pl.hurtT / 0.6f, 0, 1) * gs.dmgOverlay)});
     if (pl.invOpen) drawInventory();
     if (pl.mapOpen) drawMap(W, H);
 }

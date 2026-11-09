@@ -30,7 +30,7 @@ static bool lineOfSight(Vector3 a, Vector3 b) {
     return true;
 }
 static float stingCd = 0;
-static void sting(Vector3 p) { if (stingCd <= 0 && audioOk) { SetSoundVolume(sStinger, 0.75f); SetSoundPitch(sStinger, fr(0.9f, 1.1f)); PlaySound(sStinger); stingCd = 9; } (void)p; }
+static void sting(Vector3 p) { if (stingCd <= 0 && audioOk) { SetSoundVolume(sStinger, 0.75f * gs.sfx); SetSoundPitch(sStinger, fr(0.9f, 1.1f)); PlaySound(sStinger); stingCd = 9; } (void)p; }
 static int crDamageOf(int type) { switch (type) { case 1: return 18; case 2: return 7; case 3: return 9; case 5: return 22; case 6: return 14; case 7: return 15; case 8: return 12; case 9: return 26; default: return 11; } }
 static float crBleedOf(int type) { switch (type) { case 2: return 0.6f; case 3: return 0.7f; case 5: return 0.6f; case 8: return 0.7f; case 6: return 0.3f; default: return 0.45f; } }
 static float crSightOf(int type) { switch (type) { case 3: return 22; case 5: return 34; case 6: return 20; case 9: return 18; case 7: return 14; default: return 16; } }
@@ -97,7 +97,7 @@ static void updateCreatures(float dt, Vector3 aim) {
     int aliveTop = 0, spirits = 0, stalkers = 0, chasing = 0;
     stingCd -= dt;
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
-    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actD(A_CROUCH) ? 0.55f : 1.0f);
+    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actHeld(A_CROUCH) ? 0.55f : 1.0f);
     for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0) { wards[w].life -= dt; if (wards[w].life <= 0) wards[w].on = false; }
     for (int i = 0; i < nCr; i++) {
         Cr *c = &crs[i]; if (!c->on) continue;
@@ -277,9 +277,9 @@ static void updateCreatures(float dt, Vector3 aim) {
         c->groanT -= dt;
         if (c->groanT <= 0) {
             c->groanT = fr(5, 13);
-            if (c->type == 5 || c->type == 7) { if (dist < 12 && audioOk && !IsSoundPlaying(sBreath)) { SetSoundVolume(sBreath, 0.6f * (1 - dist / 12)); PlaySound(sBreath); } }
+            if (c->type == 5 || c->type == 7) { if (dist < 12 && audioOk && !IsSoundPlaying(sBreath)) { SetSoundVolume(sBreath, 0.6f * (1 - dist / 12) * gs.sfx); PlaySound(sBreath); } }
             else if (dist < 40 && audioOk) for (int k = 0; k < 8; k++) if (!IsSoundPlaying(groanPool[k])) {
-                SetSoundVolume(groanPool[k], 0.8f * powf(1 - dist / 40, 1.5f)); SetSoundPitch(groanPool[k], c->type == 2 ? 1.5f : c->type == 1 || c->type == 9 ? 0.7f : c->type == 6 ? 0.85f : fr(0.9f, 1.1f));
+                SetSoundVolume(groanPool[k], 0.8f * powf(1 - dist / 40, 1.5f) * gs.sfx); SetSoundPitch(groanPool[k], c->type == 2 ? 1.5f : c->type == 1 || c->type == 9 ? 0.7f : c->type == 6 ? 0.85f : fr(0.9f, 1.1f));
                 PlaySound(groanPool[k]); break;
             }
         }
@@ -290,7 +290,7 @@ static void updateCreatures(float dt, Vector3 aim) {
     if (audioOk) {
         float v = nearest < 28 ? powf(1 - nearest / 28, 1.3f) * 0.55f : 0;
         if (!IsSoundPlaying(sStatic)) PlaySound(sStatic);
-        SetSoundVolume(sStatic, v);
+        SetSoundVolume(sStatic, v * gs.amb); SetSoundVolume(sDrone, 0.35f * gs.amb);
         if (!IsSoundPlaying(sDrone)) PlaySound(sDrone);
     }
     // ---- population upkeep

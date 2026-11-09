@@ -801,7 +801,7 @@ int main(void) {
     if (IsAudioDeviceReady()) {
         int n = 22050 / 14; short *d = MemAlloc(n * 2);
         for (int i = 0; i < n; i++) { float t = (float)i / 22050; d[i] = (short)(sinf(t * 2 * PI * (900 + t * 3000)) * 0.22f * expf(-t * 30) * 30000); }
-        Wave w = {(unsigned)n, 22050, 16, 1, d}; aBlip = LoadSoundFromWave(w); UnloadWave(w); aBlipOk = true;
+        Wave w = {(unsigned)n, 22050, 16, 1, d}; aBlip = LoadSoundFromWave(w); UnloadWave(w); aBlipOk = true; aMakeErr();
         SetMasterVolume(cfg.volume);
     }
     aeroLoadFont();

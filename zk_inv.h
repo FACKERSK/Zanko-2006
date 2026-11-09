@@ -54,12 +54,12 @@ static void equipFromSlot(int i) {
     if (s.t < 0) return;
     if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN)) return;
     pl.sl[i] = pl.hands; pl.hands = s; pl.swingT = 0; pl.reloadT = 0; pl.build = false; animPlay(ANIM_EQUIP);
-    play(sClick, 0.5f);
+    if (s.t == IT_KATANA) play(sBlade, 0.55f); else if (s.t == IT_REVOLVER) play(sCloth, 0.5f); else { play(sCloth, 0.4f); play(sClick, 0.3f); }
 }
 static void holster(void) {   // put the held weapon away (fists)
     if (pl.hands.t < 0) return;
     int left = slotsAdd(pl.sl, invNSlots(), pl.hands.t, pl.hands.n);
-    if (left == 0) { pl.hands.t = -1; pl.hands.n = 0; play(sClick, 0.4f); animPlay(ANIM_EQUIP); } else say("No room to put it away.");
+    if (left == 0) { pl.hands.t = -1; pl.hands.n = 0; play(sCloth, 0.45f); animPlay(ANIM_EQUIP); } else say("No room to put it away.");
 }
 // ---- wounds and blood (pl.hp is blood, 0-100; there is no health bar)
 static void addWound(int n) { pl.wounds += n; if (pl.wounds > 6) pl.wounds = 6; }
@@ -114,7 +114,14 @@ static void useItem(int t) {
     case IT_OFUDA: spiritSeal(); return;
     default: say(idef[t].desc); return;
     }
-    play(sPick, 0.4f);
+    switch (t) {   // what using it sounds like
+    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: play(sEat, 0.6f); break;
+    case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: play(sDrink, 0.6f); break;
+    case IT_PAINKILLER: case IT_CHARCOAL: play(sPill, 0.6f); break;
+    case IT_BANDAGE: case IT_RAG: case IT_SPLINT: case IT_DISINFECT: play(sBandage, 0.6f); break;
+    case IT_MANGA: play(sPaper, 0.5f); break;
+    default: play(sPick, 0.4f);
+    }
 }
 static void quickUse(int k) { if (pl.quick[k] >= 0) useItem(pl.quick[k]); }
 static void invReset(void) {

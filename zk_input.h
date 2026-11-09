@@ -54,24 +54,37 @@ static bool padP(int b) { return b > 0 && b < 20 && padNow[b] && !padPrev[b]; }
 // back / pause: Esc, Start, or B while a cursor is up
 static bool escP(void) { return KP(KEY_ESCAPE) || padP(GAMEPAD_BUTTON_MIDDLE_RIGHT) || (!IsCursorHidden() && padP(GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)); }
 
+static bool inputLocked;   // something else has the controls (insanity)
 static bool bindDown(int c) { if (c <= 0) return false; if (c >= 600) { int b = c - 600; return vin.on ? (b == 0 && vin.lmb) : IsMouseButtonDown(b); } return vin.on ? vin.down[c] : IsKeyDown(c); }
 static bool bindPressed(int c) { if (c <= 0) return false; if (c >= 600) { int b = c - 600; return vin.on ? (b == 0 && vin.lmbP) : IsMouseButtonPressed(b); } return vin.on ? vin.pressed[c] : IsKeyPressed(c); }
 static bool actD(int a) {
+    if (inputLocked) return false;
     if (bindDown(bindK[a][0]) || bindDown(bindK[a][1])) return true;
     if (vin.on || padId < 0) return false;
     if (a == A_SPRINT && padSprintLatch) return true;
     return bindP[a] > 0 && padNow[bindP[a]];
 }
+static bool sprintLatch = false, sneakLatch = false;   // "Toggle" sprint / sneak in Settings > Gameplay
+static bool actHeld(int a) {   // sprint and sneak, honouring the hold / toggle setting
+    if (a == A_SPRINT && gs.sprintTgl) return sprintLatch || (padId >= 0 && padSprintLatch);
+    if (a == A_CROUCH && gs.sneakTgl) return sneakLatch;
+    return actD(a);
+}
 static bool actP(int a) {
+    if (inputLocked) return false;
     if (bindPressed(bindK[a][0]) || bindPressed(bindK[a][1])) return true;
     if (vin.on || padId < 0) return false;
     return padP(bindP[a]);
 }
 // analog movement: x right, y forward (keys give -1 / 0 / 1, the stick anything between)
 static Vector2 actMove(void) {
+    if (inputLocked) return (Vector2){0, 0};
     Vector2 m = {(actD(A_RIGHT) ? 1.0f : 0) - (actD(A_LEFT) ? 1.0f : 0), (actD(A_FWD) ? 1.0f : 0) - (actD(A_BACK) ? 1.0f : 0)};
     if (!vin.on && IsCursorHidden()) { m.x += padMoveV.x; m.y -= padMoveV.y; }
     if (bindP[A_SPRINT] > 0 && padP(bindP[A_SPRINT])) padSprintLatch = !padSprintLatch;
+    if (gs.sprintTgl && (bindPressed(bindK[A_SPRINT][0]) || bindPressed(bindK[A_SPRINT][1]))) { sprintLatch = !sprintLatch; if (sprintLatch) sneakLatch = false; }
+    if (gs.sneakTgl && (bindPressed(bindK[A_CROUCH][0]) || bindPressed(bindK[A_CROUCH][1]) || padP(bindP[A_CROUCH]))) { sneakLatch = !sneakLatch; if (sneakLatch) sprintLatch = false; }
+    if (Vector2Length(m) < 0.1f && fabsf(padMoveV.x) + fabsf(padMoveV.y) < 0.1f) sprintLatch = false;   // stopping ends a toggled sprint
     return m;
 }
 // the right stick, as mouse pixels this frame (so mouse sensitivity and aim lag apply the same way)
