@@ -295,7 +295,7 @@ static void drawHUD(Vector2 cross, float t) {
         aGadget(vp);
         struct { float v; Color c; const char *l; } vi[5] = {
             {pl.stam, pl.exhausted ? (Color){90, 92, 90, 255} : (Color){90, 150, 120, 255}, "STAMINA"}, {pl.food, (Color){200, 140, 60, 255}, "FOOD"}, {pl.water, (Color){60, 120, 170, 255}, "WATER"},
-            {pl.warmth, (Color){190, 90, 44, 255}, "WARMTH"}, {pl.rest, (Color){120, 110, 170, 255}, "REST"}};
+            {pl.warmth, pl.wet > 40 ? (Color){90, 140, 170, 255} : (Color){190, 90, 44, 255}, pl.wet > 40 ? "SOAKED" : "WARMTH"}, {pl.rest, (Color){120, 110, 170, 255}, "REST"}};
         for (int k = 0; k < 5; k++) {
             float x = vp.x + 26 * s + k * 46 * s;
             aVial((Rectangle){x, vp.y + 18 * s, 22 * s, 138 * s}, vi[k].v / 100, vi[k].c);
@@ -328,6 +328,8 @@ static void drawHUD(Vector2 cross, float t) {
         aGadget(wp);
         aText(weaponName(), wp.x + 18 * s, wp.y + 14 * s, 20, (Color){236, 230, 216, 255}, true);
         if (pl.hands.t == IT_REVOLVER) aText(TextFormat("%d / %d rounds%s", pl.mag, invCount(IT_AMMO), pl.reloadT > 0 ? "  reloading" : ""), wp.x + 18 * s, wp.y + 44 * s, 14, C_CYAN, false);
+        else if (pl.hands.t == IT_PISTOL || pl.hands.t == IT_SHOTGUN) aText(TextFormat("%d / %d %s%s", *gunMag(), invCount(idef[pl.hands.t].ammo), pl.hands.t == IT_SHOTGUN ? "shells" : "rounds", pl.reloadT > 0 ? "  reloading" : ""), wp.x + 18 * s, wp.y + 44 * s, 14, C_CYAN, false);
+        else if (pl.hands.t >= 0 && idef[pl.hands.t].cat == CAT_THROW) aText(TextFormat("%d in hand, %d more   %s throws", pl.hands.n, invCount(pl.hands.t) - pl.hands.n, actKey(A_ATTACK)), wp.x + 18 * s, wp.y + 44 * s, 12, C_BONE2, false);
         else { const ItemDef *d = weaponDef(); aText(TextFormat("dmg %.1f  swing %.2fs  load %.1f kg", d->dmg, meleeCd(), invWeight()), wp.x + 18 * s, wp.y + 44 * s, 12, C_BONE2, false);
             if (pl.hands.t >= 0 && idef[pl.hands.t].cat == CAT_MELEE) { float k = 1 - pl.hands.w / 1000.0f; aText("Cond.", wp.x + 190 * s, wp.y + 18 * s, 10, C_BONE2, false);
                 aProgress((Rectangle){wp.x + 222 * s, wp.y + 20 * s, 44 * s, 8 * s}, k, k > 0.3f ? (Color){150, 190, 140, 255} : (Color){210, 90, 60, 255}); } }

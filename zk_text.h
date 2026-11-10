@@ -4,9 +4,11 @@ static Font jpFont; static bool jpOk = false;
 static RenderTexture2D signAtlasH, signAtlasV, mangaRT;   // horizontal 512x64 cells stacked; vertical 64x512 cells side by side; manga pages
 #define SA_HW 512
 #define SA_HH 64
-#define MANGA_PAGES 6
+#define MANGA_PAGES 7   // six pages and the cover (page 6)
+static int mangaVol = 0;   // which volume is in the texture: every copy picked up is a different one
+static const char *jpMangaTitle[8] = {"霧町怪談", "残光", "夜の団地", "口裂け女", "影踏み", "廃校の夏", "赤い傘", "終電のあと"};
 #define MANGA_PW 256
-#define MANGA_PH 360
+#define MANGA_PH 384
 static const char *signText(int i) {
     if (i < JP_NSHOP) return jpShop[i];
     switch (i) { case SGN_KONBINI: return jpKonbini; case SGN_KOBAN: return jpKoban; case SGN_STATION: return jpStation; case SGN_SUBWAY: return jpSubway;
@@ -33,10 +35,10 @@ static void jpDrawFit(const char *s, Rectangle r, Color c, bool vertical) {   //
     }
 }
 static void mangaPage(int pg, float ox, float oy) {   // one page of an ink horror manga: panels, figures, speed lines, screentone, bubbles
-    unsigned int r = 977u * (pg + 3);
+    unsigned int r = 977u * (pg + 3) + (unsigned int)mangaVol * 7919u;
     #define RN() ((r = r * 1103515245u + 12345u) >> 8 & 0xFFFF) / 65535.0f
     DrawRectangle((int)ox, (int)oy, MANGA_PW, MANGA_PH, (Color){236, 232, 222, 255});
-    float y = oy + 10; int rows = 3 + (pg % 2);
+    float y = oy + 10; int rows = 3 + ((pg + mangaVol) % 2);
     for (int row = 0; row < rows; row++) {
         float h = (MANGA_PH - 20 - (rows - 1) * 6) / rows; int cols = 1 + (int)(RN() * 2.2f); float x = ox + 10;
         for (int c = 0; c < cols; c++) {
@@ -70,6 +72,49 @@ static void mangaPage(int pg, float ox, float oy) {   // one page of an ink horr
     }
     #undef RN
 }
+static void mangaCover(float ox, float oy) {   // the front cover: a colour per series, the title down the side, a figure, the volume number
+    unsigned int r = 31337u + (unsigned int)mangaVol * 104729u;
+    #define RN() ((r = r * 1103515245u + 12345u) >> 8 & 0xFFFF) / 65535.0f
+    static const Color bg[6] = {{170, 30, 34, 255}, {30, 40, 70, 255}, {226, 220, 206, 255}, {40, 70, 60, 255}, {20, 20, 22, 255}, {120, 60, 110, 255}};
+    Color b = bg[mangaVol % 6], ink = (b.r + b.g + b.b > 500) ? (Color){20, 20, 20, 255} : (Color){240, 236, 226, 255};
+    DrawRectangle((int)ox, (int)oy, MANGA_PW, MANGA_PH, b);
+    float cx = ox + MANGA_PW * (0.45f + 0.2f * RN()), cy = oy + MANGA_PH * 0.58f;   // a figure: long hair, no face, sometimes a mask
+    DrawCircle((int)cx, (int)(cy - 60), 34, (Color){18, 16, 16, 255}); DrawRectangle((int)(cx - 40), (int)(cy - 60), 80, 150, (Color){18, 16, 16, 255});
+    DrawEllipse((int)cx, (int)(cy - 52), 20, 26, (Color){230, 224, 214, 255});
+    if (RN() < 0.5f) DrawRectangle((int)(cx - 18), (int)(cy - 46), 36, 18, WHITE); else { DrawCircle((int)(cx - 8), (int)(cy - 56), 3, BLACK); DrawCircle((int)(cx + 8), (int)(cy - 56), 3, BLACK); }
+    for (int k = 0; k < 14; k++) DrawLine((int)(ox + RN() * MANGA_PW), (int)oy, (int)(ox + RN() * MANGA_PW), (int)(oy + MANGA_PH), (Color){ink.r, ink.g, ink.b, 40});   // rain streaks
+    if (jpOk) jpDrawFit(jpMangaTitle[mangaVol % 8], (Rectangle){ox + 10, oy + 14, 60, MANGA_PH * 0.62f}, ink, true);
+    DrawRectangle((int)ox, (int)(oy + MANGA_PH - 46), MANGA_PW, 46, (Color){ink.r, ink.g, ink.b, 230});
+    DrawText(TextFormat("VOL. %d", 1 + mangaVol % 12), (int)(ox + 14), (int)(oy + MANGA_PH - 36), 26, b);
+    DrawText("KIRIMACHI COMICS", (int)(ox + 120), (int)(oy + MANGA_PH - 30), 12, b);
+    #undef RN
+}
+static bool mangaFile(char *out, int n, int pg) {   // Data/UI/Manga/cover.png, page01.png ... (a mod can replace them)
+    char rel[64]; if (pg < 0) snprintf(rel, sizeof rel, "UI/Manga/cover.png"); else snprintf(rel, sizeof rel, "UI/Manga/page%02d.png", pg);
+    if (modFind(rel, out, n)) return true;
+    char rel2[80]; snprintf(rel2, sizeof rel2, "Data/%s", rel); snprintf(out, n, "%s", P(rel2)); return FileExists(out);
+}
+static int mangaFilePages = -1;   // how many drawn pages there are on disk (0: draw our own)
+static void mangaRegen(int vol) {   // the pages for one reading: the drawn manga in order, six at a time; without it, a made-up volume
+    if (mangaRT.id == 0) return;
+    mangaVol = vol < 0 ? 0 : vol;
+    char path[900];
+    if (mangaFilePages < 0) { mangaFilePages = 0; while (mangaFilePages < 99 && mangaFile(path, sizeof path, mangaFilePages + 1)) mangaFilePages++; TraceLog(LOG_INFO, "MANGA: %d drawn pages", mangaFilePages); }
+    if (mangaFilePages > 0) {
+        BeginTextureMode(mangaRT); ClearBackground(WHITE);
+        int start = (mangaVol * (MANGA_PAGES - 1)) % mangaFilePages;   // each copy read carries the story on from the last
+        for (int p = 0; p < MANGA_PAGES; p++) {
+            bool cover = p == MANGA_PAGES - 1; if (!mangaFile(path, sizeof path, cover ? -1 : 1 + (start + p) % mangaFilePages)) { if (cover) mangaCover(p * MANGA_PW, 0); else mangaPage(p, p * MANGA_PW, 0); continue; }
+            Texture2D t = LoadTexture(path); if (t.id == 0) continue;
+            DrawTexturePro(t, (Rectangle){0, 0, (float)t.width, (float)t.height}, (Rectangle){(float)p * MANGA_PW, 0, MANGA_PW, MANGA_PH}, (Vector2){0, 0}, 0, WHITE);
+            rlDrawRenderBatchActive(); UnloadTexture(t); }
+        EndTextureMode(); GenTextureMipmaps(&mangaRT.texture); return; }
+    BeginTextureMode(mangaRT); ClearBackground(WHITE);
+    for (int p = 0; p < MANGA_PAGES - 1; p++) mangaPage(p, p * MANGA_PW, 0);
+    mangaCover((MANGA_PAGES - 1) * MANGA_PW, 0);
+    EndTextureMode();
+    GenTextureMipmaps(&mangaRT.texture);
+}
 static void textInit(void) {
     if (FileExists(P("Data/UI/jp.ttf"))) {
         static char all[8192]; all[0] = 0;
@@ -77,7 +122,7 @@ static void textInit(void) {
         for (int i = 0; i < JP_NSHOP; i++) ADD(jpShop[i]);
         ADD(jpKonbini); ADD(jpKoban); ADD(jpStation); ADD(jpStationSub); for (int i = 0; i < 4; i++) ADD(jpTunnel[i]); ADD(jpSeal); ADD(jpSealSub);
         for (int i = 0; i < JP_NBCAST; i++) ADD(jpBcast[i]); ADD(jpTicker); ADD(jpNoSignal); for (int i = 0; i < JP_NMANGA; i++) ADD(jpManga[i]);
-        ADD(jpVend); ADD(jpSubway); ADD(jpSubwaySub); ADD(jpMapTitle);
+        for (int i = 0; i < 8; i++) ADD(jpMangaTitle[i]); ADD(jpVend); ADD(jpSubway); ADD(jpSubwaySub); ADD(jpMapTitle);
         ADD(" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_abcdefghijklmnopqrstuvwxyz{|}~");
         #undef ADD
         int n = 0; int *cp = LoadCodepoints(all, &n);
@@ -102,10 +147,8 @@ static void textInit(void) {
     EndTextureMode();
     SetTextureFilter(signAtlasH.texture, TEXTURE_FILTER_BILINEAR); SetTextureFilter(signAtlasV.texture, TEXTURE_FILTER_BILINEAR);
     mangaRT = LoadRenderTexture(MANGA_PW * MANGA_PAGES, MANGA_PH);
-    BeginTextureMode(mangaRT); ClearBackground(WHITE);
-    for (int p = 0; p < MANGA_PAGES; p++) mangaPage(p, p * MANGA_PW, 0);
-    EndTextureMode();
-    GenTextureMipmaps(&mangaRT.texture); SetTextureFilter(mangaRT.texture, TEXTURE_FILTER_TRILINEAR);   // fine ink and screentone shimmer badly when point-sampled at arm's length
+    mangaRegen(0);
+    SetTextureFilter(mangaRT.texture, TEXTURE_FILTER_TRILINEAR);   // fine ink and screentone shimmer badly when point-sampled at arm's length
 }
 // a textured quad in world space: corners a (top-left) b (top-right) c (bottom-right) d (bottom-left); uv rectangle in texture pixels
 static void texQuad(Texture2D tx, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Rectangle src, Color tint, bool flipY) {

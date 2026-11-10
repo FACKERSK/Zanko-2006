@@ -437,7 +437,7 @@ typedef struct { Vector3 pos; int light; } Lamp;
 static Lamp lamps[MAX_LAMP]; static int nLamp;
 typedef struct { Vector3 pos; float s, hp; int sid; bool alive; } Crate;
 static Crate crates[MAX_CRATE]; static int nCrate;
-typedef struct { Vector3 mn, mx; int sid, kind; float hp, maxhp; bool alive, open; int axis, cont; } Build;
+typedef struct { Vector3 mn, mx; int sid, kind; float hp, maxhp; bool alive, open; int axis, cont; float fuel; int light; } Build;   // fuel: generator seconds left; light: a lamp's
 static Build builds[MAX_BUILD]; static int nBuild;
 // a built piece turned off the world axes keeps its box unrotated in mn/mx and its yaw in axis as 1000 + degrees
 static float buildYaw(const Build *b) { return b->axis >= 1000 ? (b->axis - 1000) * DEG2RAD : 0; }
@@ -493,6 +493,7 @@ typedef struct {
     float sick, infect, woundT, vomitT, fracT; int fracture;   // food poisoning 0-100, wound infection 0-100, fracture 0 none 1 broken 2 splinted
     int trS, trW; bool mapOpen; float saveT;              // chosen strength / weakness trait
     bool blocking; float blockT, blockK, landK, eyeK, swayX, swayY, sprintK, readFlip;   // guard, animation springs
+    float wet, sprayT, umbK; int magP, magS; bool umbOpen;   // soaked by rain 0-100, extinguisher spray, umbrella open; pistol / shotgun rounds loaded
 } Player;
 static Player pl;
 static Camera3D cam;
@@ -502,6 +503,7 @@ static float evacT = -1; static bool evacOn = false;
 static char msg[128]; static float msgT;
 static char prompt[96];
 static unsigned int worldSeed;
+static float gLockShare = 0.25f, gBasementK = 1.0f, gBodyK = 1.0f, gRainK = 1.0f;   // town rules a map mod can change (Mod Maker, Map tab): share of shut doors locked, basements, bodies, rain
 
 // ============================================================ audio
 #define SR 22050
@@ -510,6 +512,7 @@ static Sound sImpact, sSplat, sBone, sStinger, sBreath, sScream;
 static Sound sStep, sSwing, sHit, sClang, sGlass, sShot, sClick, sHurt, sScreech, sGroan[2], sStatic, sDrone, sHeart, sPick, sWood, sPlace, sPhone, sReload, sTick;
 static Sound sCock, sCylOpen, sCylClose, sEject, sShell, sLoader, sSpin, sBlade, sJump, sLand, sEat, sDrink, sPill, sBandage, sCloth, sPaper, sRummage, sSigh, sTV, sTape;
 static Sound groanPool[8];
+static Sound sPistol, sShotgun, sRain, sGen, sCrack, sFireW, sSpray, sUmb, sThrow, sCrV[8];   // 0.9.1: guns, weather, generator, throwables, creature voices (types 10-17)
 static bool audioOk = false;
 static Sound mkS(float *b, int n) {
     short *d = MemAlloc(n * 2);
@@ -593,6 +596,43 @@ static void genSounds(void) {
     n = SR * 12 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.05f; b[i] = lp * 2.6f * sinf(fminf(T / 1.2f, 1) * PI) * (T < 0.3f ? T / 0.3f : 1); } sSigh = mkS(b, n);
     n = SR * 4; lp = 0; for (int i = 0; i < n; i++) { float x = nz(); lp += (x - lp) * 0.5f; b[i] = ((x - lp) * 0.3f + sinf(T * 2 * PI * 15734 * 0.25f) * 0.03f + sinf(T * 2 * PI * 60) * 0.06f) * fminf(fminf(T, 4 - T) * 8, 1); } sTV = mkS(b, n);   // CRT hiss and hum
     n = SR * 8 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.2f; float cl = T < 0.02f ? nz() : 0; b[i] = cl * 0.8f + (sinf(T * 2 * PI * (90 + 40 * fminf(T * 3, 1))) * 0.3f + lp * 0.3f) * fminf(T * 4, 1) * expf(-fmaxf(T - 0.5f, 0) * 8); } sTape = mkS(b, n);   // cassette in, motor spins up
+    // ---- 0.9.1: pistol, shotgun, rain, generator, throwables, extinguisher, umbrella
+    n = SR * 45 / 100; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.45f; b[i] = lp * 1.6f * expf(-T * 30) + nz() * 0.5f * expf(-T * 90) + sinf(T * 2 * PI * 90) * 0.6f * expf(-T * 20); } sPistol = mkS(b, n);
+    n = SR * 12 / 10; lp = 0; lp2 = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.3f; lp2 += (lp - lp2) * 0.04f; b[i] = lp * 2.0f * expf(-T * 14) + lp2 * 6 * expf(-T * 3.5f) + sinf(T * 2 * PI * (50 - T * 20)) * 1.2f * expf(-T * 6); } sShotgun = mkS(b, n);
+    n = SR * 4; lp = 0; lp2 = 0; for (int i = 0; i < n; i++) { float x = nz(); lp += (x - lp) * 0.22f; lp2 += (lp - lp2) * 0.5f; float drop = 0; float c = fmodf(T * 37.0f + hash2(i / 900, 3, 3) * 0.5f, 1); if (c < 0.02f) drop = nz() * 0.6f;
+        float edge = fminf(fminf(T, 4 - T) / 0.05f, 1); b[i] = ((lp - lp2) * 1.1f + lp2 * 0.25f + drop) * edge * 0.8f; } sRain = mkS(b, n);
+    n = SR * 2; lp = 0; for (int i = 0; i < n; i++) { float ph = fmodf(T * 24, 1); float chug = expf(-ph * 6); lp += (nz() - lp) * 0.08f; float edge = fminf(fminf(T, 2 - T) / 0.03f, 1);
+        b[i] = (sinf(T * 2 * PI * 48) * 0.4f * (0.5f + chug) + lp * 1.6f * chug + sinf(T * 2 * PI * 96) * 0.12f) * edge; } sGen = mkS(b, n);
+    n = SR * 3; for (int i = 0; i < n; i++) { float v = 0; float slot = floorf(T * 14); float tt = T * 14 - slot; if (hash2((int)slot, 9, 2) > 0.25f) v = nz() * expf(-tt * 9) * (0.6f + 0.4f * hash2((int)slot, 4, 4)); b[i] = v * 1.1f; } sCrack = mkS(b, n);
+    n = SR * 11 / 10; lp = 0; for (int i = 0; i < n; i++) { float tink = 0; for (int k = 0; k < 4; k++) tink += sinf(T * 2 * PI * (3100 + k * 917)) * expf(-T * 30) * 0.15f; lp += (nz() - lp) * (0.05f + 0.3f * fminf(T * 3, 1)); b[i] = tink + lp * 2.2f * fminf(T * 6, 1) * expf(-fmaxf(T - 0.3f, 0) * 3); } sFireW = mkS(b, n);
+    n = SR; lp = 0; for (int i = 0; i < n; i++) { float x = nz(); lp += (x - lp) * 0.6f; float edge = fminf(fminf(T, 1 - T) / 0.04f, 1); b[i] = (x - lp) * 0.9f * edge; } sSpray = mkS(b, n);
+    n = SR * 3 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.4f; b[i] = lp * 1.2f * (T < 0.18f ? T / 0.18f : expf(-(T - 0.18f) * 40)) + (T > 0.18f ? nz() * expf(-(T - 0.18f) * 90) * 0.7f : 0); } sUmb = mkS(b, n);
+    n = SR * 3 / 10; lp = 0; for (int i = 0; i < n; i++) { float f = 0.05f + 0.35f * sinf(T / 0.3f * PI); lp += (nz() - lp) * f; b[i] = lp * 0.8f * sinf(T / 0.3f * PI); } sThrow = mkS(b, n);
+    // ---- creature voices, one per new type
+    {   float ph = 0, ph2 = 0;
+        // 10 kuchisake: a breathy whisper rising into a giggle
+        n = SR * 16 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.3f; float gig = T > 0.7f ? 0.5f + 0.5f * sinf(T * 2 * PI * 7) : 0; ph += (300 + 140 * gig + 30 * sinf(T * 9)) / SR;
+            b[i] = (lp * 0.9f * (1 - gig * 0.5f) + sinf(ph * 2 * PI) * 0.35f * gig * (0.6f + 0.4f * nz())) * sinf(fminf(T / 1.6f, 1) * PI); } sCrV[0] = mkS(b, n);
+        // 11 crawler: dry knuckle clicks and a scrape
+        n = SR * 12 / 10; lp = 0; for (int i = 0; i < n; i++) { float c = fmodf(T * 11 + 0.3f * sinf(T * 5), 1); lp += (nz() - lp) * 0.2f; b[i] = nz() * expf(-c * 60) * 0.8f + lp * 0.5f * (0.5f + 0.5f * sinf(T * 3)); } sCrV[1] = mkS(b, n);
+        // 12 bloated: wet gurgling bubbles
+        n = SR * 15 / 10; ph = 0; lp = 0; for (int i = 0; i < n; i++) { float bub = fmodf(T * 6.5f + hash2((int)(T * 6.5f), 2, 7), 1); ph += (70 + 220 * bub * expf(-bub * 4)) / SR; lp += (nz() - lp) * 0.04f;
+            b[i] = (sinf(ph * 2 * PI) * expf(-bub * 5) * 0.8f + lp * 2.2f) * sinf(fminf(T / 1.5f, 1) * PI); } sCrV[2] = mkS(b, n);
+        // 13 tsuchigumo: fast chitter over a hiss
+        n = SR * 13 / 10; lp = 0; for (int i = 0; i < n; i++) { float c = fmodf(T * 34, 1); lp += (nz() - lp) * 0.7f; b[i] = (sinf(T * 2 * PI * (2600 + 400 * sinf(T * 13))) * expf(-c * 25) * 0.5f + (nz() - lp) * 0.35f) * sinf(fminf(T / 1.3f, 1) * PI); } sCrV[3] = mkS(b, n);
+        // 14 nurse: a hummed lullaby, detuned, under static
+        n = SR * 2; ph = ph2 = 0; for (int i = 0; i < n; i++) { const float nt[4] = {392, 349.2f, 329.6f, 293.7f}; int k = (int)(T / 0.5f) & 3; ph += nt[k] * (1 + 0.01f * sinf(T * 5)) / SR; ph2 += nt[k] * 1.012f / SR;
+            b[i] = (sinf(ph * 2 * PI) * 0.35f + sinf(ph2 * 2 * PI) * 0.25f + nz() * 0.08f) * (0.6f + 0.4f * sinf(T * 2 * PI * 2)) * sinf(fminf(T / 2, 1) * PI); } sCrV[4] = mkS(b, n);
+        // 15 riot: a growl through a visor and a dead radio's squelch
+        n = SR * 14 / 10; ph = 0; lp = 0; for (int i = 0; i < n; i++) { ph += (85 + 15 * nz()) / SR; float sq = 2 * (ph - floorf(ph)) - 1; lp += (sq - lp) * 0.15f; float squelch = (T < 0.08f || (T > 1.2f && T < 1.3f)) ? nz() * 0.6f : 0;
+            b[i] = (lp * 1.1f + squelch) * sinf(fminf(T / 1.4f, 1) * PI); } sCrV[5] = mkS(b, n);
+        // 16 gaki: a thin, starving whine
+        n = SR * 17 / 10; ph = 0; for (int i = 0; i < n; i++) { ph += (620 - 180 * T / 1.7f + 25 * sinf(T * 31)) / SR; b[i] = (sinf(ph * 2 * PI) * 0.4f + sinf(ph * 4 * PI) * 0.15f + nz() * 0.06f) * sinf(fminf(T / 1.7f, 1) * PI); } sCrV[6] = mkS(b, n);
+        // 17 burned: a hoarse rasp with crackling skin
+        n = SR * 15 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.25f; float cr = hash2(i / 30, 8, 8) > 0.9f ? nz() * 0.8f : 0; float br = 0.5f + 0.5f * sinf(T * 2 * PI * 0.9f);
+            b[i] = (lp * 1.4f * br + cr) * sinf(fminf(T / 1.5f, 1) * PI); } sCrV[7] = mkS(b, n);
+        // the low-pass "lp" smoothing used above already keeps these from clicking at the edges
+    }
 #undef RING
 #undef T
     MemFree(b);
@@ -680,7 +720,7 @@ static void addOpening(int s, float u0, float u1, float y0, float y1, int type, 
     else {   // a door: always a hinged leaf; shut ones block, a quarter of those are locked
         Vector3 dmx, dmn = sideMn(s, u0, u1, y0, y1, &dmx, 0.06f);
         o->mn = dmn; o->mx = dmx; o->sid = addSolid(dmn, dmx); o->hp = 4;
-        o->locked = stt == 1 && ri(4) == 0; o->swing = stt == 1 ? 0 : 1; if (stt != 1) sol[o->sid].off = true;
+        { int r4 = stt == 1 ? ri(4) : 1; o->locked = stt == 1 && (gLockShare == 0.25f ? r4 == 0 : hash2((int)(o->mn.x * 9), (int)(o->mn.z * 9), 61) < gLockShare); } o->swing = stt == 1 ? 0 : 1; if (stt != 1) sol[o->sid].off = true;
     }
     nOps++;
 }
@@ -1220,8 +1260,10 @@ static void spawnParts(Vector3 p, int n, int t, Color tint, float spd, float siz
 }
 static void keySubst(char *buf, size_t n);
 static void say(const char *s) { snprintf(msg, sizeof msg, "%s", s); keySubst(msg, sizeof msg); msgT = 3.0f; }
+static bool netNoiseFwd(Vector3 p, float r);   // zk_net.h: on a client, send the noise to the host instead
 static void alertAll(Vector3 p, float radius) {
     // noise: they come to where the sound was, not to where you are
+    if (netNoiseFwd(p, radius)) return;   // the creatures live on the host
     for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].type != 4 && crs[i].state == CS_WANDER && Vector3Distance(crs[i].pos, p) < radius) {   // spirits ignore noise
         crs[i].state = CS_CHASE; crs[i].lastKnown = Vector3Add(p, V3(fr(-1.5f, 1.5f), 0, fr(-1.5f, 1.5f))); crs[i].losT = 0; }
 }
@@ -1247,6 +1289,9 @@ static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
 
 // ============================================================ game reset
 #include "zk_animdef.h"
+#define MANGA_T 7.0f   // seconds of reading a manga: lift, open, three page turns, close
+static void mangaRegen(int vol);
+static int vmSwingN = -1; static bool vmSpray = false;   // viewmodel stills (KIRI_VM): which way a swing goes, the extinguisher spraying
 #include "zk_inv.h"
 enum { CH_GOD, CH_STAM, CH_NEEDS, CH_AMMO, CH_WEAR, CH_ONEHIT, CH_NOCLIP, CH_PEACE, CH_TIME, CH_LIGHT, CH_N };
 static struct { bool avail, menu, on[CH_N]; int key; float speed, frozenTod; char mod[64]; } cht = {.speed = 1, .key = KEY_F8};   // cheat menu state (zk_cheat.h)
@@ -1255,12 +1300,17 @@ static struct { bool avail, menu, on[CH_N]; int key; float speed, frozenTod; cha
 enum { NM_OFF, NM_HOST, NM_CLIENT };
 static int netMode = NM_OFF, mySlot = 0; static bool netPvp = false;
 typedef struct { unsigned int ip; unsigned short port; } NetAddr;
-typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held; char name[16]; NetAddr addr; double heard;
+typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held, wear[4]; char name[16]; NetAddr addr; double heard;
     unsigned char ev, evDone; bool evInit; float stepAcc; Vector3 stepLast; } RPlayer;   // ev: their shot / swing counters (3 bits each), for sounds
 static unsigned char netShotN = 0, netSwingN = 0;   // mine, sent in the state flags
 static RPlayer rps[MP_MAX];   // every player in the session by slot (the host is slot 0); rps[mySlot] is unused (that is pl)
 static void netPlayerDamage(int slot, float dmg, float bleed);   // creature or PvP damage to a remote player
+static void netPlayerDamageS(int slot, float dmg, float bleed, float sick);
 static void netCreatureHit(int idx, float dmg);                   // a client hit a creature: the host applies it
+static void netCreatureStun(int idx, float s);                    // a client sprayed one: the host staggers it
+// 0.9.1 (zk_extra.h)
+static void throwHeld(Vector3 eye, Vector3 aim); static bool extraPrompt(Vector3 eye, Vector3 aim); static void bodyFromCreature(int i);
+static void drawBodyCont(Cont *c); static void drawExtras(Vector3 eye, float t); static bool sprayOn; static float rainK; static float wetDry(void);
 static void cheatsReset(void);
 #include "zk_player.h"
 
@@ -1274,7 +1324,7 @@ static void updateSanity(float dt, Vector3 aim) {
         if (fires[i].life <= 0) { fires[i].on = false; if (fires[i].light >= 0) lights[fires[i].light].mode = 2; continue; }
         if (Vector3Distance(fires[i].pos, pl.pos) < 4.5f) pl.nearFire = true;
     }
-    float target = pl.nearFire ? 95 : fminf(90, (pl.roof ? 55 : 22) + wearWarm() * (pl.roof ? 0.6f : 1.0f));   // clothes keep you warm, most of all outdoors
+    float target = pl.nearFire ? 95 : fminf(90, (pl.roof ? 55 : 22) + wearWarm() * (pl.roof ? 0.6f : 1.0f) * (1 - pl.wet / 150.0f)) - pl.wet * 0.3f;   // clothes keep you warm, most of all outdoors; wet ones much less
     pl.warmth += (target - pl.warmth) * dt * (pl.nearFire ? 0.08f : 0.02f);
     if (!pl.sleeping) pl.rest = fmaxf(0, pl.rest - dt * 100.0f / 900.0f * trMul(7));
     if (!pl.sleeping && pl.watchT <= 0) pl.boredom = fminf(100, pl.boredom + dt * 100.0f / 300.0f);
@@ -1746,6 +1796,7 @@ static void drawWorld(Vector3 eye, float t) {
         drawCreature(c);
     }
     drawRemotePlayers(GetFrameTime());
+    drawExtras(eye, t);
     for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0) { Part *p = &parts[i]; float s = p->size;
         drawBox(p->t, V3(p->pos.x - s, p->pos.y - s, p->pos.z - s), V3(p->pos.x + s, p->pos.y + s, p->pos.z + s), p->tint); }
     setEmis(1);
@@ -1799,6 +1850,7 @@ static void updateFX(float dt, Vector3 eye) {
 static float sw, shh;
 #include "zk_ui.h"
 #include "zk_cheat.h"
+#include "zk_extra.h"
 #include "zk_net.h"
 #ifdef ZK_MODMAKER
 #include "zk_editor.h"
@@ -2232,7 +2284,16 @@ int main(int argc, char **argv) {
                 if (df == 30 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST after use: state %d solid off %d swing %.2f", ops[di].state, sol[ops[di].sid].off, ops[di].swing); TakeScreenshot("door_open.png"); vin.pressed[KEY_E] = 1; }
                 if (df == 31) memset(vin.pressed, 0, sizeof vin.pressed);
                 if (df == 50 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST after second use: state %d solid off %d swing %.2f", ops[di].state, sol[ops[di].sid].off, ops[di].swing); TakeScreenshot("door_shut.png"); }
-                if (df == 51) { vin.on = false; break; } } }
+                if (df == 51) { int li = -1; for (int i = 0; i < nOps; i++) if (ops[i].type == OP_DOOR && ops[i].state == 1 && ops[i].locked && ops[i].mn.y < 1) { li = i; break; }   // then a locked one, first without a key, then with one
+                    di = li; if (li >= 0) { Open *o = &ops[li]; Vector3 c = opCenter(o), n = opNormal(o); pl.pos = Vector3Add(V3(c.x, o->fy, c.z), Vector3Scale(n, 1.2f)); pl.pos.y = groundAt(V3(pl.pos.x, o->fy + 1, pl.pos.z), 0.3f, 2); pl.vy = 0;
+                        pl.tyaw = pl.yaw = atan2f(-n.x, -n.z); pl.tpitch = pl.pitch = -0.1f; } }
+                if (df == 58 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST locked: prompt '%s'", prompt); vin.pressed[KEY_E] = 1; }
+                if (df == 59) memset(vin.pressed, 0, sizeof vin.pressed);
+                if (df == 66 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST locked, no key: state %d locked %d msg '%s'", ops[di].state, ops[di].locked, msg); invAdd(IT_KEY, 1); }
+                if (df == 70 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST with key: prompt '%s'", prompt); vin.pressed[KEY_E] = 1; }
+                if (df == 71) memset(vin.pressed, 0, sizeof vin.pressed);
+                if (df == 85 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST key used: state %d locked %d solid off %d keys left %d msg '%s'", ops[di].state, ops[di].locked, sol[ops[di].sid].off, invCount(IT_KEY), msg); TakeScreenshot("door_key.png"); }
+                if (df == 86) { vin.on = false; break; } } }
         {   // basement test: KIRI_BASETEST=1 walks down a basement flight and back up with simulated input, then quits
             static int bt = -1, bf = 0, bp = -1; static Vector3 bdir;
             if (bt < 0) bt = getenv("KIRI_BASETEST") ? 1 : 0;
@@ -2288,7 +2349,16 @@ int main(int argc, char **argv) {
                 {IT_AXE, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_axe_inspect"}, {IT_AXE, ANIM_INSPECT, 0.66f, -1, 0, false, "vm_axe_inspect_thumb"},
                 {IT_KATANA, ANIM_INSPECT, 0.53f, -1, 0, false, "vm_katana_inspect_edge"}, {IT_REVOLVER, -1, 0, 0.05f, 4, false, "vm_hitmarker"},
                 {IT_REVOLVER, ANIM_TURNGUN, 0.25f, -1, 6, false, "vm_turn1"}, {IT_REVOLVER, ANIM_TURNGUN, 0.6f, -1, 6, false, "vm_turn2"}, {IT_REVOLVER, ANIM_TURNGUN, 0.93f, -1, 6, false, "vm_turn3"},
-                {IT_WAKIZASHI, -1, 0, -1, 0, false, "vm_new_wakizashi"}, {IT_NAGINATA, -1, 0, -1, 0, false, "vm_new_naginata"}, {IT_BOKKEN, -1, 0, -1, 0, false, "vm_new_bokken"}, {IT_GOLFCLUB, -1, 0, -1, 0, false, "vm_new_golfclub"}, {IT_SHOVEL, -1, 0, -1, 0, false, "vm_new_shovel"}, {IT_MACHETE, -1, 0, -1, 0, false, "vm_new_machete"}, {IT_CLEAVER, -1, 0, -1, 0, false, "vm_new_cleaver"}, {IT_SICKLE, -1, 0, -1, 0, false, "vm_new_sickle"}, {IT_WRENCH, -1, 0, -1, 0, false, "vm_new_wrench"}, {IT_BATON, -1, 0, -1, 0, false, "vm_new_baton"}, {IT_TETSUBO, -1, 0, -1, 0, false, "vm_new_tetsubo"}, {IT_PICKAXE, -1, 0, -1, 0, false, "vm_new_pickaxe"}, {IT_SCALPEL, -1, 0, -1, 0, false, "vm_new_scalpel"}, {IT_FIREEXT, -1, 0, -1, 0, false, "vm_new_fireext"}, {IT_UMBRELLA, -1, 0, -1, 0, false, "vm_new_umbrella"}, {IT_STOPSIGN, -1, 0, -1, 0, false, "vm_new_stopsign"}};
+                {IT_WAKIZASHI, -1, 0, -1, 0, false, "vm_new_wakizashi"}, {IT_NAGINATA, -1, 0, -1, 0, false, "vm_new_naginata"}, {IT_BOKKEN, -1, 0, -1, 0, false, "vm_new_bokken"}, {IT_GOLFCLUB, -1, 0, -1, 0, false, "vm_new_golfclub"}, {IT_SHOVEL, -1, 0, -1, 0, false, "vm_new_shovel"}, {IT_MACHETE, -1, 0, -1, 0, false, "vm_new_machete"}, {IT_CLEAVER, -1, 0, -1, 0, false, "vm_new_cleaver"}, {IT_SICKLE, -1, 0, -1, 0, false, "vm_new_sickle"}, {IT_WRENCH, -1, 0, -1, 0, false, "vm_new_wrench"}, {IT_BATON, -1, 0, -1, 0, false, "vm_new_baton"}, {IT_TETSUBO, -1, 0, -1, 0, false, "vm_new_tetsubo"}, {IT_PICKAXE, -1, 0, -1, 0, false, "vm_new_pickaxe"}, {IT_SCALPEL, -1, 0, -1, 0, false, "vm_new_scalpel"}, {IT_FIREEXT, -1, 0, -1, 0, false, "vm_new_fireext"}, {IT_UMBRELLA, -1, 0, -1, 0, false, "vm_new_umbrella"}, {IT_STOPSIGN, -1, 0, -1, 0, false, "vm_new_stopsign"},
+                {IT_PISTOL, -1, 0, -1, 8, false, "vm_g_pistol_idle"}, {IT_PISTOL, -1, 0, 0.02f, 7, false, "vm_g_pistol_fire"}, {IT_PISTOL, ANIM_RELOAD, 0.45f, -1, 0, false, "vm_g_pistol_reload"}, {IT_PISTOL, ANIM_INSPECT, 0.35f, -1, 8, false, "vm_g_pistol_inspect"},
+                {IT_SHOTGUN, -1, 0, -1, 2, false, "vm_g_shotgun_idle"}, {IT_SHOTGUN, -1, 0, 0.02f, 1, false, "vm_g_shotgun_fire"}, {IT_SHOTGUN, ANIM_RELOAD, 0.5f, -1, 0, false, "vm_g_shotgun_reload"},
+                {IT_ROCK, -1, 0, -1, 0, false, "vm_g_rock_idle"}, {IT_ROCK, 103, 0.2f, -1, 0, false, "vm_g_rock_throw"}, {IT_MOLOTOV, -1, 0, -1, 0, false, "vm_g_molotov_idle"}, {IT_FIRECRACKER, -1, 0, -1, 0, false, "vm_g_firecracker_idle"},
+                {IT_UMBRELLA, 101, 0, -1, 0, false, "vm_g_umbrella_open"}, {IT_FIREEXT, 102, 0, -1, 0, false, "vm_g_extinguisher_spray"},
+                {IT_NAGINATA, 100, 0.45f, -1, 1, false, "vm_g_naginata_thrust"}, {IT_NAGINATA, 100, 0.42f, -1, 0, false, "vm_g_naginata_sweep"}, {IT_SICKLE, 100, 0.2f, -1, 0, false, "vm_g_sickle_raise"}, {IT_SICKLE, 100, 0.45f, -1, 0, false, "vm_g_sickle_hook"},
+                {IT_MACHETE, ANIM_FLOURISH, 0.2f, -1, 0, false, "vm_g_machete_flourish"}, {IT_BAT, ANIM_FLOURISH, 0.45f, -1, 0, false, "vm_g_bat_flourish"},
+                {-1, 104, 0.3f, -1, 3, false, "vm_g_manga1_lift"}, {-1, 104, 0.9f, -1, 3, false, "vm_g_manga2_opening"}, {-1, 104, 1.6f, -1, 3, false, "vm_g_manga3_open"},
+                {-1, 104, 2.15f, -1, 3, false, "vm_g_manga4_turn"}, {-1, 104, 2.45f, -1, 3, false, "vm_g_manga5_turn"}, {-1, 104, 5.0f, -1, 17, false, "vm_g_manga6_other"}, {-1, 104, 6.1f, -1, 17, false, "vm_g_manga7_close"},
+                {IT_REVOLVER, -1, 0, 0.01f, 4, false, "vm_g_flash_revolver"}, {IT_PISTOL, -1, 0, 0.01f, 7, false, "vm_g_flash_pistol"}, {IT_SHOTGUN, -1, 0, 0.01f, 1, false, "vm_g_flash_shotgun"}};
             int NV = (int)(sizeof V / sizeof V[0]);
             if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;
                 invAdd(IT_AMMO, 24); pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.pos.y = groundAt(V3(SPAWN_X, 30, SPAWN_Z), 0.3f, 40) + 0.05f; pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0.05f; }
@@ -2332,11 +2402,60 @@ int main(int argc, char **argv) {
                 else if (q < NV) {
                 bool vSkip = getenv("KIRI_VMONLY") && strncmp(V[q].nm, getenv("KIRI_VMONLY"), strlen(getenv("KIRI_VMONLY")));
                 if (vSkip && k == 0) frame += 4;
-                if (!vSkip && k == 0) { pl.hands = (Slot){(short)V[q].it, 1, 0}; pl.weapon = V[q].it == IT_REVOLVER ? 1 : 0; pl.mag = V[q].mag; pl.flash = V[q].torch; pl.batt = 100; animId = ANIM_NONE; pl.swingT = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; pl.vy = 0; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f; }
-                if (!vSkip && k == 3) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; }
+                if (!vSkip && k == 0) { for (int ci = 0; ci < nCr; ci++) crs[ci].on = false;   // nothing wandering into the still
+                    pl.hands = (Slot){(short)V[q].it, 1, 0}; pl.weapon = V[q].it == IT_REVOLVER ? 1 : V[q].it == IT_PISTOL ? 2 : V[q].it == IT_SHOTGUN ? 3 : 0; pl.mag = pl.magP = pl.magS = V[q].mag; pl.umbOpen = false; pl.umbK = 0; vmSpray = false; pl.watchT = 0; for (int i = 0; i < nCr; i++) crs[i].on = false;   /* nothing walks into the still */ pl.flash = V[q].torch; pl.batt = 100; animId = ANIM_NONE; pl.swingT = 0; pl.kick = 0; pl.muzzle = 0; revShotT = 9; pl.vy = 0; pl.tpitch = pl.pitch = 0.05f; pl.tyaw = pl.yaw = 0.6f; }
+                if (!vSkip && k == 3 && V[q].anim >= 100) {   // 100 a swing at a point (mag = which way), 101 umbrella open, 102 spraying, 103 a throw
+                    if (V[q].anim == 100 || V[q].anim == 103) { pl.swingDur = 0.6f; pl.swingT = pl.swingDur * (1 - V[q].at); pl.hitDone = true; vmSwingN = V[q].mag; }
+                    if (V[q].anim == 101) { pl.umbOpen = true; pl.umbK = 1; }
+                    if (V[q].anim == 102) vmSpray = true;
+                    if (V[q].anim == 104) { if (mangaVol != V[q].mag) mangaRegen(V[q].mag); pl.watchKind = 2; pl.watchT = MANGA_T - V[q].at; } }
+                if (!vSkip && k == 3 && V[q].anim < 100) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; }
                     if (!strcmp(V[q].nm, "vm_hitmarker")) { hitMarkT = 0.3f; hitMarkKind = 2; }
                     if (V[q].shot >= 0) { revShotT = V[q].shot; pl.kick = fmaxf(0, 1 - V[q].shot * 6); pl.muzzle = V[q].shot < 0.07f ? 0.2f : 0; } }
                 if (!vSkip && k == 4) { char nm[64]; snprintf(nm, sizeof nm, "%s.png", V[q].nm); TakeScreenshot(nm); } } }
+        }
+        {   // feature test: KIRI_FEAT=1 sets up a generator, two lamps, bodies, a fire pool, a thrown rock and firecracker, then photographs them (KIRI_RAIN for rain)
+            static int ft = -1; static Vector3 base; if (ft < 0) ft = getenv("KIRI_FEAT") ? 1 : 0;
+            if (ft == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 21; cht.frozenTod = 21;
+                for (int i = 0; i < nCr; i++) crs[i].on = false;
+                pl.back = (Slot){IT_HIKEPACK, 1, 0}; invAdd(IT_HAMMER, 1); invAdd(IT_SCRAP, 8); invAdd(IT_NAILS, 30); invAdd(IT_BATTERY, 6); invAdd(IT_PLANKS, 6); invAdd(IT_FUEL, 2); invAdd(IT_KEY, 1);
+                base = V3(SPAWN_X + 6, 0, SPAWN_Z + 6);
+                { float bd = 1e9f; for (float dz = -90; dz <= 90; dz += 3) for (float dx = -90; dx <= 90; dx += 3) { float x = SPAWN_X + dx, z = SPAWN_Z + dz, g = groundAt(V3(x, 40, z), 0.3f, 60);   // an open, level spot near the spawn
+                    if (g < -50 || !pointFree(x, z, 6.5f, g + 0.05f) || !pointFree(x, z - 5, 2.0f, g + 0.05f) || fabsf(groundAt(V3(x, g + 2, z + 6), 0.3f, 4) - g) > 0.4f || fabsf(groundAt(V3(x, g + 2, z - 5), 0.3f, 4) - g) > 0.4f) continue;
+                    float d = dx * dx + dz * dz; if (d < bd) { bd = d; base = V3(x, 0, z); } } TraceLog(LOG_INFO, "FEAT spot %.1f %.1f", base.x, base.z); } pl.pos = base; pl.pos.y = groundAt(V3(base.x, 30, base.z), 0.3f, 40) + 0.05f; pl.vy = 0; pl.tyaw = pl.yaw = 0; pl.tpitch = pl.pitch = 0; }
+            if (ft == 1 && frame >= 6 && frame <= 8) { const int K[3] = {BK_GENERATOR, BK_LAMP, BK_LAMP}; const float Y[3] = {0, 1.0f, -1.0f}; int n0 = nBuild;
+                pl.tyaw = pl.yaw = Y[frame - 6]; pl.buildKind = K[frame - 6]; pl.build = true; bkRot = 0; placeBuild(); pl.build = false;
+                TraceLog(LOG_INFO, "FEAT build %s placed %d msg '%s'", bkName[K[frame - 6]], nBuild > n0, msg); }
+            if (ft == 1 && frame == 9) { int g = -1; for (int i = 0; i < nBuild; i++) if (builds[i].alive && builds[i].kind == BK_GENERATOR) g = i;
+                if (g >= 0) { int f0 = invCount(IT_FUEL); invTake(IT_FUEL, 1); builds[g].fuel += 600; builds[g].open = true; TraceLog(LOG_INFO, "FEAT generator fuel %.0f running %d (petrol %d -> %d)", builds[g].fuel, genRunning(&builds[g]), f0, invCount(IT_FUEL)); }
+                Vector3 f = V3(0, 0, 1), sd = V3(1, 0, 0);
+                Vector3 p1 = Vector3Add(pl.pos, Vector3Add(Vector3Scale(f, 3.2f), Vector3Scale(sd, -1.2f))); p1.y = groundAt(V3(p1.x, pl.pos.y + 1, p1.z), 0.3f, 3) + 0.02f;
+                int b1 = addCont(CK_BODY, p1, 0.4f, 0, false); if (b1 >= 0) conts[b1].var = 1;
+                Vector3 p2 = Vector3Add(pl.pos, Vector3Add(Vector3Scale(f, 4.0f), Vector3Scale(sd, 1.4f))); p2.y = groundAt(V3(p2.x, pl.pos.y + 1, p2.z), 0.3f, 3) + 0.02f;
+                int b2 = addCont(CK_BODY, p2, 1.9f, 15, false); if (b2 >= 0) conts[b2].var = 100 + MAX_CR - 1;
+                lootFill(&conts[b1]); lootFill(&conts[b2]); { char tb[200] = ""; for (int k = 0; k < 2; k++) { Cont *c = &conts[k ? b2 : b1]; for (int j = 0; j < CSLOTS; j++) if (c->s[j].t >= 0) strncat(tb, TextFormat("%s%s x%d", tb[0] ? ", " : "", idef[c->s[j].t].name, c->s[j].n), sizeof tb - strlen(tb) - 1); strncat(tb, " | ", sizeof tb - strlen(tb) - 1); }
+                    TraceLog(LOG_INFO, "FEAT bodies: victim / riot creature carry: %s", tb); }
+                startBlaze(Vector3Add(pl.pos, Vector3Add(Vector3Scale(f, 6.0f), Vector3Scale(sd, -3.0f))), true);
+                pl.hands = (Slot){IT_ROCK, 3, 0}; throwHeld(Vector3Add(pl.pos, V3(0, 1.6f, 0)), Vector3Normalize(V3(0.3f, 0.25f, 1)));
+                pl.hands = (Slot){IT_FIRECRACKER, 1, 0}; throwHeld(Vector3Add(pl.pos, V3(0, 1.6f, 0)), Vector3Normalize(V3(-0.2f, 0.3f, 1)));
+                pl.hands = (Slot){-1, 0, 0}; pl.swingT = 0; }
+            static int featCr = -1;
+            if (ft == 1 && frame == 20) cht.on[CH_PEACE] = true;
+            if (ft == 1 && frame == 12) { cht.on[CH_PEACE] = false; featCr = spawnAt(Vector3Add(base, V3(-2.5f, 0, 5.5f)), 15, false); if (featCr >= 0) { crs[featCr].stun = 99; crDamage(featCr, 99, false); } }
+            if (ft == 1 && frame == 59) { int nb = 0, nv = 0; for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_BODY) { if (conts[i].var >= 100) nb++; else nv++; }
+                TraceLog(LOG_INFO, "FEAT bodies in the world: %d placed (victims, police, doctors), %d from kills (the riot officer killed at frame 12: %s)", nv, nb, featCr >= 0 ? "yes" : "no spawn"); }
+            if (ft == 1 && frame == 60) { int pw = 0; for (int i = 0; i < lightPwN; i++) pw += lightPw[i]; int piles = 0; for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_PILE && conts[i].s[0].t == IT_ROCK) piles++;
+                int lamps = 0; for (int i = 0; i < nBuild; i++) if (builds[i].alive && builds[i].kind == BK_LAMP && builds[i].light > 0 && lights[builds[i].light].mode == 0) lamps++;
+                int bz = 0; for (int i = 0; i < MAX_BLAZE; i++) bz += blazes[i].on; int th = 0; for (int i = 0; i < MAX_THROW; i++) th += throws[i].on;
+                TraceLog(LOG_INFO, "FEAT power: %d lights switched on by the generator, %d lamps lit | rock piles %d | fire pools %d | things still thrown/fizzing %d | rain %.2f wet %.1f roof %d", pw, lamps, piles, bz, th, rainK, pl.wet, pl.roof);
+                pl.pos = Vector3Add(base, V3(0.5f, 0, -4.5f)); pl.pos.y = groundAt(V3(pl.pos.x, 30, pl.pos.z), 0.3f, 40) + 0.05f; pl.tyaw = pl.yaw = 0.05f; pl.tpitch = pl.pitch = -0.2f; }
+            if (ft == 1 && frame == 75) TakeScreenshot("feat_night.png");
+            if (ft == 1 && frame == 76) { pl.tod = 12; cht.frozenTod = 12; }
+            if (ft == 1 && frame == 95) { TakeScreenshot("feat_day.png");
+                pl.sl[0] = (Slot){IT_KNIFE, 1, 0}; pl.sl[1] = (Slot){IT_FOOD, 3, 0}; pl.wear[1] = (Slot){IT_COAT, 1, 0}; int n0 = nCont; dropPlayerBody();
+                int items = 0; if (nCont > n0 || conts[n0 - 1].kind == CK_BODY) { for (int i = nCont - 1; i >= 0; i--) if (conts[i].on && conts[i].kind == CK_BODY && conts[i].var == 4) { for (int j = 0; j < CSLOTS; j++) if (conts[i].s[j].t >= 0) items += conts[i].s[j].n; break; } }
+                TraceLog(LOG_INFO, "FEAT player body holds %d items, hands now %d, coat slot %d, wet %.1f", items, pl.hands.t, pl.wear[1].t, pl.wet); }
+            if (ft == 1 && frame == 100) { TraceLog(LOG_INFO, "FEAT done"); break; }
         }
         {   // walk test: KIRI_WALK=1 walks the player (real physics) down the whole touge into town, along the coast road and every avenue
             static int wk = -1, walkTun = -1; static Vector3 route[20000]; static int nR = 0, ri0 = 0, seg[64], nSeg = 0, stuck = 0, falls = 0, jumps = 0, shots = 0; static float prog = 0, distSinceShot = 0, stuckT = 0; static Vector3 lastP;
@@ -2385,6 +2504,17 @@ int main(int argc, char **argv) {
                 if (mpRole == 2 && gameActive && frame % 60 == 0) { pl.pos = V3(SPAWN_X + 3, SIDEH + 0.1f, SPAWN_Z); pl.vy = 0; pl.tyaw = pl.yaw = -PI / 2; pl.tpitch = pl.pitch = 0; }
                 if (mpRole == 1 && frame == 260) { pl.tyaw = pl.yaw = PI / 2; pl.tpitch = pl.pitch = 0; }
                 if (mpRole == 1 && frame == 420 && wi >= 0) { breakWindow(&ops[wi]); lootFill(&conts[ci]); conts[ci].s[0] = (Slot){IT_KATANA, 1, 0}; ch0 = contHash(&conts[ci]); TraceLog(LOG_INFO, "MPTEST host broke window %d and put a katana in container %d", wi, ci); }
+                {   static int di = -1;   // 0.9.1: a locked door unlocked, a coat and a pistol, a fire pool - all seen by the other machine
+                    if (frame == 430 && di < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_DOOR && ops[i].locked) { di = i; break; }
+                    if (mpRole == 1 && frame == 440 && di >= 0) { ops[di].locked = false; ops[di].state = 0; if (ops[di].sid >= 0) sol[ops[di].sid].off = true; pl.wear[1] = (Slot){IT_COAT, 1, 0}; pl.hands = (Slot){IT_PISTOL, 1, 0};
+                        startBlaze(Vector3Add(pl.pos, V3(3, 0, 3)), true); netFx(1, Vector3Add(pl.pos, V3(3, 0, 3))); TraceLog(LOG_INFO, "MPTEST host unlocked door %d, wears a coat, holds a pistol, lit a fire pool", di); }
+                    if (mpRole == 2 && frame == 710) { int bz = 0; for (int i = 0; i < MAX_BLAZE; i++) bz += blazes[i].on;
+                        TraceLog(LOG_INFO, "MPTEST client sees door %d locked %d state %d | host wears body item %d (coat %d), holds %d (pistol %d) | fire pools %d | rain %.2f", di, di >= 0 ? ops[di].locked : -1, di >= 0 ? ops[di].state : -1, rps[0].wear[1], IT_COAT, rps[0].held, IT_PISTOL, bz, rainK); }
+                    if (mpRole == 2 && frame == 711) { Vector3 d = Vector3Subtract(rps[0].pos, pl.pos); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.08f; }
+                    if (mpRole == 2 && frame == 716) TakeScreenshot("mp_gear.png");
+                    if (mpRole == 2 && frame == 718) { float hy = rps[0].yaw; Vector3 sd = V3(cosf(hy), 0, -sinf(hy)); pl.pos = Vector3Add(rps[0].pos, Vector3Add(Vector3Scale(sd, 2.2f), V3(sinf(hy) * 0.8f, 0, cosf(hy) * 0.8f))); pl.vy = 0;
+                        Vector3 d = Vector3Subtract(rps[0].pos, pl.pos); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.1f; TraceLog(LOG_INFO, "MPTEST host yaw %.2f held %d", hy, rps[0].held); }
+                    if (mpRole == 2 && frame == 724) TakeScreenshot("mp_gear_side.png"); }
                 if (mpRole == 2 && frame == 700) { lootFill(&conts[ci]); TraceLog(LOG_INFO, "MPTEST client sees window %d state %d (1 = broken), container %d first slot item %d (katana %d), solid off %d", wi, ops[wi].state, ci, conts[ci].s[0].t, IT_KATANA, ops[wi].sid >= 0 ? sol[ops[wi].sid].off : -1); }
                 if (frame == 640) { int n = 0; for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { n++; TraceLog(LOG_INFO, "MPTEST %s sees player %d '%s' at %.1f %.1f %.1f alive %d", mpRole == 1 ? "host" : "client", k, rps[k].name, rps[k].pos.x, rps[k].pos.y, rps[k].pos.z, rps[k].alive); }
                     int cr = 0; for (int i = 0; i < nCr; i++) if (crs[i].on) cr++; TraceLog(LOG_INFO, "MPTEST %s: %d other players, %d creatures, slot %d, tod %.2f", mpRole == 1 ? "host" : "client", n, cr, mySlot, pl.tod); }
@@ -2486,7 +2616,7 @@ int main(int argc, char **argv) {
             if (netMode == NM_CLIENT) netClientCreatures(dt); else if (!shotMode || frame > 44) updateCreatures(dt, aim);
             if (evacOn) { evacT -= dt; if (evacT <= 0) { state = ST_WIN; EnableCursor(); prof.wins++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; } }
             if (pl.hp <= 0 && shotMode) TraceLog(LOG_INFO, "SHOT: died at frame %d pos %.1f %.1f %.1f", frame, pl.pos.x, pl.pos.y, pl.pos.z);
-            if (pl.hp <= 0 && netMode != NM_OFF) { state = ST_DEAD; EnableCursor(); prof.deaths++; profSave(); play(sScreech, 1); }   // in a session the town goes on: respawn
+            if (pl.hp <= 0 && netMode != NM_OFF) { dropPlayerBody(); state = ST_DEAD; EnableCursor(); prof.deaths++; profSave(); play(sScreech, 1); }   // in a session the town goes on: respawn
             else if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
             }
         } else {
@@ -2498,6 +2628,7 @@ int main(int argc, char **argv) {
             else if (netMode == NM_CLIENT && gameActive) netClientCreatures(dt);
         }
         netUpdate(dt);
+        updateExtras(dt, eye, aim);
         updateFX(dt, eye);
         Vector3 shake = V3(fr(-1, 1) * pl.shake * 0.13f * gs.shake, fr(-1, 1) * pl.shake * 0.13f * gs.shake, 0);
         cam.position = Vector3Add(eye, shake);
@@ -2521,6 +2652,7 @@ int main(int argc, char **argv) {
             }
             Vector3 fc = Vector3Lerp(dark, sky, wk);
             amb = Lerp(amb, 0.95f, wk); fogD = Lerp(fogD, 0.009f, wk);
+            if (cam.position.y > -5) { amb *= 1 - 0.2f * rainK; fogD *= 1 + 0.55f * rainK; fc = Vector3Lerp(fc, (Vector3){fc.x * 0.78f, fc.y * 0.84f, fc.z * 0.9f}, rainK); }   // rain: darker, closer
             amb *= gs.bright; fogD *= gs.fog;
             fogc[0] = fc.x; fogc[1] = fc.y; fogc[2] = fc.z; fogC = (Color){(unsigned char)(fc.x * 255), (unsigned char)(fc.y * 255), (unsigned char)(fc.z * 255), 255};
             SetShaderValue(sh, locFog, fogc, SHADER_UNIFORM_VEC3);
@@ -2739,7 +2871,7 @@ int main(int argc, char **argv) {
                 int si = nBuild++; Vector3 sp = Vector3Add(pl.pos, V3(-3, 0, 4)); builds[si] = (Build){V3(sp.x - 0.55f, sp.y, sp.z - 0.55f), V3(sp.x + 0.55f, sp.y + 0.25f, sp.z + 0.55f), -1, BK_SPIKES, 6, 6, true, false, 0, -1};
                 int vc = spawnAt(V3(sp.x, sp.y, sp.z), 0, false); if (vc >= 0) { crs[vc].stun = 99; TraceLog(LOG_INFO, "T_SPIKES victim hp before %.2f", crs[vc].hp); }
                 pl.yaw = pl.tyaw = -PI / 2; Vector3 e = Vector3Add(pl.pos, V3(0, 1.6f, 0)), a = Vector3Normalize(Vector3Subtract(V3(gp.x, gp.y + 0.2f, gp.z), e));
-                int d0 = invCount(IT_DAIKON); survPrompt(e, a, true); TraceLog(LOG_INFO, "T_GARDEN harvest: daikon %d -> %d, replantable %d", d0, invCount(IT_DAIKON), builds[gi].open);
+                int d0 = invCount(IT_DAIKON); TraceLog(LOG_INFO, "T_GARDEN facing water %d garden %d (gi %d)", facingWater(a), facingBuild(e, a, 2.4f, BK_GARDEN), gi); survPrompt(e, a, true); TraceLog(LOG_INFO, "T_GARDEN harvest: daikon %d -> %d, replantable %d msg %s", d0, invCount(IT_DAIKON), builds[gi].open, msg);
             }
             if (frame == 800) { for (int i = 0; i < nBuild; i++) if (builds[i].kind == BK_SPIKES) TraceLog(LOG_INFO, "T_SPIKES trap uses left %.0f", builds[i].hp);
                 for (int i = 0; i < nCr; i++) if (crs[i].on) TraceLog(LOG_INFO, "T_SPIKES creature %d hp %.2f state %d", crs[i].type, crs[i].hp, crs[i].state);
@@ -2811,7 +2943,7 @@ int main(int argc, char **argv) {
             if (frame == 973) { forceGuard = false; pl.hands = (Slot){-1, 0, 0}; animUse(ANIM_EAT, IT_FOOD); }
             if (frame == 980) animT = animDur * 0.45f;
             if (frame == 982) TakeScreenshot("shot_eat.png");
-            if (frame == 990) { animId = ANIM_NONE; pl.watchKind = 2; pl.watchT = 5; }
+            if (frame == 990) { animId = ANIM_NONE; pl.watchKind = 2; pl.watchT = 7; }
             if (frame == 1004) { TakeScreenshot("shot_manga.png"); Image mi = LoadImageFromTexture(mangaRT.texture); ExportImage(mi, "dbg_manga.png"); UnloadImage(mi); }
             if (frame == 1012) { pl.watchT = 0; pl.watchKind = 0; pl.hands = (Slot){IT_REVOLVER, 1, 0}; pl.mag = 3; animPlay(ANIM_RELOAD); }
             if (frame == 1018) animT = animDur * 0.4f;

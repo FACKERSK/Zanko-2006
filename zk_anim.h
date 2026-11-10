@@ -63,6 +63,31 @@ static void drawArm(Matrix B, Vector3 wrist, Vector3 shoulder) {
     Matrix M = MatrixMultiply(A, B);
     ADRAW("viewmodels/sleeve2", M, WHITE, BX(T_CLOTH, 0, 0, 0.55f, 1.0f, 1.0f, 0.9f, ((Color){124, 130, 146, 255})), BX(T_CLOTH, 0, 0, 0.06f, 1.12f, 1.12f, 0.12f, ((Color){92, 97, 110, 255})));
 }
+// ---- muzzle flashes: each gun its own shape, a new random turn for every shot. M: origin at the muzzle, local -z out of the barrel.
+// kind 0 revolver: a five-point star and a spit of fire from the cylinder gap; 1 pistol: a tight four-point cross;
+// 2 shotgun: two cores (over and under), a wide eight-point burst, a long tongue of flame and sparks
+static void drawMuzzleFlash(Matrix M, int kind, float k, unsigned int seed) {
+    if (k <= 0) return;
+    unsigned int r = seed * 2654435761u + 7u; if (!r) r = 1;
+    #define FR() ((r ^= r << 13, r ^= r >> 17, r ^= r << 5), (float)(r & 0xffff) / 65535.0f)
+    int n = kind == 2 ? 8 : kind == 1 ? 4 : 5; float sz = (kind == 2 ? 1.9f : kind == 1 ? 0.8f : 1.1f) * (0.55f + 0.45f * k), roll = FR() * 2 * PI;
+    setEmis(1);
+    for (int i = 0; i < n; i++) { float ang = roll + i * 2 * PI / n + (FR() - 0.5f) * 0.4f, L = (0.05f + 0.06f * FR()) * sz, w = 0.012f * sz;
+        Matrix S = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(w, L, w), MatrixRotateX(-0.55f)), MatrixRotateZ(ang)), M);
+        ADRAW("viewmodels/flash_spike", S, ((i & 1) ? (Color){255, 170, 70, 255} : (Color){255, 214, 120, 255}), BX(T_PLAIN, 0, 0.5f, 0, 1, 1, 1, CWH)); }
+    int cores = kind == 2 ? 2 : 1;
+    for (int c = 0; c < cores; c++) { float oy = kind == 2 ? (c ? -0.02f : 0.02f) : 0, cw = 0.035f * sz;
+        Matrix C = MatrixMultiply(MatrixMultiply(MatrixScale(cw, cw, cw * 1.4f), MatrixRotateZ(roll)), MatrixMultiply(MatrixTranslate(0, oy, -cw * 0.5f), M));
+        ADRAW("viewmodels/flash_core", C, ((Color){255, 248, 220, 255}), BX(T_PLAIN, 0, 0, 0, 1, 1, 1, CWH)); }
+    {   float Lc = (kind == 2 ? 0.34f : kind == 1 ? 0.09f : 0.16f) * (0.6f + 0.4f * FR()) * k, wc = (kind == 2 ? 0.05f : 0.022f) * sz;   // the tongue out of the barrel
+        ADRAW("viewmodels/flash_tongue", MatrixMultiply(MatrixMultiply(MatrixScale(wc, wc, Lc), MatrixRotateZ(roll)), M), ((Color){255, 190, 90, 255}), BX(T_PLAIN, 0, 0, -0.5f, 1, 1, 1, CWH)); }
+    if (kind == 0) for (int sd = -1; sd <= 1; sd += 2)   // the cylinder gap spits sideways, back along the barrel
+        ADRAW("viewmodels/flash_gap", MatrixMultiply(MatrixMultiply(MatrixScale(0.03f * k, 0.012f, 0.012f), MatrixTranslate(sd * 0.025f, -0.004f, 0.17f)), M), ((Color){255, 200, 110, 255}), BX(T_PLAIN, 0, 0, 0, 1, 1, 1, CWH));
+    if (kind == 2) for (int i = 0; i < 6; i++) { float ax = (FR() - 0.5f) * 0.3f, ay = (FR() - 0.5f) * 0.3f, d = 0.15f + FR() * 0.3f;   // sparks of burning powder
+        ADRAW("viewmodels/flash_spark", MatrixMultiply(MatrixMultiply(MatrixScale(0.008f, 0.008f, 0.008f), MatrixTranslate(ax * d * 3, ay * d * 3, -d * k)), M), ((Color){255, 230, 150, 255}), BX(T_PLAIN, 0, 0, 0, 1, 1, 1, CWH)); }
+    setEmis(0);
+    #undef FR
+}
 static Matrix handM(Matrix B, HandP h) { return frameM(B, h.p, h.r.x, h.r.y, h.r.z); }
 static void drawHand(Matrix B, HandP h, bool right) {
     if (!h.vis) return;
@@ -72,20 +97,72 @@ static void drawHand(Matrix B, HandP h, bool right) {
     drawHandAsset(H, right, h.grip);
 }
 // the manga, held open: two pages, and one turning when a flip is under way
-static void drawManga(Matrix B, Vector3 c, float tilt, float flip, int page) {
-    float W = 0.13f, Hh = 0.18f; Matrix Mb = frameM(B, c, tilt, 0, 0);
-    ADRAW("viewmodels/manga_cover", Mb, WHITE, BX(T_PAPER, 0, 0, -0.005f, W * 2 + 0.012f, Hh + 0.01f, 0.006f, ((Color){180, 40, 40, 255})));
-    Texture2D t = mangaRT.texture; int pL = page % MANGA_PAGES, pR = (page + 1) % MANGA_PAGES, pN = (page + 2) % MANGA_PAGES, pB = (page + 3) % MANGA_PAGES;
-    #define PT(X, Y) Vector3Transform(V3(X, Y, 0), Mb)
+// one leaf turning about the spine: angle a (0 lying on the right, PI on the left), the spine end at height pz, curled toward the edge.
+// front = the page facing up while it lies on the right, back = the page that faces up once it lands on the left (-1: blank paper)
+static void mangaLeaf(Matrix Mb, float a, float pz, float curl, int front, int back, float W, float Hh, Color tint) {
+    Texture2D tx = mangaRT.texture; Vector3 P[5]; float x = 0, z = pz; P[0] = V3(0, 0, pz);
+    for (int k = 0; k < 4; k++) { float an = a + curl * (k + 0.5f) / 4.0f; x += cosf(an) * W / 4; z += sinf(an) * W / 4; P[k + 1] = V3(x, 0, fmaxf(z, pz * 0.5f)); }
+    bool showFront = (a + curl * 0.5f) < PI / 2;
+    int pg = showFront ? front : back;
+    for (int k = 0; k < 4; k++) {
+        Vector3 a0 = Vector3Transform(V3(P[k].x, Hh / 2, P[k].z), Mb), a1 = Vector3Transform(V3(P[k + 1].x, Hh / 2, P[k + 1].z), Mb);
+        Vector3 b0 = Vector3Transform(V3(P[k].x, -Hh / 2, P[k].z), Mb), b1 = Vector3Transform(V3(P[k + 1].x, -Hh / 2, P[k + 1].z), Mb);
+        Rectangle src = pg < 0 ? (Rectangle){0, 0, 1, 1} : showFront ? (Rectangle){pg * MANGA_PW + MANGA_PW * k / 4.0f, 0, MANGA_PW / 4.0f, MANGA_PH} : (Rectangle){pg * MANGA_PW + MANGA_PW * (3 - k) / 4.0f, 0, MANGA_PW / 4.0f, MANGA_PH};
+        Color tn = tint; if (!showFront) { tn.r = (unsigned char)(tn.r * 0.9f); tn.g = (unsigned char)(tn.g * 0.9f); tn.b = (unsigned char)(tn.b * 0.88f); }   // the underside is in shade
+        Texture2D use = pg < 0 ? (Texture2D){rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8} : tx;   // blank paper: plain white, tinted
+        if (showFront) texQuad(use, a0, a1, b1, b0, src, tn, true); else texQuad(use, a1, a0, b0, b1, src, tn, true);
+    }
+}
+// the book in the hands at time T (0 .. MANGA_T): it comes up closed, the cover swings open, pages turn with a fan of leaves behind each, it closes
+static void drawManga(Matrix B, Vector3 c, float tilt, float T) {
+    const float W = 0.12f, Hh = 0.18f, TH = 0.014f, CV = 0.003f;   // page width, height, page-block thickness, board thickness
+    const float flipAt[3] = {1.9f, 3.25f, 4.6f}, flipDur = 0.75f;
+    float openK = ez(ph(T, 0.55f, 1.35f)) * (1 - ez(ph(T, 5.75f, 6.45f)));   // the cover: 0 shut, 1 open flat
+    int done = 0; float fl = -1; int fi = -1;
+    for (int k = 0; k < 3; k++) { if (T >= flipAt[k] + flipDur) done++; else if (T >= flipAt[k]) { fl = (T - flipAt[k]) / flipDur; fi = k; } }
+    int sp = done;   // spread on show: left page 2*sp-1 (the inside cover before the first turn), right page 2*sp
+    float moved = (done + (fl > 0 ? ez(fl) : 0)) / 3.0f * 0.55f;   // share of the block that has gone over to the left
+    float thL = TH * moved, thR = TH * (1 - moved);
+    if (T > 5.75f) { float back = ez(ph(T, 5.75f, 6.45f)); thL *= 1 - back; thR = TH - thL; }   // closing: it all comes back together
+    float shift = -W * 0.5f * (1 - openK);   // shut, the book is centred in the hands; open, the spine is
+    Matrix Mb = frameM(B, Vector3Add(c, V3(0, 0, 0)), tilt, 0, 0); Mb = MatrixMultiply(MatrixTranslate(shift, 0, 0), Mb);
+    Color paper = {236, 232, 222, 255};
     rlDrawRenderBatchActive(); setEmis(0);
-    texQuad(t, PT(-W, Hh / 2), PT(0, Hh / 2), PT(0, -Hh / 2), PT(-W, -Hh / 2), (Rectangle){(float)pL * MANGA_PW, 0, MANGA_PW, MANGA_PH}, WHITE, true);
-    texQuad(t, PT(0, Hh / 2), PT(W, Hh / 2), PT(W, -Hh / 2), PT(0, -Hh / 2), (Rectangle){(float)(flip > 0 ? pN : pR) * MANGA_PW, 0, MANGA_PW, MANGA_PH}, WHITE, true);
-    if (flip > 0) {   // the turning leaf rotates about the spine, front then back
-        float a = flip * PI, cx = cosf(a) * W, cz = sinf(a) * W * 0.6f;
-        Vector3 t0 = Vector3Transform(V3(0, Hh / 2, 0.002f), Mb), t1 = Vector3Transform(V3(cx, Hh / 2, cz + 0.002f), Mb), b1 = Vector3Transform(V3(cx, -Hh / 2, cz + 0.002f), Mb), b0 = Vector3Transform(V3(0, -Hh / 2, 0.002f), Mb);
-        texQuad(t, t0, t1, b1, b0, (Rectangle){(float)(flip < 0.5f ? pR : pB) * MANGA_PW, 0, MANGA_PW, MANGA_PH}, flip < 0.5f ? WHITE : (Color){220, 220, 215, 255}, true);
+    // the back board and the right-hand page block
+    ADRAW("viewmodels/manga_back", Mb, WHITE, BX(T_PAPER, W / 2 + 0.002f, 0, -CV / 2, W + 0.008f, Hh + 0.01f, CV, ((Color){30, 26, 26, 255})));
+    ADRAW("viewmodels/manga_block", MatrixMultiply(MatrixMultiply(MatrixScale(1, 1, fmaxf(thR, 0.0005f) / 0.01f), MatrixTranslate(W / 2, 0, fmaxf(thR, 0.0005f) / 2)), Mb), WHITE, BX(T_PAPER, 0, 0, 0, W, Hh, 0.01f, paper));
+    ADRAW("viewmodels/manga_spine", Mb, WHITE, BX(T_PAPER, -0.001f, 0, TH / 2, 0.004f, Hh + 0.01f, TH + CV * 2, ((Color){40, 34, 34, 255})));
+    Texture2D tx = mangaRT.texture;
+    #define PT(X, Y, Z) Vector3Transform(V3(X, Y, Z), Mb)
+    // the right page on top of the block
+    if (openK > 0.02f) texQuad(tx, PT(0, Hh / 2, thR + 0.0006f), PT(W, Hh / 2, thR + 0.0006f), PT(W, -Hh / 2, thR + 0.0006f), PT(0, -Hh / 2, thR + 0.0006f),
+                               (Rectangle){(float)((2 * sp + (fl > 0 ? 2 : 0)) % (MANGA_PAGES - 1)) * MANGA_PW, 0, MANGA_PW, MANGA_PH}, WHITE, true);
+    // the left-hand block and page, lying on the open cover
+    if (openK > 0.5f) {
+        if (thL > 0.0004f) ADRAW("viewmodels/manga_blockL", MatrixMultiply(MatrixMultiply(MatrixScale(1, 1, thL / 0.01f), MatrixTranslate(-W / 2, 0, thL / 2)), Mb), WHITE, BX(T_PAPER, 0, 0, 0, W, Hh, 0.01f, paper));
+        int lp = sp == 0 ? -1 : (2 * sp - 1) % (MANGA_PAGES - 1);
+        Rectangle src = lp < 0 ? (Rectangle){0, 0, 1, 1} : (Rectangle){(float)lp * MANGA_PW, 0, MANGA_PW, MANGA_PH};
+        texQuad(lp < 0 ? (Texture2D){rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8} : tx, PT(-W, Hh / 2, thL + 0.0006f), PT(0, Hh / 2, thL + 0.0006f), PT(0, -Hh / 2, thL + 0.0006f), PT(-W, -Hh / 2, thL + 0.0006f), src, lp < 0 ? (Color){214, 206, 190, 255} : WHITE, true);
+    }
+    // the turning leaf, and two or three thin leaves fanned behind it
+    if (fl > 0) {
+        float a = ez(fl) * PI, pz = Lerp(thR, thL, ez(fl)) + 0.001f, curl = -0.7f * sinf(a);
+        for (int f = 3; f >= 1; f--) { float lag = ph(fl, 0.08f * f, 1), af = ez(lag) * PI, pf = Lerp(thR, thL, ez(lag)) + 0.0008f;   // the fan
+            if (lag > 0.01f && lag < 0.99f) mangaLeaf(Mb, af, pf - 0.0003f * f, -0.4f * sinf(af), -1, -1, W * (0.97f - 0.01f * f), Hh * 0.995f, paper); }
+        mangaLeaf(Mb, a, pz, curl, (2 * sp) % (MANGA_PAGES - 1), (2 * sp + 1) % (MANGA_PAGES - 1), W, Hh, WHITE);
+    }
+    // the front cover: the art on the outside, plain board inside
+    {   float a = openK * PI, pz = Lerp(thR + CV, -CV, openK);
+        Vector3 e0 = V3(0, 0, pz), e1 = V3(cosf(a) * (W + 0.008f), 0, pz + sinf(a) * (W + 0.008f));
+        Vector3 t0 = PT(e0.x, Hh / 2 + 0.005f, e0.z), t1 = PT(e1.x, Hh / 2 + 0.005f, e1.z), b1 = PT(e1.x, -Hh / 2 - 0.005f, e1.z), b0 = PT(e0.x, -Hh / 2 - 0.005f, e0.z);
+        if (a < PI / 2) texQuad(tx, t0, t1, b1, b0, (Rectangle){(MANGA_PAGES - 1) * MANGA_PW, 0, MANGA_PW, MANGA_PH}, WHITE, true);   // the cover art faces you
+        else texQuad((Texture2D){rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8}, t1, t0, b0, b1, (Rectangle){0, 0, 1, 1}, (Color){222, 214, 198, 255}, true);   // the inside of the board
     }
     #undef PT
+}
+static float mangaEdge(float T, bool left) {   // where the hands hold the book (x in the book's own frame, before the centring shift)
+    float openK = ez(ph(T, 0.55f, 1.35f)) * (1 - ez(ph(T, 5.75f, 6.45f))), W = 0.12f, shift = -W * 0.5f * (1 - openK);
+    return left ? -W * openK + shift + 0.012f : W + shift - 0.012f;
 }
 
 // ---- the viewmodel
@@ -100,6 +177,8 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     glClear(0x00000100);   // depth only: the hands never sink into walls, but sort correctly among themselves
     setEmis(0);
     int ht = pl.hands.t; bool melee = ht >= 0 && idef[ht].cat == CAT_MELEE, gun = ht == IT_REVOLVER;
+    bool gun2 = ht == IT_PISTOL || ht == IT_SHOTGUN, thr = ht >= 0 && idef[ht].cat == CAT_THROW;   // the pistol and shotgun; rocks, firecrackers, molotovs
+    int st0 = ht >= 0 ? idef[ht].style : 0;
     float u2 = animDur > 0 ? clampf(animT / animDur, 0, 1) : 1; int A = animId != ANIM_NONE && animT < animDur ? animId : ANIM_NONE;
     HandP R = {V3(0.22f, -0.25f, -0.44f), V3(-0.95f, 0.12f, -0.3f), 0, true}, L = {V3(-0.22f, -0.32f, -0.42f), V3(-0.3f, 0, 0.2f), 1, false};
     float spinX = 0, spinY = 0, itemUp = 0, spinC = 0;   // item spin inside the hand (inspect flips), and how far it is tossed up out of it
@@ -142,12 +221,16 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     // ---- idle poses per held thing
     if (pl.build) { R = (HandP){V3(0.22f, -0.25f, -0.4f), V3(-0.3f, 0, 0), 0, true}; }
     else if (gun) { R = (HandP){V3(0.15f, -0.215f, -0.36f), V3(0.04f, 0.06f, 0), 0, true}; }   // one-handed: the left hand is free for the flashlight
+    else if (ht == IT_PISTOL) { R = (HandP){V3(0.15f, -0.225f, -0.4f), V3(0.04f, 0.06f, 0), 3, true}; }   // one-handed like the revolver: the left hand is free for the flashlight
+    else if (ht == IT_SHOTGUN) { R = (HandP){V3(0.15f, -0.21f, -0.24f), V3(0.06f, 0.07f, 0), 3, true}; L.vis = false; }   // the left hand goes on the fore-end (drawn with the gun)
+    else if (thr) { R = (HandP){V3(0.2f, -0.24f, -0.4f), V3(-0.4f, 0.25f, -0.15f), 1, true}; L.vis = false; }
     else if (ht >= 0 && isConsumable(ht)) { R = (HandP){V3(0.17f, -0.23f, -0.42f), V3(-0.15f, 0.3f, -0.15f), 0, true}; L.vis = false; }   // food, a bottle or a bandage held low in the right hand
     else if (!melee) { R = (HandP){V3(0.16f, -0.175f, -0.38f), V3(-0.12f, 0.22f, -0.6f), 2, true}; L = (HandP){V3(-0.16f, -0.185f, -0.4f), V3(-0.12f, -0.22f, 0.6f), 2, true}; }   // a loose guard: knuckles forward, wrists turned in so the thumbs ride on top
     else if (heavy > 0.45f) L.vis = true;   // two-handed: the left hand grips below the right
     // two hand sets: the left holds the flashlight while it is on, the right holds fists or the weapon
     // the phone comes up from the pocket and flips open when the light goes on; folds shut and drops away when it goes off
-    static float torchK = 0; bool torchWant = pl.flash && !pl.build && !(melee && heavy > 0.45f);
+    if (melee && st0 == 5) { R.p = V3(0.2f, -0.3f, -0.3f); R.r = V3(-1.15f, 0.1f, -0.15f); L.vis = true; }   // the naginata held low and long
+    static float torchK = 0; bool torchWant = pl.flash && !pl.build && !(melee && heavy > 0.45f) && !(melee && st0 == 5);
     torchK = clampf(torchK + (torchWant ? 1.0f : -1.0f) * vdt * 3.4f, 0, 1);
     bool torch = torchK > 0.001f; float phoneOpen = ph(torchK, 0.5f, 0.95f);
     if (torch) { float e = ezOut(torchK);   // the phone, upright in the palm, screen toward you, light on the back
@@ -159,6 +242,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     float shakeHit = pl.hitStopT > 0 ? fr(-0.03f, 0.03f) : 0;
     // weapon styles: 0 blade (alternating diagonal slashes), 1 knife (stab), 2 blunt (horizontal sweep), 3 heavy (two-handed overhead chop)
     int style = ht >= 0 && idef[ht].style > 0 ? idef[ht].style - 1 : ht == IT_KATANA ? 0 : ht == IT_KNIFE ? 1 : (ht == IT_AXE || ht == IT_SLEDGE) ? 3 : 2;
+    if (style == 6) style = 3;   // the extinguisher swings like a sledge
     {   // sounds keyed to points in the animations: each fires once as the animation passes it
         static int sA = -1, sHt = -2; static float sU = 0, sShot = 9, sFall = 9, sLd = 9;
         if (A != sA || ht != sHt) sU = -1;
@@ -175,6 +259,9 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             if (AT(0.85f)) play(sCylClose, 0.75f);
             if (AT(0.91f)) play(sCock, 0.5f);
         }
+        if (A == ANIM_RELOAD && ht == IT_PISTOL) { if (AT(0.16f)) play(sClick, 0.5f); if (AT(0.3f)) play(sShell, 0.35f); if (AT(0.42f)) play(sCloth, 0.3f); if (AT(0.66f)) play(sLoader, 0.6f); if (AT(0.8f)) play(sCock, 0.6f); }
+        if (A == ANIM_RELOAD && ht == IT_SHOTGUN) { if (AT(0.12f)) play(sCylOpen, 0.7f); if (AT(0.22f)) play(sEject, 0.6f); if (AT(0.3f)) play(sShell, 0.45f); if (AT(0.5f)) play(sClick, 0.4f); if (AT(0.62f)) play(sClick, 0.4f); if (AT(0.83f)) play(sCylClose, 0.85f); }
+        if (A == ANIM_EQUIP && gun2 && AT(0.5f)) play(sCock, 0.4f);
         if (A == ANIM_INSPECT) {
             if (gun) { if (AT(0.05f)) play(sCock, 0.25f); if (AT(0.16f)) play(sCylOpen, 0.55f); if (AT(0.25f)) play(sSpin, 0.55f); if (AT(0.61f)) play(sCylClose, 0.7f); if (AT(0.91f)) play(sCock, 0.45f); }
             else if (melee && style == 0) { if (AT(0.05f)) play(sCloth, 0.3f); if (AT(0.2f)) play(sBlade, 0.35f); if (AT(0.48f)) play(sBlade, 0.25f); if (AT(0.64f)) play(sBlade, 0.2f); }
@@ -193,8 +280,9 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     }
     static float prevSw = 0; static int swingN = 0, lastKills = -1;
     if (pl.swingT > prevSw + 0.02f) swingN++;   // a new swing started: combos alternate direction
+    if (vmSwingN >= 0) swingN = vmSwingN;
     prevSw = pl.swingT;
-    if (lastKills >= 0 && pl.kills > lastKills && ht == IT_KATANA && A == ANIM_NONE) animPlay(ANIM_FLOURISH);   // chiburi: flick the blood off after a kill
+    if (lastKills >= 0 && pl.kills > lastKills && A == ANIM_NONE && (ht == IT_KATANA || (melee && ht != IT_FIREEXT && ht != IT_UMBRELLA && fr(0, 1) < 0.45f))) animPlay(ANIM_FLOURISH);   // chiburi, or a flip: after a kill
     lastKills = pl.kills;
     float sd = (swingN & 1) ? -1.0f : 1.0f;
     if (melee && !pl.build && pl.swingT > 0) {
@@ -209,12 +297,25 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         } else if (style == 2) {   // bat, pipe, crowbar: cock behind the right shoulder, sweep flat across
             R.p.x = 0.24f + wu * 0.12f - st * 0.5f + rc * 0.38f * post + shakeHit; R.p.y = -0.24f + wu * 0.1f - st * 0.04f; R.p.z = -0.42f + wu * 0.06f - st * 0.1f + rc * 0.1f * post;
             R.r.x = -0.95f + wu * 0.4f + st * 0.25f; R.r.y = wu * 0.9f - st * 2.0f + rc * 1.1f * post; R.r.z = -0.3f - wu * 0.4f + st * 1.3f - rc * 0.9f * post;
+        } else if (style == 4) {   // naginata: a long two-handed thrust, then a low sweep the other way
+            L.vis = true;
+            if (swingN & 1) { float th = bell(s, 0.2f, 0.62f); R.p = Vector3Add(R.p, V3(-0.08f * th + shakeHit, 0.06f * th - wu * 0.04f, -0.42f * th + wu * 0.1f)); R.r.x += 0.35f * th; }
+            else { R.p.x = 0.26f + wu * 0.14f - st * 0.62f + rc * 0.48f * post + shakeHit; R.p.y = -0.3f + wu * 0.05f - st * 0.06f; R.p.z = -0.36f - st * 0.12f + rc * 0.1f * post;
+                   R.r.x = -1.2f + wu * 0.2f + st * 0.15f; R.r.y = wu * 1.0f - st * 2.3f + rc * 1.3f * post; R.r.z = -0.2f - wu * 0.3f + st * 1.4f - rc * 1.1f * post; }
+        } else if (style == 5) {   // sickle: up and out, then hooked down and back toward the body
+            R.p.x = 0.24f + wu * 0.06f - st * 0.14f + rc * 0.1f * post + shakeHit; R.p.y = -0.25f + wu * 0.2f - st * 0.22f + rc * 0.1f * post; R.p.z = -0.44f - wu * 0.12f + st * 0.18f - rc * 0.06f * post;
+            R.r.x = -0.95f + wu * 1.2f - st * 1.9f + rc * 0.9f * post; R.r.y = -st * 0.5f + rc * 0.4f * post; R.r.z = -0.3f + wu * 0.4f - st * 0.2f;
         } else {   // axe, sledge: both hands, lifted over the head, brought straight down
             L.vis = true;
             R.p.x = 0.14f - st * 0.06f + rc * 0.06f * post + shakeHit; R.p.y = -0.25f + wu * 0.3f - st * 0.36f + rc * 0.06f * post; R.p.z = -0.4f + wu * 0.1f - st * 0.12f + rc * 0.02f * post;
             R.r.x = -0.95f + wu * 1.9f - st * 2.6f + rc * 0.7f * post; R.r.z = -0.15f + 0.1f * sw;
         }
         (void)sw;
+    } else if (thr && !pl.build && pl.swingT > 0) {   // overarm: back past the ear, then out and down with the release
+        float back = bell(s, 0.0f, 0.3f), fw = ph(s, 0.15f, 0.55f), fall = ph(s, 0.55f, 1.0f);
+        R.p = Vector3Add(R.p, V3(0.06f * back - 0.08f * fw, 0.16f * back + 0.06f * fw - 0.18f * fall, 0.12f * back - 0.3f * fw + 0.3f * fall)); R.r.x += 1.2f * back - 1.6f * fw + 0.4f * fall;
+        R.vis = s < 0.3f || s > 0.62f;   // the hand is out of view at the end of the throw
+    } else if ((gun2 || thr) && !pl.build && pl.swingT > 0) {
     } else if (!melee && !gun && !pl.build && pl.swingT > 0) {
         float jab = bell(s, 0.15f, 0.7f); R.p.z -= jab * 0.26f; R.p.x -= jab * 0.09f; R.p.y += jab * 0.05f; R.r.x += jab * 0.25f; L.p.z += jab * 0.04f; R.p.x += shakeHit;
     }
@@ -225,6 +326,8 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         else if (!gun) { R.p = Vector3Lerp(R.p, V3(0.07f, -0.07f, -0.3f), gk); R.r.x -= gk * 0.4f;
             if (torch) L.p = Vector3Lerp(L.p, V3(-0.12f, -0.12f, -0.36f), gk); else { L.p = Vector3Lerp(L.p, V3(-0.07f, -0.08f, -0.31f), gk); L.r.x -= gk * 0.4f; } }
     }
+    if (ht == IT_UMBRELLA && pl.umbK > 0.01f) { float k = pl.umbK; R.p = Vector3Lerp(R.p, V3(0.12f, -0.2f, -0.42f), k); R.r = Vector3Lerp(R.r, V3(-0.55f, 0.0f, 0.1f), k); }   // held up and forward over the head
+    if (ht == IT_FIREEXT && sprayOn) { R.p = V3(0.24f + sinf(t * 41) * 0.003f, -0.42f, -0.44f); R.r = V3(-0.35f, 0.2f, -0.1f); L.vis = true; }   // held low at the hip, the hose pointed forward
     // ---- one-shot animations
     switch (A) {
     case ANIM_EQUIP:
@@ -242,7 +345,14 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             float e = ezBack(u2); R.p.y -= (1 - e) * 0.32f; spinX = -(1 - ez(u2 * 1.2f)) * 2 * PI; R.p.y += bell(u2, 0.2f, 0.7f) * 0.05f;
         } else { float e = ezBack(u2); R.p.y -= (1 - e) * 0.38f; R.r.x += (1 - e) * 1.1f; R.r.z -= (1 - e) * 0.5f; L.p.y -= (1 - e) * 0.38f; }
         break;
-    case ANIM_FLOURISH: if (ht == IT_KATANA) {   // chiburi: a sharp downward flick to the side, then a slow return
+    case ANIM_FLOURISH: if (ht != IT_KATANA && melee && (style == 1 || style == 2 || style == 5)) {   // a knife, club or sickle: flipped once in the hand, caught, settled
+        float a = ph(u2, 0.05f, 0.25f), e = ph(u2, 0.75f, 1); spinX = ez(ph(u2, 0.25f, 0.6f)) * 2 * PI; itemUp = bell(u2, 0.25f, 0.6f) * 0.08f; R.grip = (u2 > 0.27f && u2 < 0.58f) ? 1 : 0;
+        R.p = Vector3Lerp(R.p, V3(0.12f, -0.18f, -0.38f), a * (1 - e)); R.r.z += 0.4f * a * (1 - e);
+    } else if (ht != IT_KATANA && melee && (style == 3 || style == 4)) {   // heavy ones: rested on the shoulder a moment
+        float a = ph(u2, 0, 0.3f), e = ph(u2, 0.7f, 1); R.p = Vector3Lerp(R.p, V3(0.22f, -0.1f, -0.2f), a * (1 - e)); R.r = Vector3Lerp(R.r, V3(0.8f, 0.3f, -0.4f), a * (1 - e));
+    } else if (ht != IT_KATANA && melee) {   // other blades: the same flick as the katana, quicker
+        float f1 = ezOut(u2 / 0.2f), back = ph(u2, 0.35f, 1); R.p = Vector3Add(R.p, Vector3Scale(V3(0.07f, -0.07f, 0.03f), f1 * (1 - back))); R.r.z += (1.1f * f1) * (1 - back); R.r.x += (-0.5f * f1) * (1 - back);
+    } else if (ht == IT_KATANA) {   // chiburi: a sharp downward flick to the side, then a slow return
         float f1 = ezOut(u2 / 0.25f), back = ph(u2, 0.45f, 1);
         R.p = Vector3Add(R.p, Vector3Scale(V3(0.08f, -0.08f, 0.03f), f1 * (1 - back))); R.r.z += (1.2f * f1) * (1 - back); R.r.x += (-0.6f * f1) * (1 - back);
         R.p.x += bell(u2, 0.2f, 0.3f) * 0.015f;
@@ -292,7 +402,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             float rs = ph(u2, 0.68f, 0.76f) * (1 - ph(u2, 0.84f, 0.9f));   // then turned over to the right side
             R.r = Vector3Lerp(R.r, V3(0.1f, 0.75f, -0.5f), rs); R.p = Vector3Lerp(R.p, V3(0.1f, -0.17f, -0.36f), rs);
             R.p = Vector3Lerp(R.p, p0, e); R.r = Vector3Lerp(R.r, r0, e);
-        } else {
+        } else if (!gun2 && !thr) {
             float a = ph(u2, 0, 0.18f), crack = bell(u2, 0.2f, 0.55f), shake = bell(u2, 0.58f, 0.85f), e = ph(u2, 0.85f, 1);
             R.p = Vector3Lerp(R.p, V3(0.03f, -0.16f, -0.32f), a * (1 - e)); L.p = Vector3Lerp(L.p, V3(-0.04f, -0.16f, -0.33f), a * (1 - e));
             R.r.y -= crack * 0.6f; L.r.y += crack * 0.3f; R.p.x -= crack * 0.02f + (crack > 0.9f ? fr(-0.006f, 0.006f) : 0);
@@ -325,7 +435,27 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     } break;
     case ANIM_BUILD: { float k = bell(u2, 0, 1); R.p.y -= k * 0.06f; R.r.x -= k * 0.5f; break; }
     }
+    if (gun2 && A == ANIM_RELOAD) {
+        if (ht == IT_PISTOL) {   // canted in, the empty magazine dropped, a fresh one from the belt, slapped home, slide released
+            float a = ph(u2, 0, 0.12f), e = ph(u2, 0.86f, 1), drop = ph(u2, 0.15f, 0.3f), belt = bell(u2, 0.3f, 0.68f), slap = bell(u2, 0.62f, 0.72f), slide = bell(u2, 0.76f, 0.86f);
+            R.p = Vector3Lerp(R.p, V3(0.06f, -0.22f, -0.34f), a * (1 - e)); R.r = Vector3Lerp(R.r, V3(0.35f, -0.4f, 0.35f), a * (1 - e));
+            R.p.y += slap * 0.012f; R.r.x += slide * 0.15f;
+            L.vis = true; L.grip = 1; L.p = Vector3Lerp(V3(0.05f, -0.3f, -0.33f), V3(-0.22f, -0.6f, -0.2f), belt); L.p.y += drop * 0.0f; L.r = V3(0.6f, -0.2f, 0.4f);
+            if (u2 > 0.74f) { L.p = Vector3Lerp(V3(0.05f, -0.18f, -0.32f), L.p, 1 - slide); }
+        } else {   // the shotgun breaks open, the empties kicked out, two shells thumbed in, snapped shut
+            float a = ph(u2, 0, 0.15f), e = ph(u2, 0.85f, 1), open = ph(u2, 0.1f, 0.2f) * (1 - ph(u2, 0.8f, 0.86f)), belt = bell(u2, 0.28f, 0.72f);
+            R.p = Vector3Lerp(R.p, V3(0.1f, -0.24f, -0.3f), a * (1 - e)); R.r = Vector3Lerp(R.r, V3(-0.1f, -0.3f, 0.25f), a * (1 - e));
+            R.r.x -= open * 0.25f;   // the stock tips up as the barrels drop
+            L.vis = true; L.grip = 1; L.p = Vector3Lerp(V3(-0.02f, -0.28f, -0.5f), V3(-0.24f, -0.6f, -0.24f), belt); L.r = V3(0.5f, 0.2f, 0.3f);
+            L.p.y += bell(u2, 0.55f, 0.65f) * 0.04f;
+        }
+    }
+    if (gun2 && A == ANIM_INSPECT) {   // turned to look down the side, then over
+        float a = ph(u2, 0, 0.15f), look = bell(u2, 0.15f, 0.55f), over = bell(u2, 0.5f, 0.85f), e = ph(u2, 0.85f, 1);
+        R.p = Vector3Lerp(R.p, V3(0.06f, -0.18f, -0.32f), a * (1 - e)); R.r.y += -0.9f * look + 0.8f * over; R.r.z += 0.4f * look - 0.6f * over; R.r.x += 0.15f * look;
+    }
     if (gun) { float kk = pl.kick * pl.kick; R.p.z += pl.kick * 0.07f; R.p.y += kk * 0.03f; R.r.x += pl.kick * 0.5f; R.r.z += kk * 0.08f; }
+    if (gun2) { float kk = pl.kick * pl.kick; R.p.z += pl.kick * 0.06f; R.p.y += kk * 0.02f; R.r.x += pl.kick * 0.35f; if (L.vis) { L.p.z += pl.kick * 0.06f; L.p.y += kk * 0.02f; } }
     // ---- searching, climbing, sprinting
     if (pl.searchC >= 0) { R.vis = L.vis = true; R.grip = L.grip = 1;
         R.p = V3(0.12f + sinf(t * 9) * 0.03f, -0.27f + fabsf(sinf(t * 7)) * 0.03f, -0.5f + cosf(t * 8) * 0.03f); L.p = V3(-0.12f + cosf(t * 8.5f) * 0.03f, -0.27f + fabsf(cosf(t * 6.5f)) * 0.03f, -0.5f + sinf(t * 7.5f) * 0.03f);
@@ -337,17 +467,21 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         L.p = Vector3Add(L.p, V3(-0.02f * k, -0.07f * k + cosf(pl.bob * 2) * 0.02f * k, 0.04f * k));
     }
     R.p = Vector3Add(R.p, Vector3Add(sway, V3(bx, by, 0))); L.p = Vector3Add(L.p, Vector3Add(sway, V3(bx * 0.8f, by, 0)));
-    if (gs.centered && (gun || melee) && A != ANIM_TURNGUN) { R.p.x -= 0.1f; R.p.y += 0.02f; }   // weapon in the middle of the view
+    if (gs.centered && (gun || gun2 || melee) && A != ANIM_TURNGUN) { R.p.x -= 0.1f; R.p.y += 0.02f; }   // weapon in the middle of the view
     R.r.z += pl.swayX * 1.5f; L.r.z += pl.swayX * 1.5f;
     R.r.z -= vmRoll * 0.09f; L.r.z -= vmRoll * 0.09f; R.p.x -= vmRoll * 0.008f; L.p.x -= vmRoll * 0.008f;   // lean into a strafe
     R.p.z += vmPushZ * 0.05f; L.p.z += vmPushZ * 0.05f;   // inertia when you start or stop
     R.r.y += pl.swayX * 0.6f; R.r.x -= pl.swayY * 0.8f;   // and the weapon twists a little as it lags
     // ---- reading: both hands hold the open book
     if (pl.watchT > 0 && pl.watchKind == 2) {
-        float in = ez((5 - pl.watchT) / 0.5f) * ez(pl.watchT / 0.5f);
-        Vector3 bc = V3(0, Lerp(-0.45f, -0.1f, in), -0.33f);
-        drawManga(B, bc, -0.42f, pl.readFlip, (int)((5 - pl.watchT) / 1.25f) * 2);
-        HandP l2 = {Vector3Add(bc, V3(-0.15f, -0.02f, 0.02f)), V3(0.6f, 0.2f, -1.4f), 0, true}, r2 = {Vector3Add(bc, V3(0.15f, -0.02f, 0.02f)), V3(0.6f, -0.2f, 1.4f), 0, true};
+        float T = MANGA_T - pl.watchT, in = ez(T / 0.5f) * ez(pl.watchT / 0.5f);
+        Vector3 bc = V3(0, Lerp(-0.45f, 0.0f, in), -0.29f);
+        drawManga(B, bc, -0.3f, T);
+        float yl = -0.1f, zl = 0.03f;   // below the lower corners, so the thumbs hold the edge and the page stays in view   // the lower corners, along the tilted page
+        HandP l2 = {Vector3Add(bc, V3(mangaEdge(T, true), yl, zl + 0.02f)), V3(0.6f, 0.2f, -1.4f), 0, true}, r2 = {Vector3Add(bc, V3(mangaEdge(T, false), yl, zl + 0.02f)), V3(0.6f, -0.2f, 1.4f), 0, true};
+        { static float lastT = -1; const float ev[5] = {0.6f, 1.9f, 3.25f, 4.6f, 5.8f};   // the cover, the three turns, the cover again
+          for (int k = 0; k < 5; k++) if (lastT < ev[k] && T >= ev[k]) play(sPaper, k == 0 || k == 4 ? 0.5f : 0.38f);
+          lastT = T; }
         drawHand(B, l2, false); drawHand(B, r2, true);
         rlDrawRenderBatchActive(); return;
     }
@@ -442,8 +576,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
                 Vector3 tip = Vector3Lerp(V3(-0.031f, 0.076f, -0.026f), Vector3Add(spur, V3(-0.006f, 0.004f, 0.012f)), thumbK);
                 drawSeg(H, base, kn, 0.022f); drawSeg(H, kn, tip, 0.018f);
             }
-            if (pl.muzzle > 0) { setEmis(1); ADRAW("viewmodels/muzzle_flash4", G, WHITE, BX(T_PLAIN, 0, 0.092f, -0.275f, 0.1f, 0.03f, 0.06f, ((Color){255, 220, 120, 255})), BX(T_PLAIN, 0, 0.092f, -0.275f, 0.03f, 0.1f, 0.06f, ((Color){255, 220, 120, 255})),
-                                       BX(T_PLAIN, 0, 0.092f, -0.29f, 0.05f, 0.05f, 0.09f, ((Color){255, 245, 200, 255}))); setEmis(0); }
+            if (pl.muzzle > 0) drawMuzzleFlash(MatrixMultiply(MatrixTranslate(0, 0.092f, -0.25f), G), 0, fminf(1, pl.muzzle / 0.07f), netShotN * 31u + 1u);
             drawHandAsset(H, true, 3);
             // the left hand during reload and inspect: follows the parts it works on
             if (A == ANIM_RELOAD || A == ANIM_INSPECT) {
@@ -471,10 +604,29 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
                 }
                 L.p = lp; if (torch && ((A == ANIM_RELOAD && u2 > 0.94f) || (A == ANIM_INSPECT && u2 > 0.42f))) { L.r = V3(0.3f, 0.32f, 0.05f); L.grip = 0; }
             }
+        } else if (gun2) {
+            float sc = ht == IT_SHOTGUN ? 1.1f : 1.75f, len = ht == IT_SHOTGUN ? 0.86f : 0.175f;
+            Matrix G = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixRotateX(-PI / 2), MatrixScale(sc, sc, sc)), MatrixTranslate(0, ht == IT_PISTOL ? 0.04f : 0, ht == IT_PISTOL ? 0.012f : 0)), H);   // the pistol sits up in the fist, slide above the knuckles
+            if (ht == IT_SHOTGUN && A == ANIM_RELOAD) {   // broken open: the barrels hinge down from the action
+                float open = ph(u2, 0.1f, 0.2f) * (1 - ph(u2, 0.8f, 0.86f));
+                Matrix Bb = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixTranslate(0, -0.1f, 0), MatrixRotateX(open * 0.6f)), MatrixTranslate(0, 0.1f, 0)), G);
+                ADRAW("viewmodels/shotgun_stock", G, WHITE, BX(T_METAL, 0, 0.04f, 0, 0.048f, 0.16f, 0.07f, ((Color){150, 150, 156, 255})), BX(T_WOOD, 0, -0.22f, -0.035f, 0.042f, 0.4f, 0.075f, ((Color){110, 70, 40, 255})));
+                ADRAW("viewmodels/shotgun_barrels", Bb, WHITE, BX(T_METAL, 0, 0.47f, 0.016f, 0.03f, 0.76f, 0.03f, ((Color){52, 54, 58, 255})), BX(T_METAL, 0, 0.47f, -0.016f, 0.03f, 0.76f, 0.03f, ((Color){48, 50, 54, 255})),
+                      BX(T_WOOD, 0, 0.3f, -0.03f, 0.044f, 0.24f, 0.04f, ((Color){120, 78, 44, 255})), BX(T_METAL, 0, 0.115f, 0.016f, 0.024f, 0.012f, 0.024f, ((Color){190, 150, 70, 255})), BX(T_METAL, 0, 0.115f, -0.016f, 0.024f, 0.012f, 0.024f, ((Color){190, 150, 70, 255})));
+            } else drawHeld(G, ht);
+            drawHandAsset(H, true, 3);   // fingers round the grip, the finger by the trigger
+            if (ht == IT_SHOTGUN && !torch && A != ANIM_RELOAD) { Matrix L2 = MatrixMultiply(MatrixMultiply(MatrixRotateX(-PI / 2), MatrixTranslate(0, -0.036f, -0.33f)), H); drawHandAsset(L2, false, 0); }   // wrapped round the fore-end
+            if (pl.muzzle > 0) drawMuzzleFlash(MatrixMultiply(MatrixMultiply(MatrixRotateX(PI / 2), MatrixTranslate(0, len, 0)), G), ht == IT_SHOTGUN ? 2 : 1, fminf(1, pl.muzzle / 0.07f), netShotN * 31u + 5u);
+        } else if (thr) {
+            drawHeld(MatrixMultiply(MatrixTranslate(0, 0.02f, 0.03f), H), ht); drawHandAsset(H, true, 1);
+            if (ht == IT_MOLOTOV) { setEmis(1); ADRAW("viewmodels/molotov_flame", MatrixMultiply(MatrixTranslate(0, 0.115f + sinf(t * 23) * 0.005f, 0.03f), H), WHITE, BX(T_PLAIN, 0, 0.03f, 0, 0.04f + sinf(t * 31) * 0.01f, 0.06f, 0.04f, ((Color){255, 170, 60, 255}))); setEmis(0); }
         } else if (melee) {
             Matrix I = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixTranslate(0, -spinC, 0), MatrixRotateX(spinX)), MatrixRotateY(spinY)), MatrixTranslate(0, itemUp + spinC, 0)), H);   // spun about spinC up the item
             drawHeld(I, ht); drawHandAsset(H, true, R.grip == 1 ? 1 : 0);
-            if (L.vis && !torch && (A != ANIM_INSPECT || (style == 3 && L.grip == 0))) { Matrix L2 = MatrixMultiply(MatrixTranslate(0, -0.17f, 0), H); drawHandAsset(L2, false, 0); L.vis = false; }
+            if (ht == IT_UMBRELLA && pl.umbK > 0.02f) { float k = pl.umbK;   // the canopy: eight clear panels round the tip
+                for (int q = 0; q < 8; q++) { Matrix P = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixTranslate(0, 0, 0.3f), MatrixRotateX(0.5f)), MatrixScale(k, 1, k)), MatrixRotateY(q * PI / 4 + PI / 8)), MatrixMultiply(MatrixTranslate(0, 0.8f, 0), I));
+                    ADRAW("viewmodels/umbrella_panel", P, WHITE, BX(T_PLAIN, 0, 0, 0, 0.27f, 0.008f, 0.6f, ((Color){225, 236, 240, 255})), BX(T_METAL, 0, -0.006f, 0, 0.008f, 0.008f, 0.6f, ((Color){120, 122, 128, 255}))); } }
+            if (L.vis && !torch && (A != ANIM_INSPECT || (style == 3 && L.grip == 0))) { Matrix L2 = MatrixMultiply(MatrixTranslate(0, style == 4 ? 0.4f : -0.17f, 0), H); drawHandAsset(L2, false, 0); L.vis = false; }
         } else if (ht >= 0 && isConsumable(ht)) {   // held for use; while it is being eaten or applied the other hand has it
             if (A != ANIM_EAT && A != ANIM_DRINK && A != ANIM_PILL && A != ANIM_BANDAGE) drawItemType(ht, MatrixMultiply(MatrixMultiply(MatrixScale(0.6f, 0.6f, 0.6f), MatrixTranslate(0, -0.035f, -0.01f)), H));
             drawHandAsset(H, true, (A == ANIM_EAT || A == ANIM_DRINK || A == ANIM_PILL || A == ANIM_BANDAGE) ? 2 : 0);

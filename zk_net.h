@@ -6,9 +6,9 @@ int netOpen(int port); void netClose(void); int netResolve(const char *host, int
 int netSend(const NetAddr *to, const void *buf, int len); int netRecv(void *buf, int max, NetAddr *from); void netAddrStr(const NetAddr *a, char *out, int max);
 
 #define MP_PORT 27015
-#define MP_PROTO 4   // 4: the join carries the map hash
+#define MP_PROTO 5   // 4: the join carries the map hash; 5: door locks, worn clothes, burst sickness
 enum { P_JOIN = 1, P_WELCOME, P_REJECT, P_STATE, P_PLAYERS, P_CRS, P_REL, P_ACK, P_BYE };
-enum { R_OP = 1, R_DEB, R_VEND, R_CRATE, R_CONT, R_BUILD, R_SOL, R_HIT, R_PDMG, R_SAY };
+enum { R_OP = 1, R_DEB, R_VEND, R_CRATE, R_CONT, R_BUILD, R_SOL, R_HIT, R_PDMG, R_SAY, R_NOISE, R_FX, R_STUN };
 static NetAddr hostAddr; static double netJoinT = 0, netSendT = 0, netCrT = 0, netScanT = 0; static bool netJoining = false;
 static char netStatus[160] = ""; static unsigned int netSeed = 0;
 static TextBox mpIP = {"127.0.0.1", 9, false, false, 63}, mpPort = {"27015", 5, false, false, 5};
@@ -54,11 +54,11 @@ static void netResetChannels(void) { memset(rq, 0, sizeof rq); memset(rseq, 0, s
 // ---- shadows of the world state (what every other machine is known to have)
 static unsigned char opS[MAX_OPEN][2]; static float opH[MAX_OPEN]; static bool debS[MAX_DEB], vendS[MAX_VEND], crateS[MAX_CRATE];
 static unsigned int contS[MAX_CONT]; static Build buildS[MAX_BUILD]; static unsigned char *solS; static int solSN, nContS, nBuildS;
-static unsigned char opP[MAX_OPEN], *solP; static unsigned int contP[MAX_CONT]; static int nContP;   // the town as built (what a joining player starts from)
+static unsigned char opP[MAX_OPEN], opLP[MAX_OPEN], *solP; static unsigned int contP[MAX_CONT]; static int nContP;   // the town as built (what a joining player starts from)
 static unsigned int fnv(const void *p, int n) { const unsigned char *b = p; unsigned int h = 2166136261u; for (int i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; } return h; }
 static unsigned int contHash(const Cont *c) { Cont t = *c; t.sid = 0; return fnv(&t, sizeof t); }
 static void shadowAll(void) {   // after a world is built or loaded: everything as it is now counts as known
-    for (int i = 0; i < nOps; i++) { opS[i][0] = (unsigned char)ops[i].state; opS[i][1] = 1; opH[i] = ops[i].hp; }
+    for (int i = 0; i < nOps; i++) { opS[i][0] = (unsigned char)ops[i].state; opS[i][1] = (unsigned char)ops[i].locked; opH[i] = ops[i].hp; }
     for (int i = 0; i < nDeb; i++) debS[i] = debs[i].alive;
     for (int i = 0; i < nVend; i++) vendS[i] = vends[i].broken;
     for (int i = 0; i < nCrate; i++) crateS[i] = crates[i].alive;
@@ -67,12 +67,12 @@ static void shadowAll(void) {   // after a world is built or loaded: everything 
     free(solS); solSN = worldSolids; solS = calloc((size_t)solSN + 1, 1); for (int i = 0; i < solSN; i++) solS[i] = sol[i].off;
 }
 // ---- messages for each kind of change
-static void msgOp(WB *w, int i) { Open *o = &ops[i]; WV(w, (unsigned char)R_OP); WV(w, i); WV(w, (unsigned char)o->state); WV(w, o->hp); WV(w, o->mn); WV(w, o->mx); }
+static void msgOp(WB *w, int i) { Open *o = &ops[i]; WV(w, (unsigned char)R_OP); WV(w, i); WV(w, (unsigned char)o->state); WV(w, (unsigned char)o->locked); WV(w, o->hp); WV(w, o->mn); WV(w, o->mx); }
 static void msgCont(WB *w, int i) { WV(w, (unsigned char)R_CONT); WV(w, i); WV(w, conts[i]); }
 static void msgBuild(WB *w, int i) { WV(w, (unsigned char)R_BUILD); WV(w, i); WV(w, builds[i]); }
-static void applyOp(int i, int st, float hp, Vector3 mn, Vector3 mx) {
+static void applyOp(int i, int st, int lk, float hp, Vector3 mn, Vector3 mx) {
     if (i < 0 || i >= nOps) return; Open *o = &ops[i];
-    o->mn = mn; o->mx = mx; o->hp = hp; o->state = st;
+    o->mn = mn; o->mx = mx; o->hp = hp; o->state = st; o->locked = lk != 0; opS[i][1] = (unsigned char)o->locked;
     bool closed = (o->type == OP_WINDOW && st == 0) || (o->type == OP_DOOR && st == 1);
     if (o->sid >= 0) sol[o->sid].off = !closed;
     if (st == 2 && o->bsid < 0) o->bsid = addSolidF(mn, mx, o->f);
@@ -81,16 +81,17 @@ static void applyOp(int i, int st, float hp, Vector3 mn, Vector3 mx) {
 }
 static void applyBuild(int i, Build b) {
     if (i < 0 || i >= MAX_BUILD) return;
-    Build *L = &builds[i]; int sid = (i < nBuild) ? L->sid : -1;
-    *L = b; L->sid = sid; if (i >= nBuild) nBuild = i + 1;
-    bool solid = b.kind != BK_SHRINE && b.kind != BK_WARD && b.kind != BK_GARDEN && b.kind != BK_SPIKES && b.kind != BK_ALARM;
+    Build *L = &builds[i]; int sid = (i < nBuild) ? L->sid : -1, li = (i < nBuild) ? L->light : -1;
+    *L = b; L->sid = sid; L->light = li; if (i >= nBuild) nBuild = i + 1;
+    if (b.kind == BK_LAMP && b.alive && (L->light <= 0 || L->light >= nLight)) L->light = addLight(V3((b.mn.x + b.mx.x) / 2, b.mx.y - 0.1f, (b.mn.z + b.mx.z) / 2), V3(1.0f, 0.95f, 0.8f), 15, 2);   // this machine's own light for it
+    bool solid = b.kind != BK_SHRINE && b.kind != BK_WARD && b.kind != BK_GARDEN && b.kind != BK_SPIKES && b.kind != BK_ALARM;   // generators and lamps are solid
     if (solid && L->sid < 0 && b.alive) buildAddSolid(L);
     if (L->sid >= 0) sol[L->sid].off = !b.alive || (b.kind == BK_DOOR && b.open);
     buildS[i] = *L; buildS[i].sid = 0; if (nBuild > nBuildS) nBuildS = nBuild;
 }
 static void netScan(void) {   // what changed here since the last look goes out
     WB w;
-    for (int i = 0; i < nOps; i++) if (ops[i].state != opS[i][0] || fabsf(ops[i].hp - opH[i]) > 0.01f) { w.n = 0; msgOp(&w, i); relAll(&w, -1); opS[i][0] = (unsigned char)ops[i].state; opH[i] = ops[i].hp; }
+    for (int i = 0; i < nOps; i++) if (ops[i].state != opS[i][0] || ops[i].locked != opS[i][1] || fabsf(ops[i].hp - opH[i]) > 0.01f) { w.n = 0; msgOp(&w, i); relAll(&w, -1); opS[i][0] = (unsigned char)ops[i].state; opS[i][1] = (unsigned char)ops[i].locked; opH[i] = ops[i].hp; }
     for (int i = 0; i < nDeb; i++) if (debs[i].alive != debS[i]) { w.n = 0; WV(&w, (unsigned char)R_DEB); WV(&w, i); WV(&w, (unsigned char)debs[i].alive); relAll(&w, -1); debS[i] = debs[i].alive; }
     for (int i = 0; i < nVend; i++) if (vends[i].broken != vendS[i]) { w.n = 0; WV(&w, (unsigned char)R_VEND); WV(&w, i); WV(&w, (unsigned char)vends[i].broken); relAll(&w, -1); vendS[i] = vends[i].broken; }
     for (int i = 0; i < nCrate; i++) if (crates[i].alive != crateS[i]) { w.n = 0; WV(&w, (unsigned char)R_CRATE); WV(&w, i); WV(&w, (unsigned char)crates[i].alive); relAll(&w, -1); crateS[i] = crates[i].alive; }
@@ -100,7 +101,7 @@ static void netScan(void) {   // what changed here since the last look goes out
 }
 static void netSendWorldTo(int k) {   // a player who just joined gets every change made since the town was built
     WB w;
-    for (int i = 0; i < nOps; i++) if (ops[i].state != opP[i]) { w.n = 0; msgOp(&w, i); relSend(k, &w); }
+    for (int i = 0; i < nOps; i++) if (ops[i].state != opP[i] || ops[i].locked != opLP[i]) { w.n = 0; msgOp(&w, i); relSend(k, &w); }
     for (int i = 0; i < nDeb; i++) if (!debs[i].alive) { w.n = 0; WV(&w, (unsigned char)R_DEB); WV(&w, i); WV(&w, (unsigned char)0); relSend(k, &w); }
     for (int i = 0; i < nVend; i++) if (vends[i].broken) { w.n = 0; WV(&w, (unsigned char)R_VEND); WV(&w, i); WV(&w, (unsigned char)1); relSend(k, &w); }
     for (int i = 0; i < nCrate; i++) if (!crates[i].alive) { w.n = 0; WV(&w, (unsigned char)R_CRATE); WV(&w, i); WV(&w, (unsigned char)0); relSend(k, &w); }
@@ -111,17 +112,29 @@ static void netSendWorldTo(int k) {   // a player who just joined gets every cha
 static void netSay(const char *s, int except) { WB w = {0}; WV(&w, (unsigned char)R_SAY); char b[96] = {0}; snprintf(b, sizeof b, "%s", s); wb(&w, b, sizeof b); relAll(&w, except); }
 
 // ---- damage between machines
+static void sickenPlayer(float sick) {   // filth from a burst body: sickness and a shake
+    if (sick <= 0 || pl.hp <= 0 || cht.on[CH_GOD]) return; pl.sick = fminf(100, pl.sick + sick); pl.shake = fmaxf(pl.shake, 0.6f); say("It bursts over you. The stink is unbearable."); }
+static void netPlayerDamageS(int slot, float dmg, float bleed, float sick) {
+    if (slot == mySlot) { if (!cht.on[CH_GOD]) hurtPlayer(dmg, bleed); sickenPlayer(sick); return; }
+    WB w = {0}; WV(&w, (unsigned char)R_PDMG); WV(&w, (unsigned char)slot); WV(&w, dmg); WV(&w, bleed); WV(&w, sick);
+    if (netMode == NM_HOST) relSend(slot, &w); else relSend(0, &w);
+}
 static void netPlayerDamage(int slot, float dmg, float bleed) {
     if (slot == mySlot) { hurtPlayer(dmg, bleed); return; }
-    WB w = {0}; WV(&w, (unsigned char)R_PDMG); WV(&w, (unsigned char)slot); WV(&w, dmg); WV(&w, bleed);
+    WB w = {0}; WV(&w, (unsigned char)R_PDMG); WV(&w, (unsigned char)slot); WV(&w, dmg); WV(&w, bleed); WV(&w, 0.0f);
     if (netMode == NM_HOST) relSend(slot, &w); else relSend(0, &w);
 }
 static void netCreatureHit(int idx, float dmg) { WB w = {0}; WV(&w, (unsigned char)R_HIT); WV(&w, (unsigned short)idx); WV(&w, dmg); relSend(0, &w); }
+static void netCreatureStun(int idx, float st) { WB w = {0}; WV(&w, (unsigned char)R_STUN); WV(&w, (unsigned short)idx); WV(&w, st); relSend(0, &w); }
+static bool netNoiseFwd(Vector3 p, float r) { if (netMode != NM_CLIENT) return false;
+    static double lastT = -9; static Vector3 lastP; double now = GetTime(); if (now - lastT < 0.3 && Vector3Distance(p, lastP) < 3) return true; lastT = now; lastP = p;   // one per spot and moment
+    WB w = {0}; WV(&w, (unsigned char)R_NOISE); WV(&w, p); WV(&w, r); relSend(0, &w); return true; }
+static void netFx(int kind, Vector3 p) { if (netMode == NM_OFF) return; WB w = {0}; WV(&w, (unsigned char)R_FX); WV(&w, (unsigned char)kind); WV(&w, p); relAll(&w, -1); }
 
 // ---- one inner reliable message, from peer k
 static void netApply(RB *r, int k) {
     unsigned char t = RV(r, unsigned char); WB fw = {0}; bool fwd = netMode == NM_HOST; wb(&fw, r->b + r->i - 1, r->n - r->i + 1);
-    if (t == R_OP) { int i = RV(r, int); unsigned char st = RV(r, unsigned char); float hp = RV(r, float); Vector3 mn = RV(r, Vector3), mx = RV(r, Vector3); if (r->bad) return; applyOp(i, st, hp, mn, mx); }
+    if (t == R_OP) { int i = RV(r, int); unsigned char st = RV(r, unsigned char), lk = RV(r, unsigned char); float hp = RV(r, float); Vector3 mn = RV(r, Vector3), mx = RV(r, Vector3); if (r->bad) return; applyOp(i, st, lk, hp, mn, mx); }
     else if (t == R_DEB) { int i = RV(r, int); unsigned char a = RV(r, unsigned char); if (r->bad || i < 0 || i >= nDeb) return; debs[i].alive = a; debS[i] = a; if (debs[i].sid >= 0) { sol[debs[i].sid].off = !a; if (debs[i].sid < solSN) solS[debs[i].sid] = !a; } }
     else if (t == R_VEND) { int i = RV(r, int); unsigned char b = RV(r, unsigned char); if (r->bad || i < 0 || i >= nVend) return; vends[i].broken = b; vendS[i] = b; if (b && vends[i].light >= 0) lights[vends[i].light].mode = 2; }
     else if (t == R_CRATE) { int i = RV(r, int); unsigned char a = RV(r, unsigned char); if (r->bad || i < 0 || i >= nCrate) return; crates[i].alive = a; crateS[i] = a; if (crates[i].sid >= 0) { sol[crates[i].sid].off = !a; if (crates[i].sid < solSN) solS[crates[i].sid] = !a; } }
@@ -131,10 +144,13 @@ static void netApply(RB *r, int k) {
     else if (t == R_SOL) { int i = RV(r, int); unsigned char o = RV(r, unsigned char); if (r->bad || i < 0 || i >= solSN) return; sol[i].off = o; solS[i] = o; }
     else if (t == R_HIT) { fwd = false; unsigned short i = RV(r, unsigned short); float d = RV(r, float); if (r->bad || netMode != NM_HOST || i >= nCr) return; Cr *c = &crs[i]; if (!c->on || c->state == CS_DEAD) return;
         c->hp -= d; c->hurt = 0.18f; c->wind = 0; if (c->hp <= 0) { c->state = CS_DEAD; c->deadT = 0; } else if (c->state == CS_WANDER) { c->state = CS_CHASE; c->lastKnown = rps[k].pos; } }
-    else if (t == R_PDMG) { fwd = false; unsigned char v = RV(r, unsigned char); float d = RV(r, float), b = RV(r, float); if (r->bad) return;
-        if (v == mySlot) { if (pl.hp > 0) hurtPlayer(d, b); }
-        else if (netMode == NM_HOST && v < MP_MAX && rps[v].on) { WB w = {0}; WV(&w, (unsigned char)R_PDMG); WV(&w, v); WV(&w, d); WV(&w, b); relSend(v, &w); } }
+    else if (t == R_PDMG) { fwd = false; unsigned char v = RV(r, unsigned char); float d = RV(r, float), b = RV(r, float), sk = RV(r, float); if (r->bad) return;
+        if (v == mySlot) { if (pl.hp > 0) { if (d > 0) hurtPlayer(d, b); sickenPlayer(sk); } }
+        else if (netMode == NM_HOST && v < MP_MAX && rps[v].on) { WB w = {0}; WV(&w, (unsigned char)R_PDMG); WV(&w, v); WV(&w, d); WV(&w, b); WV(&w, sk); relSend(v, &w); } }
     else if (t == R_SAY) { char b[96]; rbr(r, b, sizeof b); if (r->bad) return; b[95] = 0; say(b); }
+    else if (t == R_NOISE) { fwd = false; Vector3 p = RV(r, Vector3); float rad = RV(r, float); if (r->bad || netMode != NM_HOST) return; alertAll(p, fminf(rad, 120)); }
+    else if (t == R_STUN) { fwd = false; unsigned short i = RV(r, unsigned short); float st = RV(r, float); if (r->bad || netMode != NM_HOST || i >= nCr) return; Cr *c = &crs[i]; if (c->on && c->state != CS_DEAD) { c->stun = fmaxf(c->stun, fminf(st, 2)); c->seeT = 0; } }
+    else if (t == R_FX) { unsigned char kd = RV(r, unsigned char); Vector3 p = RV(r, Vector3); if (r->bad) return; if (kd == 1) startBlaze(p, false); else if (kd == 2) playAt(sCrack, p, 60, 1.0f); }
     else return;
     if (fwd) relAll(&fw, k);   // the host passes what a client changed on to everyone else
 }
@@ -151,7 +167,7 @@ static bool netHost(int port) {
     netStop(NULL); netResetChannels(); memset(rps, 0, sizeof rps);
     if (!netOpen(port)) { snprintf(netStatus, sizeof netStatus, "Could not open UDP port %d (in use?)", port); return false; }
     netMode = NM_HOST; mySlot = 0; netSeed = worldSeed; shadowAll();
-    for (int i = 0; i < nOps; i++) opP[i] = (unsigned char)ops[i].state; for (int i = 0; i < nCont; i++) contP[i] = contS[i]; nContP = nCont; free(solP); solP = malloc((size_t)solSN + 1); memcpy(solP, solS, (size_t)solSN);
+    for (int i = 0; i < nOps; i++) { opP[i] = (unsigned char)ops[i].state; opLP[i] = (unsigned char)ops[i].locked; } for (int i = 0; i < nCont; i++) contP[i] = contS[i]; nContP = nCont; free(solP); solP = malloc((size_t)solSN + 1); memcpy(solP, solS, (size_t)solSN);
     snprintf(netStatus, sizeof netStatus, "Hosting on UDP port %d. Others join with this computer's IP.", port); return true;
 }
 static bool netJoin(const char *host, int port) {
@@ -185,8 +201,8 @@ static void netRecvAll(double now) {
             }
             if (k < 0) continue;
             rps[k].heard = now;
-            if (t == P_STATE) { Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); unsigned char fl = RV(&r, unsigned char); short held = RV(&r, short);
-                if (r.bad) continue; rps[k].pos = p; rps[k].yaw = yw; rps[k].pitch = pt; rps[k].hp = hp; rps[k].flash = fl & 1; rps[k].alive = (fl & 2) != 0; rps[k].held = held; rps[k].ev = fl >> 2; }
+            if (t == P_STATE) { Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); unsigned char fl = RV(&r, unsigned char); short held = RV(&r, short); short wr[4]; for (int j = 0; j < 4; j++) wr[j] = RV(&r, short);
+                if (r.bad) continue; memcpy(rps[k].wear, wr, sizeof wr); rps[k].pos = p; rps[k].yaw = yw; rps[k].pitch = pt; rps[k].hp = hp; rps[k].flash = fl & 1; rps[k].alive = (fl & 2) != 0; rps[k].held = held; rps[k].ev = fl >> 2; }
             else if (t == P_BYE) { char b[96]; snprintf(b, sizeof b, "%s left.", rps[k].name); say(b); rps[k].on = false; netSay(b, k); }
         } else if (netMode == NM_CLIENT) {
             if (from.ip != hostAddr.ip || from.port != hostAddr.port) continue;
@@ -196,11 +212,11 @@ static void netRecvAll(double now) {
             if (t == P_REJECT) { char m[64]; rbr(&r, m, 64); m[63] = 0; netStop(NULL); snprintf(netStatus, sizeof netStatus, "Refused: %s", m); continue; }
             if (t == P_BYE) { netStop("The host closed the game."); if (state == ST_PLAY || state == ST_PAUSE || state == ST_DEAD) { state = ST_MENU; EnableCursor(); gameActive = false; } say("The host closed the game."); continue; }
             if (netJoining) continue;
-            if (t == P_PLAYERS) { float tod = RV(&r, float); int day = RV(&r, int); netPvp = RV(&r, unsigned char); unsigned char cnt = RV(&r, unsigned char); if (r.bad) continue;
+            if (t == P_PLAYERS) { float tod = RV(&r, float); int day = RV(&r, int); netPvp = RV(&r, unsigned char); float rk = RV(&r, float); unsigned char cnt = RV(&r, unsigned char); if (r.bad) continue; rainK = rk;
                 pl.tod = tod; pl.day = day; bool seen[MP_MAX] = {0};
-                for (int e = 0; e < cnt; e++) { unsigned char s = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); short held = RV(&r, short); char nm[16]; rbr(&r, nm, 16); nm[15] = 0;
+                for (int e = 0; e < cnt; e++) { unsigned char s = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); short held = RV(&r, short); short wr[4]; rbr(&r, wr, sizeof wr); char nm[16]; rbr(&r, nm, 16); nm[15] = 0;
                     if (r.bad || s >= MP_MAX || s == mySlot) continue; RPlayer *q = &rps[s]; if (!q->on) { q->shown = p; q->shownYaw = yw; }
-                    q->on = true; seen[s] = true; q->alive = fl & 2; q->flash = fl & 1; q->ev = fl >> 2; q->pos = p; q->yaw = yw; q->pitch = pt; q->hp = hp; q->held = held; memcpy(q->name, nm, 16); }
+                    q->on = true; seen[s] = true; q->alive = fl & 2; q->flash = fl & 1; q->ev = fl >> 2; q->pos = p; q->yaw = yw; q->pitch = pt; q->hp = hp; q->held = held; memcpy(q->wear, wr, sizeof wr); memcpy(q->name, nm, 16); }
                 for (int s = 0; s < MP_MAX; s++) if (s != mySlot && !seen[s]) rps[s].on = false; }
             else if (t == P_CRS) { unsigned short cnt = RV(&r, unsigned short);
                 for (int e = 0; e < cnt; e++) { unsigned short id = RV(&r, unsigned short); unsigned char ty = RV(&r, unsigned char), st = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), hp = RV(&r, float);
@@ -243,14 +259,14 @@ static void netUpdate(float dt) {   // every frame, in every state
     if (now - netScanT > 0.2) { netScanT = now; if (gameActive) netScan(); }
     if (now - netSendT > 0.05) { netSendT = now;
         unsigned char fl = (pl.flash ? 1 : 0) | (pl.hp > 0 && state != ST_DEAD ? 2 : 0) | (netShotN & 7) << 2 | (netSwingN & 7) << 5;
-        if (netMode == NM_CLIENT) { WB w = {0}; WV(&w, (unsigned char)P_STATE); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, fl); WV(&w, (short)pl.hands.t); netSend(&hostAddr, w.b, w.n); }
+        if (netMode == NM_CLIENT) { WB w = {0}; WV(&w, (unsigned char)P_STATE); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, fl); WV(&w, (short)pl.hands.t); for (int j = 0; j < 4; j++) WV(&w, (short)pl.wear[j].t); netSend(&hostAddr, w.b, w.n); }
         else {
-            WB w = {0}; WV(&w, (unsigned char)P_PLAYERS); WV(&w, pl.tod); WV(&w, pl.day); WV(&w, (unsigned char)netPvp);
+            WB w = {0}; WV(&w, (unsigned char)P_PLAYERS); WV(&w, pl.tod); WV(&w, pl.day); WV(&w, (unsigned char)netPvp); WV(&w, rainK);
             unsigned char cnt = 1; for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) cnt++; WV(&w, cnt);
             char nm[16] = {0}; snprintf(nm, 16, "%s", prof.name);
-            WV(&w, (unsigned char)mySlot); WV(&w, fl); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, (short)pl.hands.t); wb(&w, nm, 16);
+            WV(&w, (unsigned char)mySlot); WV(&w, fl); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, (short)pl.hands.t); for (int j = 0; j < 4; j++) WV(&w, (short)pl.wear[j].t); wb(&w, nm, 16);
             for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { RPlayer *q = &rps[k]; unsigned char f2 = (q->flash ? 1 : 0) | (q->alive ? 2 : 0) | (q->ev & 63) << 2;
-                WV(&w, (unsigned char)k); WV(&w, f2); WV(&w, q->pos); WV(&w, q->yaw); WV(&w, q->pitch); WV(&w, q->hp); WV(&w, q->held); wb(&w, q->name, 16); }
+                WV(&w, (unsigned char)k); WV(&w, f2); WV(&w, q->pos); WV(&w, q->yaw); WV(&w, q->pitch); WV(&w, q->hp); WV(&w, q->held); wb(&w, q->wear, sizeof q->wear); wb(&w, q->name, 16); }
             for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) netSend(&rps[k].addr, w.b, w.n);
         }
     }
@@ -277,6 +293,30 @@ static void netClientCreatures(float dt) {
         c->twT -= dt; if (c->twT <= 0) { for (int k = 0; k < 6; k++) c->tw[k] = fr(-0.3f, 0.3f); c->twT = fr(0.1f, 0.4f); } }
 }
 // ---- other players in the world: a simple figure and a name
+static void drawRemoteGear(const RPlayer *q, Matrix M) {   // what another player wears over the survivor model, and what is in their hand
+    for (int j = 0; j < 4; j++) { int t = q->wear[j]; if (t < 0 || t >= IT_N) continue;
+        switch (t) {
+        case IT_HARDHAT: ADRAW("player/wear_hardhat", M, WHITE, BX(T_PLAIN, 0, 1.86f, 0, 0.3f, 0.1f, 0.32f, ((Color){200, 170, 40, 255})), BX(T_PLAIN, 0, 1.82f, 0.08f, 0.3f, 0.02f, 0.2f, ((Color){200, 170, 40, 255}))); break;
+        case IT_RIOTHELM: ADRAW("player/wear_riothelm", M, WHITE, BX(T_PLAIN, 0, 1.76f, -0.01f, 0.31f, 0.3f, 0.32f, ((Color){30, 34, 40, 255})), BX(T_GLASS, 0, 1.7f, 0.15f, 0.27f, 0.16f, 0.02f, ((Color){120, 140, 150, 160}))); break;
+        case IT_BEANIE: ADRAW("player/wear_beanie", M, WHITE, BX(T_CLOTH, 0, 1.86f, -0.01f, 0.27f, 0.12f, 0.28f, ((Color){70, 40, 40, 255}))); break;
+        case IT_COAT: ADRAW("player/wear_coat", M, WHITE, BX(T_CLOTH, 0, 1.06f, 0, 0.58f, 0.96f, 0.36f, ((Color){60, 64, 70, 255})), BX(T_CLOTH, -0.31f, 1.14f, 0, 0.16f, 0.66f, 0.2f, ((Color){60, 64, 70, 255})), BX(T_CLOTH, 0.31f, 1.14f, 0, 0.16f, 0.66f, 0.2f, ((Color){60, 64, 70, 255}))); break;
+        case IT_LEATHER: ADRAW("player/wear_leather", M, WHITE, BX(T_PLAIN, 0, 1.2f, 0, 0.49f, 0.66f, 0.29f, ((Color){32, 26, 24, 255})), BX(T_PLAIN, -0.29f, 1.14f, 0, 0.13f, 0.63f, 0.15f, ((Color){32, 26, 24, 255})), BX(T_PLAIN, 0.29f, 1.14f, 0, 0.13f, 0.63f, 0.15f, ((Color){32, 26, 24, 255}))); break;
+        case IT_STABVEST: ADRAW("player/wear_stabvest", M, WHITE, BX(T_CLOTH, 0, 1.22f, 0, 0.5f, 0.5f, 0.31f, ((Color){24, 28, 34, 255}))); break;
+        case IT_GAKURAN: ADRAW("player/wear_gakuran", M, WHITE, BX(T_CLOTH, 0, 1.18f, 0, 0.48f, 0.7f, 0.28f, ((Color){18, 20, 30, 255})), BX(T_CLOTH, 0, 1.5f, 0, 0.3f, 0.06f, 0.28f, ((Color){18, 20, 30, 255})), BX(T_PLAIN, 0, 1.3f, 0.145f, 0.02f, 0.4f, 0.01f, ((Color){180, 150, 60, 255}))); break;
+        case IT_HANTEN: ADRAW("player/wear_hanten", M, WHITE, BX(T_CLOTH, 0, 1.16f, 0, 0.52f, 0.74f, 0.32f, ((Color){60, 40, 70, 255})), BX(T_CLOTH, -0.3f, 1.2f, 0, 0.16f, 0.5f, 0.18f, ((Color){60, 40, 70, 255})), BX(T_CLOTH, 0.3f, 1.2f, 0, 0.16f, 0.5f, 0.18f, ((Color){60, 40, 70, 255}))); break;
+        case IT_WORKPANTS: ADRAW("player/wear_workpants", M, WHITE, BX(T_CLOTH, -0.11f, 0.44f, 0, 0.17f, 0.82f, 0.19f, ((Color){60, 72, 52, 255})), BX(T_CLOTH, 0.11f, 0.44f, 0, 0.17f, 0.82f, 0.19f, ((Color){60, 72, 52, 255}))); break;
+        case IT_BIKEPANTS: ADRAW("player/wear_bikepants", M, WHITE, BX(T_PLAIN, -0.11f, 0.44f, 0, 0.18f, 0.82f, 0.2f, ((Color){26, 26, 28, 255})), BX(T_PLAIN, 0.11f, 0.44f, 0, 0.18f, 0.82f, 0.2f, ((Color){26, 26, 28, 255})), BX(T_PLAIN, -0.11f, 0.5f, 0.1f, 0.14f, 0.12f, 0.02f, ((Color){90, 90, 95, 255})), BX(T_PLAIN, 0.11f, 0.5f, 0.1f, 0.14f, 0.12f, 0.02f, ((Color){90, 90, 95, 255}))); break;
+        case IT_BOOTS: ADRAW("player/wear_boots", M, WHITE, BX(T_PLAIN, -0.11f, 0.1f, 0.03f, 0.19f, 0.2f, 0.29f, ((Color){70, 50, 32, 255})), BX(T_PLAIN, 0.11f, 0.1f, 0.03f, 0.19f, 0.2f, 0.29f, ((Color){70, 50, 32, 255}))); break;
+        case IT_RUBBERBOOTS: ADRAW("player/wear_rubberboots", M, WHITE, BX(T_PLAIN, -0.11f, 0.18f, 0.03f, 0.19f, 0.36f, 0.28f, ((Color){40, 70, 50, 255})), BX(T_PLAIN, 0.11f, 0.18f, 0.03f, 0.19f, 0.36f, 0.28f, ((Color){40, 70, 50, 255}))); break;
+        default: break; } }
+    if (q->alive && q->held >= 0 && q->held < IT_N && (idef[q->held].cat == CAT_MELEE || idef[q->held].cat == CAT_GUN || idef[q->held].cat == CAT_THROW)) {   // in the right hand, tipped forward
+        bool gn = idef[q->held].cat == CAT_GUN;
+        float sc = q->held == IT_PISTOL ? 2.1f : q->held == IT_SHOTGUN ? 1.2f : gn ? 1.3f : idef[q->held].weight < 0.9f ? 1.8f : 1.3f;   // a little larger than life so it reads at a distance
+        Matrix H = gn ? MatrixMultiply(MatrixMultiply(MatrixScale(sc, sc, sc), MatrixRotateX(2.45f)), MatrixTranslate(-0.33f, 0.86f, 0.12f))   // guns at low ready: in the hand, muzzle down and ahead, side-on to anyone in front
+                      : MatrixMultiply(MatrixMultiply(MatrixScale(sc, sc, sc), MatrixRotateX(0.55f)), MatrixTranslate(-0.3f, 0.95f, 0.22f));
+        if (q->held == IT_REVOLVER) drawItemType(IT_REVOLVER, MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(1.6f, 1.6f, 1.6f), MatrixRotateX(0.9f)), MatrixTranslate(-0.33f, 0.86f, 0.1f)), M));   // its own model, muzzle down
+        else drawHeld(MatrixMultiply(H, M), q->held); }
+}
 static void drawRemotePlayers(float dt) {
     if (netMode == NM_OFF) return;
     for (int k = 0; k < MP_MAX; k++) { RPlayer *q = &rps[k]; if (k == mySlot || !q->on) continue;
@@ -290,6 +330,7 @@ static void drawRemotePlayers(float dt) {
               BX(T_PLAIN, -0.29f, 0.79f, 0, 0.1f, 0.1f, 0.1f, ((Color){150, 110, 88, 255})), BX(T_PLAIN, 0.29f, 0.79f, 0, 0.1f, 0.1f, 0.1f, ((Color){150, 110, 88, 255})),
               BX(T_PLAIN, 0, 1.68f, 0, 0.24f, 0.28f, 0.24f, ((Color){150, 110, 88, 255})), BX(T_PLAIN, 0, 1.84f, -0.02f, 0.27f, 0.08f, 0.28f, ((Color){30, 24, 20, 255})), BX(T_PLAIN, 0, 1.72f, -0.13f, 0.27f, 0.22f, 0.04f, ((Color){30, 24, 20, 255})),
               BX(T_PLAIN, -0.055f, 1.71f, 0.121f, 0.04f, 0.03f, 0.01f, ((Color){20, 20, 20, 255})), BX(T_PLAIN, 0.055f, 1.71f, 0.121f, 0.04f, 0.03f, 0.01f, ((Color){20, 20, 20, 255})));
+        drawRemoteGear(q, M);
         if (q->flash && q->alive) { Vector3 d = V3(sinf(q->yaw) * cosf(q->pitch), sinf(q->pitch), cosf(q->yaw) * cosf(q->pitch)); DrawCube(Vector3Add(Vector3Add(q->shown, V3(0, 1.3f, 0)), Vector3Scale(d, 0.35f)), 0.07f, 0.07f, 0.07f, (Color){255, 245, 210, 255}); }
     }
 }

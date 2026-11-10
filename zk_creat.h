@@ -97,15 +97,17 @@ static void updateCreatures(float dt, Vector3 aim) {
     int aliveTop = 0, spirits = 0, stalkers = 0, chasing = 0;
     stingCd -= dt;
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
-    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actHeld(A_CROUCH) ? 0.55f : 1.0f);
+    float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actHeld(A_CROUCH) ? 0.55f : 1.0f) * (1 - 0.25f * rainK);   // rain hides you a little
     for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0) { wards[w].life -= dt; if (wards[w].life <= 0) wards[w].on = false; }
     for (int i = 0; i < nCr; i++) {
         Cr *c = &crs[i]; if (!c->on) continue;
         c->t += dt; c->hurt -= dt; c->flinch = fmaxf(0, c->flinch - dt * 3.5f);
         if (c->state == CS_DEAD) {
+            if (c->deadT == 0) bodyFromCreature(i);   // something to search once it lies still
             if (c->type == 12 && c->deadT == 0) {   // the bloated one bursts: a spray of filth that sickens and hurts anyone close
                 Vector3 cc = Vector3Add(c->pos, V3(0, 1.0f, 0)); spawnParts(cc, 30, T_GORE, (Color){150, 170, 120, 255}, 4.0f, 0.14f); playAt(sSplat, cc, 40, 1.0f);
-                if (Vector3Distance(cc, pl.pos) < 3.6f && !cht.on[CH_GOD]) { hurtPlayer(12, 0.2f); pl.sick = fminf(100, pl.sick + 30); pl.shake = fmaxf(pl.shake, 0.6f); say("It bursts over you. The stink is unbearable."); }
+                if (Vector3Distance(cc, pl.pos) < 3.6f) netPlayerDamageS(mySlot, 12, 0.2f, 30);
+                if (netMode == NM_HOST) for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on && rps[k].alive && Vector3Distance(cc, rps[k].pos) < 3.6f) netPlayerDamageS(k, 12, 0.2f, 30);   // guests caught in it too
                 for (int j = 0; j < nCr; j++) if (j != i && crs[j].on && crs[j].state != CS_DEAD && Vector3Distance(crs[j].pos, c->pos) < 3.6f) { crs[j].hp -= 3; crs[j].hurt = 0.2f; if (crs[j].hp <= 0) { crs[j].state = CS_DEAD; crs[j].deadT = 0; } } }
             c->deadT += dt; if (c->deadT > (c->type == 4 ? 1.2f : 30)) c->on = false; continue; }
         c->revealT -= dt;
@@ -201,7 +203,8 @@ static void updateCreatures(float dt, Vector3 aim) {
         if (c->state == CS_WANDER) {
             if (sees) {
                 c->state = CS_CHASE; c->lastKnown = tp;
-                if (c->type != 5 && c->type != 7) playAt(sScreech, c->pos, 35, 0.5f);
+                if (c->type >= 10 && c->type <= 17) { SetSoundPitch(sCrV[c->type - 10], 1.15f); playAt(sCrV[c->type - 10], c->pos, 45, 1.0f); }
+                else if (c->type != 5 && c->type != 7) playAt(sScreech, c->pos, 35, 0.5f);
                 if (dist < 18) sting(c->pos);
                 if (c->type == 6) c->scream = 0;
                 c->chaseT = 0;   // (the kuchisake stares first)
@@ -287,7 +290,8 @@ static void updateCreatures(float dt, Vector3 aim) {
         c->groanT -= dt;
         if (c->groanT <= 0) {
             c->groanT = fr(5, 13);
-            if (c->type == 5 || c->type == 7) { if (dist < 12 && audioOk && !IsSoundPlaying(sBreath)) { SetSoundVolume(sBreath, 0.6f * (1 - dist / 12) * gs.sfx); PlaySound(sBreath); } }
+            if (c->type >= 10 && c->type <= 17) { if (dist < 40 && audioOk && !IsSoundPlaying(sCrV[c->type - 10])) { SetSoundPitch(sCrV[c->type - 10], fr(0.92f, 1.08f)); playAt(sCrV[c->type - 10], c->pos, 40, 0.85f); } }   // each new kind has its own voice
+            else if (c->type == 5 || c->type == 7) { if (dist < 12 && audioOk && !IsSoundPlaying(sBreath)) { SetSoundVolume(sBreath, 0.6f * (1 - dist / 12) * gs.sfx); PlaySound(sBreath); } }
             else if (dist < 40 && audioOk) for (int k = 0; k < 8; k++) if (!IsSoundPlaying(groanPool[k])) {
                 SetSoundVolume(groanPool[k], 0.8f * powf(1 - dist / 40, 1.5f) * gs.sfx); SetSoundPitch(groanPool[k], c->type == 2 ? 1.5f : c->type == 1 || c->type == 9 ? 0.7f : c->type == 6 ? 0.85f : fr(0.9f, 1.1f));
                 PlaySound(groanPool[k]); break;

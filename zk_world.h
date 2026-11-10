@@ -326,6 +326,19 @@ static bool blocksDoor(float x0, float z0, float x1, float z1, float y) {
         if (x0 < o->mx.x + 1.2f && x1 > o->mn.x - 1.2f && z0 < o->mx.z + 1.2f && z1 > o->mn.z - 1.2f) return true; }
     return false;
 }
+// a body on the floor of `in`: its own random stream, so the rest of the town comes out as before
+static void placeBody(Rectangle in, float y, int var, int region, unsigned int seed) {
+    unsigned int h = seed * 2654435761u + 0x9e3779b9u; if (!h) h = 1;
+    #define HR() (h ^= h << 13, h ^= h >> 17, h ^= h << 5, (float)(h & 0xffffff) / 16777216.0f)
+    for (int tries = 0; tries < 10; tries++) {
+        bool rot = HR() < 0.5f; float hx = rot ? 0.9f : 0.32f, hz = rot ? 0.32f : 0.9f;
+        if (in.width < 2 * hx + 0.4f || in.height < 2 * hz + 0.4f) continue;
+        float x = in.x + hx + 0.2f + HR() * (in.width - 2 * hx - 0.4f), z = in.y + hz + 0.2f + HR() * (in.height - 2 * hz - 0.4f);
+        if (!boxFree(x - hx, z - hz, x + hx, z + hz, y) || blocksDoor(x - hx, z - hz, x + hx, z + hz, y)) continue;
+        int c = addCont(CK_BODY, V3(x, y + 0.02f, z), (rot ? PI / 2 : 0) + (HR() < 0.5f ? PI : 0), region, false); if (c >= 0) conts[c].var = (short)var;
+        break; }
+    #undef HR
+}
 static void furnish(Rectangle in, float y, int kind, int region) {
     Vector3 sz = ckSize[kind];
     for (int tries = 0; tries < 14; tries++) {
@@ -697,7 +710,9 @@ static void building(Rectangle r, int kind, int floors, int street) {
     // a basement under some buildings: a flight down on the stair strip beyond the flight up, one big room under the whole floor
     float uB0 = uH + 0.25f, uB1 = uB0 + RUN; Rectangle bHole = {0, 0, 0, 0};
     bool basement = acc > 1 && kind != 0 && uB1 + 0.9f < uStart + runLen && nPit < MAX_PIT &&
-                    (gBasementAll || kind == 6 || (kind == 1 && floors >= 3 && ri(3) == 0) || (kind == 2 && floors >= 2 && ri(4) == 0) || (bP && (bfl & BD_BRICKBASE)));
+                    (gBasementAll || kind == 6 || (kind == 1 && floors >= 3 && ri(3) == 0) || (kind == 2 && floors >= 2 && ri(4) == 0) || (bP && (bfl & BD_BRICKBASE)) ||
+                     (gBasementK > 1 && hash2((int)(uStart * 7 + c0A * 3), floors * 17 + kind, 83) < (gBasementK - 1) * 0.3f));
+    if (gBasementK <= 0) basement = false;   // a map can switch them off
     if (basement) {
         float BY = SIDEH - FH, rise = FH / NS, tread = RUN / NS;
         bHole = runX ? (Rectangle){uB0 - 0.05f, c0A, RUN + 0.1f, SW} : (Rectangle){c0A, uB0 - 0.05f, SW, RUN + 0.1f};
@@ -826,6 +841,10 @@ static void building(Rectangle r, int kind, int floors, int street) {
             if (!two && kind != 3 && kind != 4) { pF = f == 0 ? (kind == 2 ? RM_SHOP : RM_LDK) : (kind == 0 ? RM_WASHITSU : RM_WBED); }
             planRoom(front, y0, pF, oF, kind, street, kind == 0);
             if (two) planRoom(back, y0, pB, oBk, kind, street, kind == 0);
+            {   // the dead: someone who never got out
+                Vector3 wq = xfP(curXf, V3(in.x, y0, in.y)); unsigned int sd = (unsigned int)((int)(wq.x * 7.3f) * 92821 + (int)(wq.z * 5.1f) * 68917 + f * 131 + worldSeed);
+                float pr = (kind == 4 ? 0.45f : kind == 6 ? 0.22f : kind == 1 ? 0.1f : 0.08f) * gBodyK; if (wq.x < -185 && wq.z > 110 && wq.z < 300) pr *= 1.8f;
+                if ((float)((sd * 2246822519u) >> 8 & 0xffff) / 65536.0f < pr) placeBody(front, y0, kind == 4 ? 2 : (kind == 6 && (sd & 3) == 0) ? 3 : 1, 0, sd); }
         }
         // light (most upper floors stay dark)
         if (f == 0 || fr(0, 1) < 0.3f) addLight(V3(in.x + in.width / 2, yTop - 0.3f, in.y + in.height / 2), kind == 6 ? V3(0.5f, 0.9f, 0.85f) : V3(0.9f, 0.85f, 0.7f), 9, fr(0, 1) < 0.5f ? 1 : (f > 0 && fr(0, 1) < 0.4f ? 2 : 0));

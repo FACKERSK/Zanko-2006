@@ -271,6 +271,20 @@ static void drawItemType(int type, Matrix F) {
     case IT_BIKEPANTS: ADRAW("items/motorcycle_pants", F, WHITE, BX(T_CLOTH, 0.0f, 0.04f, 0.0f, 0.36f, 0.08f, 0.46f, ((Color){30, 30, 34, 255})), BX(T_PLAIN, 0.0f, 0.081f, 0.05f, 0.3f, 0.01f, 0.08f, ((Color){80, 80, 85, 255}))); break;
     case IT_BOOTS: ADRAW("items/work_boots", F, WHITE, BX(T_CLOTH, -0.07f, 0.07f, 0.0f, 0.1f, 0.14f, 0.26f, ((Color){70, 50, 35, 255})), BX(T_CLOTH, 0.07f, 0.07f, 0.0f, 0.1f, 0.14f, 0.26f, ((Color){70, 50, 35, 255}))); break;
     case IT_RUBBERBOOTS: ADRAW("items/rubber_boots", F, WHITE, BX(T_PLAIN, -0.07f, 0.1f, 0.0f, 0.1f, 0.2f, 0.2f, ((Color){30, 60, 40, 255})), BX(T_PLAIN, 0.07f, 0.1f, 0.0f, 0.1f, 0.2f, 0.2f, ((Color){30, 60, 40, 255}))); break;
+    case IT_RAINCOAT: ADRAW("items/raincoat", F, WHITE, BX(T_GLASS, 0.0f, 0.03f, 0.0f, 0.46f, 0.05f, 0.5f, ((Color){200, 215, 220, 200})), BX(T_PLAIN, 0.0f, 0.06f, -0.18f, 0.2f, 0.03f, 0.1f, ((Color){180, 190, 195, 255}))); break;
+    case IT_PISTOL: ADRAW("items/pistol", F, WHITE, BX(T_METAL, 0, 0.025f, 0.03f, 0.035f, 0.04f, 0.17f, ((Color){40, 40, 44, 255})), BX(T_PLAIN, 0, 0.02f, -0.07f, 0.03f, 0.03f, 0.08f, ((Color){30, 28, 26, 255}))); break;
+    case IT_SHOTGUN: ADRAW("items/shotgun", F, WHITE, BX(T_METAL, 0, 0.03f, 0.25f, 0.04f, 0.05f, 0.75f, ((Color){50, 52, 56, 255})), BX(T_WOOD, 0, 0.035f, -0.32f, 0.05f, 0.07f, 0.4f, ((Color){110, 70, 40, 255})),
+                          BX(T_WOOD, 0, 0.03f, 0.2f, 0.05f, 0.05f, 0.2f, ((Color){120, 78, 44, 255}))); break;
+    case IT_ACP: ADRAW("items/pistol_rounds", F, WHITE, BX(T_PLAIN, 0, 0.04f, 0, 0.1f, 0.08f, 0.07f, ((Color){60, 90, 130, 255})), BX(T_PLAIN, 0, 0.081f, 0, 0.08f, 0.004f, 0.05f, ((Color){200, 200, 190, 255}))); break;
+    case IT_SHELLS: ADRAW("items/shotgun_shells", F, WHITE, BX(T_PLAIN, 0, 0.045f, 0, 0.12f, 0.09f, 0.08f, ((Color){150, 40, 36, 255})), BX(T_METAL, 0, 0.091f, 0, 0.1f, 0.004f, 0.06f, ((Color){190, 160, 80, 255}))); break;
+    case IT_ROCK: ADRAW("items/rock", F, WHITE, BX(T_CONCRETE, 0, 0.05f, 0, 0.13f, 0.1f, 0.11f, ((Color){120, 118, 112, 255})), BX(T_CONCRETE, 0.02f, 0.09f, 0.01f, 0.08f, 0.05f, 0.07f, ((Color){110, 108, 104, 255}))); break;
+    case IT_FIRECRACKER: ADRAW("items/firecrackers", F, WHITE, BX(T_PLAIN, 0, 0.02f, 0, 0.16f, 0.03f, 0.1f, ((Color){200, 40, 40, 255})), BX(T_PLAIN, 0, 0.036f, 0, 0.12f, 0.004f, 0.06f, ((Color){230, 200, 60, 255})),
+                               BX(T_PLAIN, 0.09f, 0.02f, 0, 0.04f, 0.006f, 0.006f, ((Color){90, 70, 50, 255}))); break;
+    case IT_MOLOTOV: ADRAW("items/molotov2", F, WHITE, BX(T_PLAIN, 0, 0.09f, 0, 0.075f, 0.18f, 0.075f, ((Color){150, 190, 130, 255})), BX(T_PLAIN, 0, 0.065f, 0, 0.078f, 0.11f, 0.078f, ((Color){190, 130, 50, 255})),
+                          BX(T_PLAIN, 0, 0.21f, 0, 0.03f, 0.06f, 0.03f, ((Color){150, 190, 130, 255})), BX(T_CLOTH, 0, 0.26f, 0, 0.04f, 0.07f, 0.04f, ((Color){225, 215, 195, 255}))); break;   // green glass, petrol inside, a rag in the neck
+    case IT_KEY: ADRAW("items/spare_key", F, WHITE, BX(T_METAL, 0, 0.005f, 0, 0.025f, 0.006f, 0.06f, ((Color){200, 180, 110, 255})), BX(T_PLAIN, 0, 0.006f, -0.045f, 0.035f, 0.008f, 0.03f, ((Color){60, 120, 180, 255}))); break;
+    case IT_FUEL: ADRAW("items/petrol_can", F, WHITE, BX(T_PLAIN, 0, 0.17f, 0, 0.16f, 0.34f, 0.28f, ((Color){180, 36, 30, 255})), BX(T_PLAIN, 0, 0.36f, 0.06f, 0.04f, 0.05f, 0.04f, ((Color){30, 30, 30, 255})),
+                       BX(T_PLAIN, 0, 0.36f, -0.06f, 0.03f, 0.03f, 0.14f, ((Color){180, 36, 30, 255}))); break;
     default: break;
     }
 }
@@ -308,6 +322,17 @@ static void drawHeld(Matrix H, int t) {
     case IT_FIREEXT: ADRAW("viewmodels/fire_extinguisher", H, WHITE, BX(T_PLAIN, 0.0f, 0.06f, 0.0f, 0.04f, 0.12f, 0.04f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.335f, 0.0f, 0.16f, 0.43f, 0.16f, ((Color){200, 30, 30, 255})), BX(T_PLAIN, 0.0f, 0.585f, 0.0f, 0.05f, 0.07f, 0.05f, ((Color){30, 28, 28, 255}))); break;
     case IT_UMBRELLA: ADRAW("viewmodels/umbrella", H, WHITE, BX(T_PLAIN, 0.0f, 0.06f, 0.0f, 0.03f, 0.12f, 0.03f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.46f, 0.0f, 0.012f, 0.68f, 0.012f, ((Color){110, 112, 118, 255})), BX(T_GLASS, 0.0f, 0.55f, 0.0f, 0.08f, 0.5f, 0.08f, ((Color){210, 225, 230, 255}))); break;
     case IT_STOPSIGN: ADRAW("viewmodels/stop_sign", H, WHITE, BX(T_METAL, 0.0f, 0.65f, 0.0f, 0.04f, 1.3f, 0.04f, ((Color){110, 112, 118, 255})), BX(T_PLAIN, 0.0f, 1.6f, 0.0f, 0.02f, 0.6f, 0.55f, ((Color){200, 30, 35, 255}))); break;
+    case IT_PISTOL: ADRAW("viewmodels/pistol2", H, WHITE, BX(T_METAL, 0, 0.085f, 0.012f, 0.03f, 0.17f, 0.035f, ((Color){118, 122, 132, 255})), BX(T_METAL, 0, 0.06f, -0.012f, 0.027f, 0.12f, 0.02f, ((Color){84, 88, 98, 255})),
+                          BX(T_PLAIN, 0, 0.0f, -0.055f, 0.029f, 0.045f, 0.1f, ((Color){58, 48, 40, 255})), BX(T_METAL, 0, 0.03f, -0.02f, 0.006f, 0.03f, 0.02f, ((Color){40, 40, 44, 255})),
+                          BX(T_METAL, 0, 0.163f, 0.031f, 0.006f, 0.008f, 0.006f, ((Color){30, 30, 32, 255})), BX(T_METAL, 0, 0.015f, 0.031f, 0.014f, 0.008f, 0.006f, ((Color){30, 30, 32, 255})),
+                          BX(T_PLAIN, 0, 0.171f, 0.012f, 0.012f, 0.002f, 0.012f, ((Color){8, 8, 8, 255}))); break;
+    case IT_SHOTGUN: ADRAW("viewmodels/shotgun", H, WHITE, BX(T_METAL, 0, 0.47f, 0.016f, 0.03f, 0.76f, 0.03f, ((Color){52, 54, 58, 255})), BX(T_METAL, 0, 0.47f, -0.016f, 0.03f, 0.76f, 0.03f, ((Color){48, 50, 54, 255})),
+                           BX(T_METAL, 0, 0.04f, 0, 0.048f, 0.16f, 0.07f, ((Color){150, 150, 156, 255})), BX(T_WOOD, 0, -0.22f, -0.035f, 0.042f, 0.4f, 0.075f, ((Color){110, 70, 40, 255})),
+                           BX(T_WOOD, 0, 0.3f, -0.03f, 0.044f, 0.24f, 0.04f, ((Color){120, 78, 44, 255})), BX(T_METAL, 0, 0.0f, -0.04f, 0.006f, 0.04f, 0.03f, ((Color){30, 30, 32, 255})),
+                           BX(T_PLAIN, 0, 0.851f, 0.016f, 0.016f, 0.002f, 0.016f, ((Color){8, 8, 8, 255})), BX(T_PLAIN, 0, 0.851f, -0.016f, 0.016f, 0.002f, 0.016f, ((Color){8, 8, 8, 255}))); break;
+    case IT_ROCK: drawItemType(IT_ROCK, MatrixMultiply(MatrixMultiply(MatrixScale(0.6f, 0.6f, 0.6f), MatrixTranslate(0, -0.03f, 0)), H)); break;
+    case IT_FIRECRACKER: drawItemType(IT_FIRECRACKER, MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(0.6f, 0.6f, 0.6f), MatrixRotateZ(PI / 2)), MatrixTranslate(0, 0.02f, 0)), H)); break;
+    case IT_MOLOTOV: drawItemType(IT_MOLOTOV, MatrixMultiply(MatrixMultiply(MatrixScale(0.6f, 0.6f, 0.6f), MatrixTranslate(0, -0.06f, 0)), H)); break;   // held round the body, the rag up
     default: break;
     }
 }
@@ -382,6 +407,7 @@ static void drawCont(Cont *c, float t) {
     case CK_BOX: ADRAW("furniture/cardboard_boxes", M, dim, BX(T_PLAIN, 0, 0.18f, 0, 0.7f, 0.36f, 0.5f, ((Color){170, 130, 80, 255})), BX(T_PLAIN, 0.05f, 0.44f, 0.02f, 0.45f, 0.16f, 0.36f, ((Color){185, 145, 90, 255}))); break;
     case CK_TOOLBOX: ADRAW("furniture/toolbox", M, dim, BX(T_METAL, 0, 0.12f, 0, 0.5f, 0.24f, 0.3f, ((Color){180, 30, 30, 255})), BX(T_METAL, 0, 0.27f, 0, 0.3f, 0.04f, 0.04f, ((Color){40, 40, 40, 255}))); break;
     case CK_TRUNK: break;   // part of the car model
+    case CK_BODY: drawBodyCont(c); break;
     case CK_OFFERING: ADRAW("furniture/offering_box", M, dim, BX(T_WOOD, 0, 0.27f, 0, 0.6f, 0.55f, 0.4f, ((Color){120, 80, 50, 255})), BX(T_PLAIN, 0, 0.56f, 0, 0.62f, 0.03f, 0.42f, ((Color){60, 40, 30, 255}))); break;
     case CK_COUNTER: ADRAW("furniture/counter", M, dim, BX(T_PLAIN, 0, 0.5f, 0, 1.4f, 1.0f, 0.6f, ((Color){215, 220, 225, 255})), BX(T_PLAIN, 0, 1.01f, 0, 1.44f, 0.04f, 0.64f, ((Color){90, 150, 170, 255})),
                            BX(T_PLAIN, 0.4f, 1.15f, -0.1f, 0.3f, 0.24f, 0.24f, ((Color){50, 50, 55, 255}))); break;
@@ -444,6 +470,19 @@ static void drawBuildPiece(Build *b) {
     case BK_ALARM: ADRAW("base/can_alarm", TRS(bc, 0, V3(1, 1, 1)), WHITE, BX(T_WOOD, 0, 0.25f, 0, 0.05f, 0.5f, 0.05f, ((Color){120, 95, 70, 255})), BX(T_PLAIN, 0, 0.46f, 0, 0.9f, 0.01f, 0.01f, ((Color){200, 200, 190, 255})),
                          BX(T_METAL, -0.3f, 0.38f, 0, 0.07f, 0.11f, 0.07f, ((Color){180, 60, 50, 255})), BX(T_METAL, 0.3f, 0.38f, 0, 0.07f, 0.11f, 0.07f, ((Color){200, 190, 170, 255})),
                          BX(T_METAL, 0.1f, 0.36f, 0, 0.07f, 0.11f, 0.07f, ((Color){70, 120, 170, 255}))); break;
+    case BK_GENERATOR: { bool run = b->open && b->fuel > 0; float jit = run ? sinf((float)GetTime() * 90) * 0.006f : 0;
+        ADRAW("base/generator", TRS(V3(bc.x + jit, bc.y, bc.z), ax ? PI / 2 : 0, V3(1, 1, 1)), WHITE, BX(T_METAL, 0, 0.3f, 0, 0.86f, 0.04f, 0.66f, ((Color){40, 40, 44, 255})),
+              BX(T_METAL, -0.41f, 0.3f, -0.31f, 0.04f, 0.6f, 0.04f, ((Color){40, 40, 44, 255})), BX(T_METAL, 0.41f, 0.3f, -0.31f, 0.04f, 0.6f, 0.04f, ((Color){40, 40, 44, 255})),
+              BX(T_METAL, -0.41f, 0.3f, 0.31f, 0.04f, 0.6f, 0.04f, ((Color){40, 40, 44, 255})), BX(T_METAL, 0.41f, 0.3f, 0.31f, 0.04f, 0.6f, 0.04f, ((Color){40, 40, 44, 255})),
+              BX(T_PLAIN, 0.1f, 0.47f, 0, 0.5f, 0.2f, 0.42f, ((Color){176, 40, 32, 255})), BX(T_METAL, -0.15f, 0.2f, 0, 0.36f, 0.3f, 0.4f, ((Color){70, 72, 76, 255})),
+              BX(T_METAL, 0.22f, 0.18f, 0.05f, 0.24f, 0.26f, 0.3f, ((Color){60, 62, 66, 255})), BX(T_METAL, 0.28f, 0.6f, 0.12f, 0.08f, 0.04f, 0.08f, ((Color){30, 30, 30, 255})));
+        if (run) { setEmis(1); ADRAW("base/generator_lamp", TRS(bc, ax ? PI / 2 : 0, V3(1, 1, 1)), WHITE, BX(T_PLAIN, -0.36f, 0.35f, 0.34f, 0.04f, 0.04f, 0.01f, ((Color){111, 214, 208, 255}))); setEmis(0); }
+        break; }
+    case BK_LAMP: { bool lit = b->light > 0 && b->light < nLight && lights[b->light].mode == 0;
+        ADRAW("base/work_lamp", TRS(bc, 0, V3(1, 1, 1)), WHITE, BX(T_METAL, 0, 0.85f, 0, 0.04f, 1.7f, 0.04f, ((Color){60, 60, 64, 255})), BX(T_METAL, 0, 0.03f, 0, 0.5f, 0.04f, 0.06f, ((Color){60, 60, 64, 255})),
+              BX(T_METAL, 0, 0.03f, 0, 0.06f, 0.04f, 0.5f, ((Color){60, 60, 64, 255})), BX(T_PLAIN, 0, 1.62f, 0.05f, 0.34f, 0.24f, 0.14f, ((Color){200, 160, 40, 255})));
+        setEmis(lit ? 1 : 0); ADRAW("base/work_lamp_glass", TRS(bc, 0, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 1.62f, 0.125f, 0.28f, 0.18f, 0.02f, lit ? ((Color){255, 248, 220, 255}) : ((Color){90, 90, 85, 255}))); setEmis(0);
+        break; }
     default: break;
     }
 }

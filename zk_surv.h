@@ -93,6 +93,7 @@ static const Recipe recipes[] = {
     {"Ofuda (blessed)", {{IT_MANGA, 1}, {IT_SALT, 1}, {-1, 0}}, IT_OFUDA, 3, RQ_SHRINE},
     {"Nail Bat", {{IT_BAT, 1}, {IT_NAILS, 12}, {-1, 0}}, IT_NAILBAT, 1, RQ_HAMMER},
     {"Repair held weapon", {{IT_SCRAP, 1}, {IT_NAILS, 4}, {-1, 0}}, -1, 0, RQ_HAMMER | RQ_WORN},
+    {"Molotov (x2)", {{IT_BOTTLE, 2}, {IT_RAG, 2}, {IT_FUEL, 1}}, IT_MOLOTOV, 2, 0},
 };
 #define N_RECIPE ((int)(sizeof recipes / sizeof recipes[0]))
 static bool nearShrine(void) { return baseShrine >= 0 && builds[baseShrine].alive && Vector3Distance(builds[baseShrine].mn, pl.pos) < 4.5f; }
@@ -381,7 +382,7 @@ static bool saveGame(void) {
     ensureDir("Data"); ensureDir("Data/Userdata");
     { char rel[128]; snprintf(rel, sizeof rel, "Data/Userdata/%s", prof.name[0] ? prof.name : "Guest"); ensureDir(rel); }
     FILE *f = fopen(savePath(), "wb"); if (!f) return false;
-    unsigned int magic = SAVE_MAGIC, ver = 6; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
+    unsigned int magic = SAVE_MAGIC, ver = 7; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
     Player p = pl; p.invOpen = false; p.mapOpen = false; p.openC = -1; p.searchC = -1; p.dragFrom = -1; p.drag.t = -1; p.build = false; WR(p);
     unsigned char *bits = calloc((size_t)worldSolids, 1); for (int i = 0; i < worldSolids; i++) bits[i] = sol[i].off; fwrite(bits, 1, (size_t)worldSolids, f); free(bits);
     WRA(ops, nOps); WRA(debs, nDeb); WRA(crates, nCrate); WRA(vends, nVend); WRA(builds, nBuild); WRA(conts, nCont); WRA(crs, nCr); WRA(wards, nWard); WRA(fires, nFire); WRA(marks, nMark);
@@ -398,7 +399,7 @@ static bool rdArr(FILE *f, void *a, size_t el, int max, int *n, bool exact) {
 static bool loadGame(void) {
     FILE *f = fopen(savePath(), "rb"); if (!f) return false;
     unsigned int magic, ver, seed; int ws;
-    if (!RD(magic) || magic != SAVE_MAGIC || !RD(ver) || ver != 6 || !RD(seed) || !RD(ws)) { fclose(f); return false; }
+    if (!RD(magic) || magic != SAVE_MAGIC || !RD(ver) || ver != 7 || !RD(seed) || !RD(ws)) { fclose(f); return false; }
     genWorld(seed);
     if (ws != worldSolids) { fclose(f); TraceLog(LOG_WARNING, "SAVE: world mismatch"); return false; }
     Player p; if (!RD(p)) { fclose(f); return false; }

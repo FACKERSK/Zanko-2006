@@ -355,7 +355,7 @@ static bool edNum(int id, float x, float y, float w, const char *lab, float *v, 
 }
 static void edPropsPanel(float W, float H) {   // right-hand panel: exact position, size and turn of what is selected, and the snap steps
     float s = aU; bool obj = (edTab == 4 || edTab == 6) && boSel >= 0 && boSel < nMobj, pt = edTab == 0 && edSel >= 0 && edSel < edCount(edLayer);
-    float pw = 300 * s, x = W - pw - 10 * s, y = 10 * s; int rows = obj ? 13 : pt ? 6 : 6;
+    float pw = 300 * s, x = W - pw - 10 * s, y = 10 * s; int rows = obj ? 13 : pt ? 6 : edTab == 0 ? 10 : 6;
     Rectangle pr = {x, y, pw, (rows * 30 + 56) * s}; aPanel(pr); x += 14 * s; y += 14 * s; float w = pw - 28 * s; int id = 0;
     if (obj) { MObj *o = &mobj[boSel]; MObj before = *o; bool blk = o->type == MO_BLOCK, bld = o->type == MO_BUILDING; Vector3 p = o->p, sz = o->s; float yw = o->yaw, pi = o->pitch, ro = o->roll;
         aText(bld ? bPresets[o->tex].name : moNames[o->type], x, y, 15, C_CYAN, true); y += 26 * s;
@@ -377,7 +377,16 @@ static void edPropsPanel(float W, float H) {   // right-hand panel: exact positi
         float gy = edGroundY(q.x, q.y); edNum(id++, x, y, w, "Y (the ground)", &gy, 0, false); y += 28 * s;
         edNum(id++, x, y, w, "Z", &q.y, edStepMap, true); y += 34 * s;
         if (q.x != q0.x || q.y != q0.y) { edPush(); edSetP(edLayer, edSel, q); edDirty = true; if (boAuto) edRebuild(); } }
-    else { aText("Nothing selected", x, y, 15, C_BONE2, true); y += 26 * s; aText("Arrow keys and PgUp/PgDn nudge a selection.", x, y, 12, C_BONE2, false); y += 26 * s; }
+    else { aText("Nothing selected", x, y, 15, C_BONE2, true); y += 26 * s; aText("Arrow keys and PgUp/PgDn nudge a selection.", x, y, 12, C_BONE2, false); y += 26 * s;
+        if (edTab == 0) {   // town rules: doors, basements, bodies, weather (the station moves with its spot in the Spots layer)
+            aText("Town rules", x, y, 13, C_BONE2, true); y += 22 * s;
+            float v0[4] = {gLockShare, gBasementK, gBodyK, gRainK};
+            edNum(50, x, y, w, "Locked doors (share)", &gLockShare, 0.05f, true); y += 28 * s;
+            edNum(51, x, y, w, "Basements (x)", &gBasementK, 0.25f, true); y += 28 * s;
+            edNum(52, x, y, w, "Bodies (x)", &gBodyK, 0.25f, true); y += 28 * s;
+            edNum(53, x, y, w, "Rain (x)", &gRainK, 0.25f, true); y += 34 * s;
+            gLockShare = clampf(gLockShare, 0, 1); gBasementK = clampf(gBasementK, 0, 4); gBodyK = clampf(gBodyK, 0, 5); gRainK = clampf(gRainK, 0, 2);
+            if (v0[0] != gLockShare || v0[1] != gBasementK || v0[2] != gBodyK) { edDirty = true; edRebuild(); } else if (v0[3] != gRainK) edDirty = true; } }
     aText("Steps (snap and nudge)", x, y, 13, C_BONE2, true); y += 22 * s;
     if (edTab == 0) { edNum(40, x, y, w, "Point step (m)", &edStepMap, 0.1f, true); if (edStepMap < 0.05f) edStepMap = 0.05f; }
     else { edNum(41, x, y, w, "Move step (m)", &edStepMove, 0.05f, true); y += 28 * s; edNum(42, x, y, w, "Size step (m)", &edStepSize, 0.05f, true); y += 28 * s; edNum(43, x, y, w, "Angle step (deg)", &edStepAng, 1, true);
@@ -737,6 +746,8 @@ static int editorMain(void) {
             if (fr2 == 72) TakeScreenshot("ed_build.png");
             if (fr2 == 73) { boTool = 2; } if (fr2 == 80) TakeScreenshot("ed_build2.png");
             if (fr2 == 81) { edSaveMap(); mobjLive = false; edRebuild(); mobjLive = true; } if (fr2 == 90) TakeScreenshot("ed_build3.png");
+            if (fr2 == 86) { edTab = 0; edSel = -1; boSel = -1; }
+            if (fr2 == 89) { TakeScreenshot("ed_rules.png"); float b0 = gBasementK; gBasementK = 2; edRebuild(); TraceLog(LOG_INFO, "EDTEST town rules: basements x2 -> %d pits", nPit); gBasementK = b0; edRebuild(); TraceLog(LOG_INFO, "EDTEST town rules: basements x1 -> %d pits", nPit); }
             if (fr2 == 91) { int before = nMobj; edUndo(false); TraceLog(LOG_INFO, "EDTEST undo parts %d -> %d", before, nMobj); edUndo(true); TraceLog(LOG_INFO, "EDTEST redo parts %d", nMobj);
                 edTab = 2; for (int i = 0; i < (int)edModels.count; i++) if (strstr(edModels.paths[i], "revolver4_body") || strstr(edModels.paths[i], "revolver4.obj")) { edModelSel = i; break; } }
             if (fr2 == 100) TakeScreenshot("ed_models.png");

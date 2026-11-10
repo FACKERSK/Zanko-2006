@@ -58,4 +58,8 @@ static MapVal mapVals[] = {
     {"NORTH_X", 0, (void *)&NORTH_X_v},
     {"NORTH_Z0", 0, (void *)&NORTH_Z0_v},
     {"NORTH_PORTAL_Z", 0, (void *)&NORTH_PORTAL_Z_v},
+    {"LOCK_SHARE", 0, (void *)&gLockShare},
+    {"BASEMENT_K", 0, (void *)&gBasementK},
+    {"BODY_K", 0, (void *)&gBodyK},
+    {"RAIN_K", 0, (void *)&gRainK},
 };

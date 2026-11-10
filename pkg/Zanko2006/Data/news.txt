@@ -1,4 +1,51 @@
-ZANKO 2006 - Afterglow  (v0.9.0, the west city, the station, Odawara streets)
+ZANKO 2006 - Afterglow  (v0.9.1, rain, guns, fire and power)
+
+- 0.9.1: weather, firearms, things to throw, electricity,
+  bodies to search.
+  * Rain: showers come and go. It darkens the town, shortens
+    the fog, drums on roofs, makes you a little harder to
+    notice and soaks you outdoors. Wet
+    clothes keep you far less warm; dry off indoors or by a
+    fire. A raincoat (new), coats and an open umbrella keep
+    it off: [R] opens and closes the umbrella.
+  * Guns: a police pistol (8 rounds of .32) and a hunting
+    over-under shotgun (2 shells, nine pellets). Each has its
+    own reload, inspect, recoil and muzzle flash; the revolver
+    flash is new too. Found in police lockers, bodies, car
+    trunks, rarely wardrobes.
+  * Throwing [LMB]: rocks (a noise somewhere else, then pick
+    them up again), firecrackers (seconds of bangs that pull
+    everything to them), molotovs (a pool of fire; craft two
+    from 2 bottles, 2 rags and a petrol can).
+  * Electricity: build a generator (scrap, nails, batteries),
+    pour in petrol [G], start it [E]. Every light within 40 m
+    comes on steady, work lamps (new build) light up, a lit
+    room calms you - and the engine is loud.
+  * Bodies: everything you kill can be searched, and what it
+    carries depends on what it was (the riot police keep
+    their gear, the nurse her supplies, the mannequin its
+    display clothes). The dead lie in houses, offices and the
+    koban. In a shared game you drop everything where you
+    die, for the others to recover.
+  * Spare keys open one locked door each, quietly.
+  * Fire extinguisher: hold [R] to spray a blinding cloud
+    that staggers creatures and puts out fire.
+  * New weapon animations: the naginata thrusts and sweeps
+    two-handed, the sickle hooks; after a kill most weapons
+    get a flourish (a flip, a flick, a rest on the shoulder).
+  * The eight new creatures each have their own voice.
+  * Manga: the book comes up shut, the cover opens, pages
+    turn with a fan of leaves, it closes. Every copy is a
+    different volume with its own cover and pages.
+  * Multiplayer: burst bodies hurt everyone near, forced and
+    unlocked doors stay that way for everyone, you see what
+    the others wear and hold, and noises they make reach the
+    creatures.
+  * Mod Maker (Map tab, nothing selected): town rules for the
+    share of locked doors, basements, bodies and rain.
+  * Saves from 0.9.0 cannot be continued (the player and the
+    world now hold more).
+
 
 - 0.9.0: the town grows west; a station; new clothes, weapons
   and creatures.

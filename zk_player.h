@@ -3,6 +3,8 @@ static bool lineOfSight(Vector3 a, Vector3 b);
 static bool survPrompt(Vector3 eye, Vector3 aim, bool act);
 static void breakLeg(const char *why);
 static void weaponWear(float k);
+static int *gunMag(void) { return pl.hands.t == IT_SHOTGUN ? &pl.magS : &pl.magP; }   // rounds loaded in the pistol / shotgun
+static float gunReloadT(void) { return pl.hands.t == IT_SHOTGUN ? 2.1f : 1.7f; }
 static void showHint(int id);
 // zk_player.h — player reset, combat feel, building, interaction and the per-frame player update
 static void spawnUnderground(void);
@@ -155,7 +157,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         float dm = meleeDmg() * (handsType() == IT_CROWBAR || handsType() == IT_SLEDGE || handsType() == IT_PICKAXE || handsType() == IT_TETSUBO || handsType() == IT_WRENCH ? 2.2f : 1.0f);
         d->hp -= dm; play(sWood, 0.9f); spawnParts(c, 6, T_WOOD, WHITE, 1.6f, 0.08f); alertAll(c, 14); weaponWear(0.5f);
         pl.shake = fmaxf(pl.shake, 0.15f); pl.hitStopT = 0.03f;
-        if (d->hp <= 0) { d->alive = false; sol[d->sid].off = true; say("The junk pile collapses."); addItem(V3(c.x, d->mn.y, c.z), IT_PLANKS, 1 + ri(2)); }
+        if (d->hp <= 0) { d->alive = false; sol[d->sid].off = true; say("The junk pile collapses."); addItem(V3(c.x, d->mn.y, c.z), IT_PLANKS, 1 + ri(2)); if (fr(0, 1) < 0.5f) addItem(V3(c.x + 0.3f, d->mn.y, c.z), IT_ROCK, 1 + ri(2)); }
         else say("Junk piled up here. Keep hitting it.");
         return;
     }
@@ -193,10 +195,10 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         return;
     }
 }
-static void shoot(Vector3 eye, Vector3 aim) {
+static void shootEx(Vector3 eye, Vector3 aim, float dmg, float range, bool fx) {   // one bullet or pellet: dmg to the body, double to the head
     Ray ray = {eye, aim};
-    float best = 120; int hitC = -1; bool head = false;
-    query(fminf(eye.x, eye.x + aim.x * 120), fminf(eye.z, eye.z + aim.z * 120), fmaxf(eye.x, eye.x + aim.x * 120), fmaxf(eye.z, eye.z + aim.z * 120));
+    float best = range; int hitC = -1; bool head = false;
+    query(fminf(eye.x, eye.x + aim.x * range), fminf(eye.z, eye.z + aim.z * range), fmaxf(eye.x, eye.x + aim.x * range), fmaxf(eye.z, eye.z + aim.z * range));
     for (int k = 0; k < qn; k++) {
         Solid *s = &sol[qb[k]]; Ray lr = s->f ? (Ray){solL(s, eye), xfDI(s->f, aim)} : ray;
         RayCollision rc = GetRayCollisionBox(lr, (BoundingBox){s->mn, s->mx});
@@ -215,7 +217,7 @@ static void shoot(Vector3 eye, Vector3 aim) {
     if (netMode != NM_OFF && netPvp) for (int k = 0; k < MP_MAX; k++) { RPlayer *r = &rps[k]; if (k == mySlot || !r->on || !r->alive) continue;   // PvP
         RayCollision rp = GetRayCollisionSphere(ray, Vector3Add(r->pos, V3(0, 1.0f, 0)), 0.45f); RayCollision rh = GetRayCollisionSphere(ray, Vector3Add(r->pos, V3(0, 1.62f, 0)), 0.2f);
         if (rh.hit && rh.distance < best) { best = rh.distance; hitP = k; hitC = -1; head = true; } else if (rp.hit && rp.distance < best) { best = rp.distance; hitP = k; hitC = -1; head = false; } }
-    if (hitP >= 0) { netPlayerDamage(hitP, head ? 70 : 34, head ? 0 : 1.0f); hitMarkT = 0.3f; hitMarkKind = head ? 1 : 0; play(sTick, 0.7f); }
+    if (hitP >= 0) { netPlayerDamage(hitP, (head ? 70 : 34) * dmg / 3.5f, head ? 0 : 1.0f); hitMarkT = 0.3f; hitMarkKind = head ? 1 : 0; play(sTick, 0.7f); }
     for (int i = 0; i < nOps; i++) {
         Open *o = &ops[i]; if (o->type != OP_WINDOW || o->state != 0) continue;
         RayCollision rc = GetRayCollisionBox(o->f ? (Ray){xfI(o->f, eye), xfDI(o->f, aim)} : ray, (BoundingBox){o->mn, o->mx});
@@ -223,25 +225,34 @@ static void shoot(Vector3 eye, Vector3 aim) {
     }
     if (hitC >= 0) {
         Cr *c = &crs[hitC];
-        { float gd = cht.on[CH_ONEHIT] ? 9999 : (head ? 7 : 3.5f); c->hp -= gd; if (netMode == NM_CLIENT) netCreatureHit(hitC, gd); } c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
+        { float gd = cht.on[CH_ONEHIT] ? 9999 : (head ? dmg * 2 : dmg); c->hp -= gd; if (netMode == NM_CLIENT) netCreatureHit(hitC, gd); } c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
         if (c->hanging) { c->hanging = false; c->pos.y = groundAt(c->pos, 0.3f, 4.0f); }
         impactFX(c, 0.7f, c->state == CS_DEAD, aim); if (head && hitMarkKind < 2) hitMarkKind = 1;
         if (c->state == CS_DEAD) { c->deadT = 0; pl.kills++; playAt(sScreech, c->pos, 40, 0.6f); }
-    } else spawnParts(Vector3Add(eye, Vector3Scale(aim, best - 0.05f)), 4, T_CONCRETE, rgb(150, 150, 150), 1.2f, 0.04f);
-    alertAll(pl.pos, 70);
+    } else if (best < range && fx) spawnParts(Vector3Add(eye, Vector3Scale(aim, best - 0.05f)), 4, T_CONCRETE, rgb(150, 150, 150), 1.2f, 0.04f);
+}
+static void shoot(Vector3 eye, Vector3 aim) { shootEx(eye, aim, 3.5f, 120, true); alertAll(pl.pos, 70); }
+static Vector3 spreadDir(Vector3 aim, float sp) {   // a direction within a cone around aim
+    Vector3 up = fabsf(aim.y) < 0.95f ? V3(0, 1, 0) : V3(1, 0, 0), rt = Vector3Normalize(Vector3CrossProduct(aim, up)), u2 = Vector3CrossProduct(rt, aim);
+    float a = fr(0, 2 * PI), r = sqrtf(fr(0, 1)) * sp;
+    return Vector3Normalize(Vector3Add(aim, Vector3Add(Vector3Scale(rt, cosf(a) * r), Vector3Scale(u2, sinf(a) * r)))); }
+static void shootGun(int t, Vector3 eye, Vector3 aim) {   // the pistol and the shotgun
+    const ItemDef *g = &idef[t];
+    if (t == IT_SHOTGUN) { for (int k = 0; k < 9; k++) shootEx(eye, spreadDir(aim, 0.075f), g->dmg, g->range, k < 3); alertAll(pl.pos, 95); }
+    else { shootEx(eye, spreadDir(aim, 0.006f), g->dmg, g->range, true); alertAll(pl.pos, 55); }
 }
 
 // ============================================================ building
-enum { BK_WALL, BK_DOOR, BK_CRATE, BK_FLOOR, BK_FIRE, BK_CHEST, BK_BED, BK_SHRINE, BK_WARD, BK_GARDEN, BK_SPIKES, BK_ALARM, BK_N };
+enum { BK_WALL, BK_DOOR, BK_CRATE, BK_FLOOR, BK_FIRE, BK_CHEST, BK_BED, BK_SHRINE, BK_WARD, BK_GARDEN, BK_SPIKES, BK_ALARM, BK_GENERATOR, BK_LAMP, BK_N };
 static const char *bkName[BK_N] = {"Plank Wall", "Door Wall", "Step Crate", "Floor Platform", "Campfire", "Storage Chest", "Bed", "Kamidana (base shrine)", "Spirit Ward",
-                                   "Garden Bed", "Spike Trap", "Can Alarm"};
+                                   "Garden Bed", "Spike Trap", "Can Alarm", "Generator", "Work Lamp"};
 typedef struct { int t, n; } Cost;
 static const Cost bkCost[BK_N][3] = {
     {{IT_PLANKS, 3}, {IT_NAILS, 4}, {-1, 0}}, {{IT_PLANKS, 4}, {IT_NAILS, 6}, {-1, 0}}, {{IT_PLANKS, 2}, {-1, 0}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 4}, {-1, 0}},
     {{IT_PLANKS, 2}, {-1, 0}, {-1, 0}}, {{IT_PLANKS, 4}, {IT_NAILS, 4}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_RAG, 2}, {-1, 0}},
     {{IT_PLANKS, 2}, {IT_OFUDA, 1}, {IT_ROPE, 1}}, {{IT_PLANKS, 2}, {IT_ROPE, 1}, {IT_OFUDA, 1}},
-    {{IT_PLANKS, 3}, {IT_SEEDS, 1}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 12}, {-1, 0}}, {{IT_SCRAP, 1}, {IT_NAILS, 2}, {IT_BOTTLE, 1}}};
-static const bool bkHammer[BK_N] = {true, true, false, true, false, true, true, false, false, true, true, false};
+    {{IT_PLANKS, 3}, {IT_SEEDS, 1}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 12}, {-1, 0}}, {{IT_SCRAP, 1}, {IT_NAILS, 2}, {IT_BOTTLE, 1}}, {{IT_SCRAP, 5}, {IT_NAILS, 8}, {IT_BATTERY, 2}}, {{IT_SCRAP, 1}, {IT_PLANKS, 1}, {IT_BATTERY, 1}}};
+static const bool bkHammer[BK_N] = {true, true, false, true, false, true, true, false, false, true, true, false, true, true};
 #define BASE_R 22.0f
 #define WARD_R 7.0f
 static bool bkAfford(int k) { for (int i = 0; i < 3; i++) if (bkCost[k][i].t >= 0 && invCount(bkCost[k][i].t) < bkCost[k][i].n) return false; return true; }
@@ -283,6 +294,8 @@ static bool buildGhost(Vector3 *mn, Vector3 *mx) {
     case BK_GARDEN: if (ax) { *mn = V3(c.x - 0.5f, g, c.z - 0.9f); *mx = V3(c.x + 0.5f, g + 0.3f, c.z + 0.9f); } else { *mn = V3(c.x - 0.9f, g, c.z - 0.5f); *mx = V3(c.x + 0.9f, g + 0.3f, c.z + 0.5f); } break;
     case BK_SPIKES: *mn = V3(c.x - 0.55f, g, c.z - 0.55f); *mx = V3(c.x + 0.55f, g + 0.25f, c.z + 0.55f); break;
     case BK_ALARM: *mn = V3(c.x - 0.2f, g, c.z - 0.2f); *mx = V3(c.x + 0.2f, g + 0.5f, c.z + 0.2f); break;
+    case BK_GENERATOR: *mn = V3(c.x - 0.45f, g, c.z - 0.35f); *mx = V3(c.x + 0.45f, g + 0.6f, c.z + 0.35f); break;
+    case BK_LAMP: *mn = V3(c.x - 0.25f, g, c.z - 0.25f); *mx = V3(c.x + 0.25f, g + 1.7f, c.z + 0.25f); break;
     default: *mn = V3(c.x - 0.4f, g, c.z - 0.4f); *mx = V3(c.x + 0.4f, g + 0.4f, c.z + 0.4f); break;
     }
     if (K == BK_WARD) {
@@ -350,6 +363,8 @@ static void placeBuild(void) {
     if (K == BK_WARD) { addWard(V3(c.x, mn.y, c.z), WARD_R, 0, 1); say("Spirit ward hung. Spirits cannot enter its circle."); }
     if (K == BK_DOOR) say("Door wall built. [E] opens and closes it.");
     if (K == BK_BED) say("Bed built. Sleep here with [Z].");
+    if (K == BK_GENERATOR) { b->fuel = 0; b->light = -1; b->hp = b->maxhp = 8; say("Generator built. Pour in petrol [G], start it [E]. Lights within 40 m come on - and it is loud."); }
+    if (K == BK_LAMP) { b->light = addLight(V3(c.x, mx.y - 0.1f, c.z), V3(1.0f, 0.95f, 0.8f), 15, 2); say("Work lamp set up. It lights when a running generator is within 40 m."); }
     bkPay(K); play(sPlace, 0.9f); pl.boredom = fmaxf(0, pl.boredom - 15); animPlay(ANIM_BUILD);
     if (bkHammer[K]) skGain(SK_CARP, 4);
 }
@@ -379,7 +394,7 @@ static int facingCont(Vector3 eye, Vector3 aim, float maxD) {
     int best = -1; float bd = maxD;
     for (int i = 0; i < nCont; i++) {
         Cont *c = &conts[i]; if (!c->on) continue;
-        if (c->kind == CK_PILE && contEmpty(c)) { c->on = false; continue; }
+        if ((c->kind == CK_PILE || (c->kind == CK_BODY && c->var >= 100 && c->searched)) && contEmpty(c)) { c->on = false; continue; }   // empty piles and picked-clean creature bodies go
         Vector3 p = Vector3Add(c->pos, V3(0, ckSize[c->kind].y * 0.5f, 0));
         Vector3 d = Vector3Subtract(p, eye); float L = Vector3Length(d);
         if (L > bd + (c->kind == CK_PILE ? 0.3f : 0) || L < 0.01f) continue;
@@ -388,7 +403,7 @@ static int facingCont(Vector3 eye, Vector3 aim, float maxD) {
     }
     return best;
 }
-static float searchTime(int k) { return k == CK_PILE || k == CK_CHEST ? 0 : (k == CK_TRUNK ? 2.0f : 1.4f) * (1 - 0.12f * skLvl(SK_SCAV)); }
+static float searchTime(int k) { return k == CK_PILE || k == CK_CHEST ? 0 : (k == CK_TRUNK || k == CK_BODY ? 2.0f : 1.4f) * (1 - 0.12f * skLvl(SK_SCAV)); }
 static void openInventory(int contIdx) {
     pl.invOpen = true; pl.openC = contIdx; pl.dragFrom = -1; pl.drag.t = -1;
     EnableCursor();
@@ -414,9 +429,8 @@ static void updatePlayer(float dt) {
       hitMarkT -= dt;
       pl.landK *= expf(-dt * 7); pl.blockK += ((pl.blocking ? 1.0f : 0.0f) - pl.blockK) * fminf(1, dt * 14);
       pl.eyeK += ((pl.sleeping ? 1.0f : 0.0f) - pl.eyeK) * fminf(1, dt * (pl.sleeping ? 1.6f : 3.0f));
-      { float was = pl.readFlip; if (pl.watchT > 0 && pl.watchKind == 2) { float ph2 = fmodf(5 - pl.watchT, 1.25f); pl.readFlip = ph2 > 0.75f ? (ph2 - 0.75f) / 0.5f : 0; } else pl.readFlip = 0;
-        if (was <= 0 && pl.readFlip > 0) play(sPaper, 0.35f); } }
-    pl.weapon = (pl.hands.t == IT_REVOLVER) ? 1 : 0;
+      pl.readFlip = 0; }   // (page turns: drawManga keeps its own time)
+    pl.weapon = pl.hands.t == IT_REVOLVER ? 1 : pl.hands.t == IT_PISTOL ? 2 : pl.hands.t == IT_SHOTGUN ? 3 : 0;
     // ---- GoldenEye-style aim: crosshair leads, view follows with lag
     Vector2 md = (pl.invOpen || pl.mapOpen) ? (Vector2){0, 0} : MDel();
     pl.tyaw -= md.x * cfg.sens; pl.tpitch -= md.y * cfg.sens;
@@ -547,7 +561,8 @@ static void updatePlayer(float dt) {
             }
         }
     } else if (!pl.invOpen) {
-        if (cont < 0 && survPrompt(eye, aim, false)) {}
+        if (cont < 0 && extraPrompt(eye, aim)) {}
+        else if (cont < 0 && survPrompt(eye, aim, false)) {}
         else if (nearTV >= 0 && cont < 0) snprintf(prompt, sizeof prompt, invHas(IT_VHS) ? "[E] Watch anime (VHS)" : "[E] Watch TV");
         else if (cont >= 0) { Cont *c = &conts[cont]; snprintf(prompt, sizeof prompt, c->kind == CK_PILE || c->kind == CK_CHEST ? "[E] Open %s" : c->searched ? "[hold E] %s (searched)" : "[hold E] Search %s", ckName[c->kind]); }
         else if (door >= 0) snprintf(prompt, sizeof prompt, builds[door].open ? "[E] Close door" : "[E] Open door");
@@ -557,16 +572,18 @@ static void updatePlayer(float dt) {
         else if (myWall >= 0 && builds[myWall].hp < builds[myWall].maxhp) snprintf(prompt, sizeof prompt, "[G] Repair (1 plank)  -  %d%%", (int)(100 * builds[myWall].hp / builds[myWall].maxhp));
         else if (myWall >= 0 && invHas(IT_SCRAP)) snprintf(prompt, sizeof prompt, "[G] Reinforce with scrap metal");
         else if (hasLedge && pl.ground) snprintf(prompt, sizeof prompt, "[SPACE] Climb");
-        else if (useDoor >= 0) snprintf(prompt, sizeof prompt, "%s", ops[useDoor].state == 0 ? "[E] Close door" : ops[useDoor].locked ? "Locked - strike it to force it open" : "[E] Open door");
+        else if (useDoor >= 0) snprintf(prompt, sizeof prompt, "%s", ops[useDoor].state == 0 ? "[E] Close door" : ops[useDoor].locked ? (invHas(IT_KEY) ? "[E] Unlock with a spare key" : "Locked - strike it to force it open") : "[E] Open door");
         else { int w = facingOpening(pl.pos, aim, 1.6f, OP_WINDOW, 0); if (w >= 0) snprintf(prompt, sizeof prompt, "Glass window - strike to break"); }
     }
     if (actP(A_USE) && !pl.invOpen && pl.searchC < 0) {
         if (cont >= 0) { Cont *c = &conts[cont]; if (searchTime(c->kind) <= 0) { lootFill(c); openInventory(cont); } else { pl.searchC = cont; pl.searchT = 0; } }
+        else if (facingBuild(eye, aim, 2.4f, BK_GENERATOR) >= 0) {}   // handled by extraPrompt
         else if (survPrompt(eye, aim, true)) {}
         else if (nearTV >= 0) { if (invTake(IT_VHS, 1)) { pl.watchKind = 1; pl.watchT = 8; play(sTape, 0.6f); play(sTV, 0.35f); } else { pl.watchKind = 0; pl.watchT = 4; play(sTV, 0.3f); play(sJingle, 0.45f); } }
         else if (door >= 0) { animPlay(ANIM_DOOR); Build *b = &builds[door]; b->open = !b->open; sol[b->sid].off = b->open; play(sWood, 0.5f); }
         else if (useDoor >= 0) { Open *o = &ops[useDoor];   // a building's door: open or shut it (a locked one has to be forced)
-            if (o->state == 1 && o->locked) { play(sClick, 0.5f); say("Locked."); }
+            if (o->state == 1 && o->locked && invTake(IT_KEY, 1)) { o->locked = false; o->state = 0; if (o->sid >= 0) sol[o->sid].off = true; animPlay(ANIM_DOOR); play(sClick, 0.6f); play(sWood, 0.4f); say("One of the spare keys fits. The door swings open."); }
+            else if (o->state == 1 && o->locked) { play(sClick, 0.5f); say("Locked."); }
             else { o->state = o->state == 1 ? 0 : 1; if (o->sid >= 0) sol[o->sid].off = o->state == 0; animPlay(ANIM_DOOR); play(sWood, 0.45f); alertAll(opCenter(o), 6); } }
     }
     if (actP(A_MAP) && !pl.invOpen) { pl.mapOpen = !pl.mapOpen; play(sPaper, 0.45f); if (pl.mapOpen) EnableCursor(); else DisableCursor(); }
@@ -627,7 +644,9 @@ static void updatePlayer(float dt) {
     }
     if (pl.reloadT > 0) {
         pl.reloadT -= dt;
-        if (pl.reloadT <= 0) { int need = 6 - pl.mag; pl.mag += invTake(IT_AMMO, need); }
+        if (pl.reloadT <= 0) {
+            if (pl.weapon == 1) { int need = 6 - pl.mag; pl.mag += invTake(IT_AMMO, need); }
+            else if (pl.weapon >= 2) { int *m = gunMag(); const ItemDef *g = &idef[pl.hands.t]; *m += invTake(g->ammo, g->cap - *m); } }
     }
     {   // guard: hold the right mouse button with a melee weapon or fists
         bool want = !pl.invOpen && !pl.build && pl.weapon == 0 && !isConsumable(pl.hands.t) && pl.climbT <= 0 && (actD(A_GUARD) || forceGuard) && pl.swingT <= 0 && pl.stam > 2;
@@ -637,7 +656,9 @@ static void updatePlayer(float dt) {
     if (pl.build) { if (actP(A_ATTACK)) placeBuild(); }
     else if (isConsumable(pl.hands.t)) { if (actP(A_ATTACK)) useHeld(); }
     else if (actD(A_ATTACK) && !pl.blocking && !(animBusy() && animId != ANIM_EQUIP)) {
-        if (pl.weapon == 0 && pl.swingCd <= 0 && pl.stam > 6) {
+        if (pl.hands.t >= 0 && idef[pl.hands.t].cat == CAT_THROW) { if (actP(A_ATTACK) && pl.swingCd <= 0) throwHeld(eye, aim); }
+        else if (pl.hands.t == IT_UMBRELLA && pl.umbOpen) { if (actP(A_ATTACK)) { pl.umbOpen = false; play(sUmb, 0.6f); } }   // fold it first
+        else if (pl.weapon == 0 && pl.swingCd <= 0 && pl.stam > 6) {
             const ItemDef *w = weaponDef();
             pl.swingDur = pl.swingT = pl.swingCd = meleeCd(); pl.hitDone = false; pl.stam -= w->stam * (1 - 0.07f * skLvl(SK_FIT)) * encStam();
             if (audioOk) { SetSoundPitch(sSwing, 1.25f - clampf(w->weight / 5.0f, 0, 0.6f)); SetSoundVolume(sSwing, 0.6f * gs.sfx); PlaySound(sSwing); } netSwingN++;
@@ -646,9 +667,18 @@ static void updatePlayer(float dt) {
                 pl.mag--; revShotT = 0; netShotN++; pl.shootCd = 0.45f; pl.kick = 1; pl.muzzle = 0.07f; pl.tpitch += 0.05f; pl.shake = 0.2f; pl.punch = 0.5f;
                 play(sShot, 1.0f); shoot(eye, aim);
             } else { play(sClick, 0.7f); revShotT = 0; pl.shootCd = 0.3f; }
+        } else if (pl.weapon >= 2 && pl.shootCd <= 0 && pl.reloadT <= 0 && actP(A_ATTACK)) {
+            int *m = gunMag(); const ItemDef *g = &idef[pl.hands.t];
+            if (*m > 0 || cht.on[CH_AMMO]) {
+                if (!cht.on[CH_AMMO]) (*m)--; revShotT = 0; netShotN++; pl.shootCd = g->cd; pl.muzzle = 0.07f;
+                bool sg = pl.weapon == 3; pl.kick = sg ? 1.6f : 0.7f; pl.tpitch += sg ? 0.11f : 0.03f; pl.shake = sg ? 0.45f : 0.12f; pl.punch = sg ? 1.0f : 0.35f;
+                play(sg ? sShotgun : sPistol, 1.0f); shootGun(pl.hands.t, eye, aim); weaponWear(0.3f);
+            } else { play(sClick, 0.7f); revShotT = 0; pl.shootCd = 0.3f; }
         }
     }
     if ((actP(A_RELOAD) || (gs.autoReload && pl.mag == 0 && pl.shootCd <= 0 && !animBusy())) && !pl.build && pl.weapon == 1 && pl.mag < 6 && invHas(IT_AMMO) && pl.reloadT <= 0) { pl.reloadT = REV_RELOAD; animPlay(ANIM_RELOAD); }
+    if (pl.weapon >= 2 && !pl.build && pl.reloadT <= 0) { int *m = gunMag(); const ItemDef *g = &idef[pl.hands.t];
+        if ((actP(A_RELOAD) || (gs.autoReload && *m == 0 && pl.shootCd <= 0 && !animBusy())) && *m < g->cap && invHas(g->ammo)) { pl.reloadT = gunReloadT(); animPlay(ANIM_RELOAD); } }
     goto survival;
 survival_ui:
     pl.swingT = fmaxf(0, pl.swingT - dt);

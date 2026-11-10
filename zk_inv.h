@@ -21,7 +21,7 @@ static int invTake(int t, int n) {   // returns how many were taken
     return got;
 }
 static void quickAuto(int t) {   // weapons and medicine get a quickbar key automatically
-    int c = idef[t].cat; if (!(c == CAT_MELEE || c == CAT_GUN || c == CAT_MED || c == CAT_FOOD || c == CAT_DRINK)) return;
+    int c = idef[t].cat; if (!(c == CAT_MELEE || c == CAT_GUN || c == CAT_THROW || c == CAT_MED || c == CAT_FOOD || c == CAT_DRINK)) return;
     for (int i = 0; i < 6; i++) if (pl.quick[i] == t) return;
     for (int i = 0; i < 6; i++) if (pl.quick[i] < 0) { pl.quick[i] = t; return; }
 }
@@ -58,7 +58,7 @@ static bool isConsumable(int t) { if (t < 0) return false; int c = idef[t].cat; 
 static void equipFromSlot(int i) {
     Slot s = pl.sl[i];
     if (s.t < 0) return;
-    if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN || isConsumable(s.t))) return;
+    if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN || idef[s.t].cat == CAT_THROW || isConsumable(s.t))) return;
     pl.sl[i] = pl.hands; pl.hands = s; pl.swingT = 0; pl.reloadT = 0; pl.build = false; animPlay(ANIM_EQUIP);
     if (s.t == IT_KATANA) play(sBlade, 0.55f); else if (s.t == IT_REVOLVER) play(sCloth, 0.5f); else { play(sCloth, 0.4f); play(sClick, 0.3f); }
 }
@@ -98,7 +98,7 @@ static void consumeItem(int t);
 static void useItem(int t) {   // inventory right-click and the quickbar: weapons and consumables go to the hand, other things are used
     if (t < 0 || !invHas(t)) { if (t >= 0) say(TextFormat("No %s.", idef[t].name)); return; }
     int cat = idef[t].cat;
-    if (cat == CAT_MELEE || cat == CAT_GUN || isConsumable(t)) {
+    if (cat == CAT_MELEE || cat == CAT_GUN || cat == CAT_THROW || isConsumable(t)) {
         if (pl.hands.t == t) { holster(); return; }
         for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t == t) { equipFromSlot(i); if (pl.hands.t == t && isConsumable(t)) say(TextFormat("%s in hand. %s to %s.", idef[t].name, actKey(A_ATTACK), cat == CAT_FOOD ? "eat" : cat == CAT_DRINK ? "drink" : "use")); return; }
         return;
@@ -137,7 +137,7 @@ static void consumeItem(int t) {
     case IT_BANDAGE: case IT_RAG: if (pl.wounds <= 0) { say("You are not bleeding."); return; } invTake(t, 1); stopBleeding(t); break;
     case IT_PAINKILLER: invTake(t, 1); pl.painT = 120; say("Painkillers. The shaking eases."); break;
     case IT_BATTERY: invTake(t, 1); pl.batt = 100; say("Battery replaced."); break;
-    case IT_MANGA: invTake(t, 1); pl.watchKind = 2; pl.watchT = 5; pl.invOpen = false; break;
+    case IT_MANGA: invTake(t, 1); { static int readN = 0; mangaRegen(readN++); } pl.watchKind = 2; pl.watchT = MANGA_T; pl.invOpen = false; break;
     case IT_VHS: say("Find a TV and press E to watch it."); return;
     case IT_SALT: invTake(t, 1); addWard(V3(pl.pos.x, pl.pos.y, pl.pos.z), 1.9f, 120, 0); say("Salt circle poured. Spirits cannot cross it for a while."); break;
     case IT_OFUDA: spiritSeal(); return;

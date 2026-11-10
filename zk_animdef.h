@@ -13,6 +13,10 @@ static void animPlay(int a) {
     if (a == ANIM_EQUIP && pl.hands.t == IT_KATANA) animDur = 0.75f;   // iaido draw
     if (a == ANIM_EQUIP && pl.hands.t == IT_REVOLVER) animDur = 0.85f;   // pull out of the holster, thumb the hammer back
     if (a == ANIM_RELOAD && pl.hands.t == IT_REVOLVER) animDur = REV_RELOAD;
+    if (a == ANIM_RELOAD && pl.hands.t == IT_PISTOL) animDur = 1.7f;
+    if (a == ANIM_RELOAD && pl.hands.t == IT_SHOTGUN) animDur = 2.1f;
+    if (a == ANIM_EQUIP && pl.hands.t == IT_SHOTGUN) animDur = 0.8f;
+    if (a == ANIM_FLOURISH && pl.hands.t >= 0 && pl.hands.t != IT_KATANA) animDur = 1.3f;
     if (a == ANIM_INSPECT) animDur = pl.hands.t < 0 ? 2.0f : pl.hands.t == IT_REVOLVER ? 3.0f : 2.8f;
 }
 static void animUse(int a, int item) { animPlay(a); animItem = item; }
