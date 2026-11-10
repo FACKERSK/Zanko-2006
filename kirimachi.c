@@ -356,8 +356,15 @@ static void xfBox(int f, Vector3 mn, Vector3 mx, Vector3 *wmn, Vector3 *wmx) {  
         wmn->x = fminf(wmn->x, q.x); wmn->z = fminf(wmn->z, q.z); wmx->x = fmaxf(wmx->x, q.x); wmx->z = fmaxf(wmx->z, q.z); }
 }
 static int wallAuditOn = -1, wallAuditN = 0; static Vector3 wallAuditP[24]; static int wallAuditT[24]; static float wallAuditW[24], wallAuditH[24]; static bool roadCentreAt(float x, float z);
+#define MAX_UPS 400000
+static float (*upS)[4]; static int nUps = -1;   // audit (KIRI_UPAUDIT): sample points of upward faces big enough to stand on, to check there is ground under each
 static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color col) {
     Vector3 q[6] = {a, b, c, a, c, d};
+    if (nUps < 0) { nUps = 0; if (getenv("KIRI_UPAUDIT")) upS = malloc(sizeof(float) * 4 * MAX_UPS); }
+    if (upS && n.y > 0.7f && nUps < MAX_UPS - 5) { Vector3 ab = Vector3Subtract(b, a), ad = Vector3Subtract(d, a); float area = Vector3Length(Vector3CrossProduct(ab, ad));
+        if (area > 0.8f && Vector3Length(ab) > 0.6f && Vector3Length(ad) > 0.6f) { Vector3 ctr = Vector3Scale(Vector3Add(Vector3Add(a, b), Vector3Add(c, d)), 0.25f);
+            for (int k = 0; k < 5; k++) { Vector3 v = k == 0 ? ctr : Vector3Lerp(ctr, k == 1 ? a : k == 2 ? b : k == 3 ? c : d, 0.7f); Vector3 w = curXf ? xfP(curXf, v) : v;
+                upS[nUps][0] = w.x; upS[nUps][1] = w.y; upS[nUps][2] = w.z; upS[nUps][3] = (float)t; nUps++; } } }
     if (wallAuditOn < 0) wallAuditOn = getenv("KIRI_SHOT") ? 1 : 0;
     if (wallAuditOn == 1 && fabsf(n.y) < 0.2f) {   // audit: an upright face standing on a road
         float y0 = fminf(fminf(a.y, b.y), fminf(c.y, d.y)), y1 = fmaxf(fmaxf(a.y, b.y), fmaxf(c.y, d.y));
@@ -371,6 +378,12 @@ static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, C
     for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), n, col);
 }
 static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
+    // every drawn box is given a hair of thickness beyond its true size: the smaller the box, the more (3 mm for a 10 cm piece,
+    // under 1 mm for a wall), so where two faces share a plane the smaller piece (the trim, the rug, the sign) is always the one
+    // in front and the depth buffer never has to choose between them (no flicker). Collision keeps the exact sizes.
+    { float dm = fmaxf(mx.x - mn.x, fmaxf(mx.y - mn.y, mx.z - mn.z)); unsigned int h = (unsigned int)(mn.x * 73.1f) * 2654435761u ^ (unsigned int)(mn.z * 37.3f + mn.y * 11.0f) * 40503u;
+      float e = 0.0006f + 0.003f / (1 + dm) + 0.0004f * (float)(h & 1023) / 1023.0f;
+      mn = Vector3Subtract(mn, (Vector3){e, e, e}); mx = Vector3Add(mx, (Vector3){e, e, e}); }
     float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
     if (mask & 1) quad(t, (Vector3){x1, y0, z1}, (Vector3){x1, y0, z0}, (Vector3){x1, y1, z0}, (Vector3){x1, y1, z1}, (Vector3){1, 0, 0}, col);
     if (mask & 2) quad(t, (Vector3){x0, y0, z0}, (Vector3){x0, y0, z1}, (Vector3){x0, y1, z1}, (Vector3){x0, y1, z0}, (Vector3){-1, 0, 0}, col);
@@ -1082,6 +1095,7 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
     return false; }
 static void genWorld(unsigned int seed) {
     freeWorld();
+    if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
     hfReady = false; layoutInit();
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
     // subway stairwells cut holes into the ground; the city opens onto the wilds (no perimeter wall)
@@ -2263,7 +2277,15 @@ int main(int argc, char **argv) {
     if (argNewGame) { newGame(); state = ST_PLAY; DisableCursor(); }
     while (!WindowShouldClose()) {
         frame++;
+        padMenuNav = padActive && !IsCursorHidden() && (state != ST_PLAY || cht.menu);
         inputUpdate(); uiFrame = frame;
+        { static const char *sn = (const char *)1; if (sn == (const char *)1) sn = getenv("KIRI_SNAP");   // screenshots at given frames: "75,110,..."; quits after the last
+          if (sn) { const char *q = sn; int fr2, n, last = 0; while (sscanf(q, "%d%n", &fr2, &n) == 1) { last = fr2; if (fr2 == frame) TakeScreenshot(TextFormat("snap_%d.png", frame)); q += n; if (*q == ',') q++; else break; } if (frame > last + 2) break; } }
+        {   // menu focus for the pad: D-pad or a flick of the left stick steps, held it repeats; A presses
+            static float rep = 0; static int held = 0; int mv = (padP(GAMEPAD_BUTTON_LEFT_FACE_DOWN) ? 1 : 0) - (padP(GAMEPAD_BUTTON_LEFT_FACE_UP) ? 1 : 0), sd = (padP(GAMEPAD_BUTTON_LEFT_FACE_RIGHT) ? 1 : 0) - (padP(GAMEPAD_BUTTON_LEFT_FACE_LEFT) ? 1 : 0);
+            int sy = padMoveV.y > 0.6f ? 1 : padMoveV.y < -0.6f ? -1 : 0, sx = padMoveV.x > 0.6f ? 2 : padMoveV.x < -0.6f ? -2 : 0, cur = sy ? sy : sx;
+            if (cur == 0) { held = 0; rep = 0; } else { rep -= GetFrameTime(); if (cur != held || rep <= 0) { if (sy) mv = sy; else sd = sx / 2; rep = cur != held ? 0.4f : 0.12f; held = cur; } }
+            padMenuNav = padActive && !IsCursorHidden() && (state != ST_PLAY || cht.menu); aNavBegin(padMenuNav, mv, sd, padP(GAMEPAD_BUTTON_RIGHT_FACE_DOWN)); }
 #if !defined(PLATFORM_WEB)
         { static bool muted = false; bool m = gs.muteUnfocus && !IsWindowFocused(); if (m != muted) { muted = m; SetMasterVolume(m ? 0 : cfg.volume); } }
 #endif
@@ -2324,6 +2346,13 @@ int main(int argc, char **argv) {
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
                 if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
                     TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d terrain %.2f", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z), terrainH(x, z)); } }
+                if (getenv("KIRI_KAT")) { float kx, kz; sscanf(getenv("KIRI_KAT"), "%f %f", &kx, &kz); for (int s2 = 0; s2 < nStreet; s2++) { float d = pathDist(ST_P(s2), ST_N(s2), kx, kz, NULL); if (d < 12) TraceLog(LOG_INFO, "KATST street %d kind %d w %.1f dist %.1f n %d", s2, stKind[s2], stW10[s2] / 10.0f, d, ST_N(s2)); }
+                    TraceLog(LOG_INFO, "KATST coast %.1f avenue n %d", nCoast > 1 ? pathDist(coastP, nCoast, kx, kz, NULL) : -1.0f, nAvenue); }
+                if (getenv("KIRI_FINDS")) { TraceLog(LOG_INFO, "FIND stn %.1f %.1f t %.3f %.3f y %.2f", stnCX, stnCZ, stnTX, stnTZ, stnY);
+                    static Vector3 rv2[MAX_PATH]; int nr2 = loadPath(dRiverLine, DRIVERLINE_N, rv2); rvWallP = rv2; rvWallN = nr2;
+                    for (int sg = -1; sg <= 1; sg += 2) { rvWallSg = sg; riverSkipPrep(); int prev = -1; for (int i = 0; i < nr2; i++) { Vector2 nn = pnorm(rv2, nr2, i); Vector3 q = V3(rv2[i].x + nn.x * 4 * sg, 0, rv2[i].z + nn.y * 4 * sg); int sk = riverWallSkip(q);
+                        if (!sk) { float gx = q.x + nn.x * 1.5f * sg, gz = q.z + nn.y * 1.5f * sg, g = groundAt(V3(gx, 30, gz), 0.05f, 60); if (g < SIDEH - 0.3f) TraceLog(LOG_INFO, "FIND lone sg %d i %d %.1f %.1f g %.2f th %.2f city %d", sg, i, q.x, q.z, g, terrainH(gx, gz), cityLand(gx, gz)); }
+                        if (sk != prev) TraceLog(LOG_INFO, "FIND river sg %d i %d %.1f %.1f skip %d n %.2f %.2f th %.2f", sg, i, q.x, q.z, sk, nn.x, nn.y, terrainH(q.x, q.z)); prev = sk; } } }
                 TraceLog(LOG_INFO, "LOOK touge end %.1f %.1f %.1f, before %.1f %.1f", tougeP[nTouge - 1].x, tougeP[nTouge - 1].y, tougeP[nTouge - 1].z, tougeP[nTouge - 4].x, tougeP[nTouge - 4].z); }
             if (lk && frame > 10) { char *p = spec; for (int k = 0; k < li && p; k++) { p = strchr(p, ';'); if (p) p++; }
                 if (!p || !*p) { TraceLog(LOG_INFO, "LOOK done"); break; }
@@ -2414,6 +2443,31 @@ int main(int argc, char **argv) {
                     if (V[q].shot >= 0) { revShotT = V[q].shot; pl.kick = fmaxf(0, 1 - V[q].shot * 6); pl.muzzle = V[q].shot < 0.07f ? 0.2f : 0; } }
                 if (!vSkip && k == 4) { char nm[64]; snprintf(nm, sizeof nm, "%s.png", V[q].nm); TakeScreenshot(nm); } } }
         }
+        if (upS && frame == 4) {   // every upward face big enough to stand on: is there something to stand on under it?
+            int bad = 0, byT[T_COUNT] = {0}; static int gx[30000], gz[30000], gn[30000], gt[30000]; int ng = 0;
+            for (int i = 0; i < nUps; i++) { float x = upS[i][0], y = upS[i][1], z = upS[i][2]; if (y < SEA_Y + 0.2f) continue;
+                float g = groundAt(V3(x, y + 0.3f, z), 0.05f, 0.45f); if (g >= y - 0.2f) continue;
+                bad++; int t = (int)upS[i][3]; if (t >= 0 && t < T_COUNT) byT[t]++;
+                { static int shown[T_COUNT]; if (t >= 0 && t < T_COUNT && shown[t] < 6 && (i % 37) == 0 && (t != 2 || x < -180)) { shown[t]++; TraceLog(LOG_INFO, "UPSAMPLE t%d at %.1f %.2f %.1f: ground %.2f (city %d terrain %.2f bore %d)", t, x, y, z, g, cityLand(x, z), terrainH(x, z), inBore(x, z, y)); } }
+                int cx = (int)floorf(x / 10), cz = (int)floorf(z / 10), f = -1; for (int k = 0; k < ng; k++) if (gx[k] == cx && gz[k] == cz && gt[k] == t) { f = k; break; }
+                if (f < 0 && ng < 30000) { f = ng++; gx[f] = cx; gz[f] = cz; gt[f] = t; gn[f] = 0; } if (f >= 0) gn[f]++; }
+            { int ts[3] = {0, 5, 1}; for (int q = 0; q < 3; q++) { float mnx = 1e9f, mxx = -1e9f, mnz = 1e9f, mxz = -1e9f, wd = 0; int c = 0;
+                for (int i = 0; i < nUps; i++) { if ((int)upS[i][3] != ts[q]) continue; float x = upS[i][0], y = upS[i][1], z = upS[i][2]; if (y < SEA_Y + 0.2f) continue; float g = groundAt(V3(x, y + 0.3f, z), 0.05f, 0.45f); if (g >= y - 0.2f) continue;
+                    c++; mnx = fminf(mnx, x); mxx = fmaxf(mxx, x); mnz = fminf(mnz, z); mxz = fmaxf(mxz, z); wd = fmaxf(wd, y - g); if (c % 50 == 1) TraceLog(LOG_INFO, "UPT t%d %.1f %.2f %.1f g %.2f", ts[q], x, y, z, g); }
+                TraceLog(LOG_INFO, "UPRANGE t%d: %d samples x %.0f..%.0f z %.0f..%.0f worst drop %.2f", ts[q], c, mnx, mxx, mnz, mxz, wd); } }
+            char tb[600] = ""; for (int t = 0; t < T_COUNT; t++) if (byT[t]) { char t2[32]; snprintf(t2, 32, " t%d:%d", t, byT[t]); strncat(tb, t2, sizeof tb - strlen(tb) - 1); }
+            TraceLog(LOG_INFO, "UPAUDIT %d of %d samples on upward faces have nothing to stand on within 20 cm (by texture:%s), %d 10 m cells", bad, nUps, tb, ng);
+            for (int pass = 0; pass < 120; pass++) { int b = -1; int tt = pass / 8, want[15] = {0, 1, 2, 8, 9, 11, 12, 15, 19, 5, 24, 3, 4, 10, 26}; if (tt >= 15) break;
+                for (int k = 0; k < ng; k++) if (gn[k] > 0 && gt[k] == want[tt] && (b < 0 || gn[k] > gn[b])) b = k; if (b < 0) continue;
+                TraceLog(LOG_INFO, "UPAUDIT cell %d,%d (x %d..%d z %d..%d) texture %d: %d samples", gx[b], gz[b], gx[b] * 10, gx[b] * 10 + 10, gz[b] * 10, gz[b] * 10 + 10, gt[b], gn[b]); gn[b] = -gn[b]; } }
+        if (getenv("KIRI_GDBG") && frame == 4) {   // how far below the drawn road and pavement the walkable ground lies
+            int bad = 0, tot = 0; float worst = 0; int byK[5] = {0};
+            for (int s2 = 0; s2 < nStreet; s2++) { const Vector3 *p = ST_P(s2); int n = ST_N(s2); float w = stW10[s2] / 10.0f; int k = stKind[s2]; if (k == 3) continue;
+                float sy = k == 2 ? SIDEH + 0.045f : SIDEH + 0.03f;
+                for (int i = 0; i < n; i++) { Vector2 nn = pnorm(p, n, i); for (int e = -1; e <= 1; e++) { float o2 = e * (w / 2 - 0.3f), x = p[i].x + nn.x * o2, z = p[i].z + nn.y * o2, ry = p[i].y + sy; tot++;
+                    float g = groundAt(V3(x, ry + 0.4f, z), 0.25f, 0.42f); float d = ry - g;
+                    if (d > 0.12f) { bad++; if (k < 5) byK[k]++; if (d > worst) worst = d; if (bad <= 12) TraceLog(LOG_INFO, "GDBG street %d kind %d at %.1f %.1f: road %.2f ground %.2f (city %d terrain %.2f)", s2, k, x, z, ry, g, cityLand(x, z), terrainH(x, z)); } } } }
+            TraceLog(LOG_INFO, "GDBG %d of %d road points float over the ground by more than 12 cm (kinds %d %d %d %d %d), worst %.2f", bad, tot, byK[0], byK[1], byK[2], byK[3], byK[4], worst); }
         {   // feature test: KIRI_FEAT=1 sets up a generator, two lamps, bodies, a fire pool, a thrown rock and firecracker, then photographs them (KIRI_RAIN for rain)
             static int ft = -1; static Vector3 base; if (ft < 0) ft = getenv("KIRI_FEAT") ? 1 : 0;
             if (ft == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 21; cht.frozenTod = 21;
@@ -2600,7 +2654,12 @@ int main(int argc, char **argv) {
                 else if (state == ST_PLAY && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) DisableCursor();
             }
 #else
-            if (state == ST_PLAY && !shotMode && !videoMode && !pl.invOpen && !pl.mapOpen && !IsCursorHidden()) DisableCursor();
+            {   // the mouse is captured only while the window has focus: Alt-Tab lets go of it, clicking back in takes it again
+                static bool hadFocus = true; bool foc = IsWindowFocused() || autoTest;
+                if (!foc && hadFocus && IsCursorHidden()) EnableCursor();
+                if (foc && state == ST_PLAY && !shotMode && !videoMode && !pl.invOpen && !pl.mapOpen && !IsCursorHidden() && (hadFocus || IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || padActive)) DisableCursor();
+                if (!foc) hadFocus = false; else if (IsCursorHidden() || state != ST_PLAY || pl.invOpen || pl.mapOpen) hadFocus = true;
+            }
 #endif
             // hit-stop: a few frozen frames on impact sell the weight of a blow
             float wdt = dt;

@@ -334,8 +334,9 @@ static void drawMap(float W, float H) {
         mapYaw -= padLookV.x * 2.2f * dt; mapPitch = clampf(mapPitch + padLookV.y * 1.2f * dt, 0.45f, 1.45f);
         if (padNow[GAMEPAD_BUTTON_RIGHT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 - 1.2f * dt), 0.35f, 2.6f);
         if (padNow[GAMEPAD_BUTTON_LEFT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 + 1.2f * dt), 0.35f, 2.6f);
+        padNoCursor = true;   // the left stick pans the map instead of moving the cursor
         float px = (actD(A_RIGHT) ? 1.0f : 0) - (actD(A_LEFT) ? 1.0f : 0) + padMoveV.x, pz = (actD(A_FWD) ? 1.0f : 0) - (actD(A_BACK) ? 1.0f : 0) - padMoveV.y;   // pan, relative to the view
-        if (px != 0 || pz != 0) { float sp = 260 * mapZoom * dt; Vector2 f = {-sinf(mapYaw), -cosf(mapYaw)}, r = {-f.y, f.x}; mapTgt.x += (f.x * pz - r.x * px) * sp; mapTgt.y += (f.y * pz - r.y * px) * sp;
+        if (px != 0 || pz != 0) { float sp = 260 * mapZoom * dt; Vector2 f = {-sinf(mapYaw), -cosf(mapYaw)}, r = {-f.y, f.x}; mapTgt.x += (f.x * pz + r.x * px) * sp; mapTgt.y += (f.y * pz + r.y * px) * sp;   // r is screen-right
             mapTgt.x = clampf(mapTgt.x, -WEST + 40, CITY + WILD - 40); mapTgt.y = clampf(mapTgt.y, -WILD + 40, CITY + WILD - 40); } }
     renderMapScene(t);
     p3Begin(t);

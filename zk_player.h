@@ -622,6 +622,13 @@ static void updatePlayer(float dt) {
     }
     // ---- quickbar, tools
     for (int q = 0; q < 6; q++) if (actP(A_Q1 + q)) quickUse(q);
+    if (actP(A_QNEXT) || actP(A_QPREV)) {   // step through the quick slots that hold something, with bare fists between the last and the first
+        int dir = actP(A_QNEXT) ? 1 : -1, cur = 6;
+        for (int q = 0; q < 6; q++) if (pl.quick[q] >= 0 && pl.quick[q] == pl.hands.t) { cur = q; break; }
+        for (int k = 1; k <= 7; k++) { int q = ((cur + dir * k) % 7 + 7) % 7;
+            if (q == 6) { if (pl.hands.t >= 0) holster(); break; }
+            if (pl.quick[q] >= 0 && invHas(pl.quick[q]) && pl.quick[q] != pl.hands.t) { useItem(pl.quick[q]); break; } }
+    }
     if (actP(A_FLASH) && pl.batt > 0) { pl.flash = !pl.flash; play(sClick, 0.5f); }
     if (actP(A_HOLSTER)) holster();
     if (actP(A_SLEEP)) {

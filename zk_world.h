@@ -125,10 +125,12 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
     return 0;
 }
 static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool coastSeaward(float x, float z); static bool mainRoadAt(float x, float z, float m); static float polyEdgeDist(const float (*p)[2], int n, float x, float z);
+static float roadRastAt(float x, float z);
 static float baseGroundY(float x, float z, float y) {
-    if (cityLand(x, z)) return inHole(x, z) || inPit(x, z) ? -1e9f : SIDEH;
+    if (cityLand(x, z)) { if (inHole(x, z) || inPit(x, z)) return -1e9f; float r = roadRastAt(x, z); return r > SIDEH + 0.05f && y > r - 1.0f ? r : SIDEH; }   // (a road climbing out of town starts on town land)
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
     float h = terrainH(x, z);
+    { float r = roadRastAt(x, z); if (r > h && y > r - 1.0f) return r; }   // a road or paved strip out of town: the drawn surface, not the coarser terrain under it
     if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coast_d(x, z) > 5.0f && coastSeaward(x, z)) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
     return h;
 }
@@ -456,7 +458,16 @@ static bool wallBox(Rectangle rm, int wall, float u, float w, float d, float y0,
     box(tex, V3(x0, y0, z0), V3(x1, y0 + h, z1), c, solid, ALL); return true;
 }
 static float wallAt(Rectangle rm, int wall, float frac) { return wallLo(rm, wall) + (wallHi(rm, wall) - wallLo(rm, wall)) * frac; }
-static void floorFinish(Rectangle rm, float y, int tex, Color c) { box(tex, V3(rm.x, y + 0.016f, rm.y), V3(rm.x + rm.width, y + 0.024f, rm.y + rm.height), c, false, 16); }
+static Rectangle floorHoleNow;   // the stairwell opening in the floor being furnished (from the flight below), in the building's frame
+static void floorFinish(Rectangle rm, float y, int tex, Color c) {   // a room's floor covering, cut round the stairwell
+    Rectangle h = floorHoleNow;
+    float hx0 = fmaxf(h.x, rm.x), hx1 = fminf(h.x + h.width, rm.x + rm.width), hz0 = fmaxf(h.y, rm.y), hz1 = fminf(h.y + h.height, rm.y + rm.height);
+    if (h.width <= 0 || hx0 >= hx1 || hz0 >= hz1) { box(tex, V3(rm.x, y + 0.016f, rm.y), V3(rm.x + rm.width, y + 0.024f, rm.y + rm.height), c, false, 16); return; }
+    if (hx0 > rm.x + 0.01f) box(tex, V3(rm.x, y + 0.016f, rm.y), V3(hx0, y + 0.024f, rm.y + rm.height), c, false, 16);
+    if (hx1 < rm.x + rm.width - 0.01f) box(tex, V3(hx1, y + 0.016f, rm.y), V3(rm.x + rm.width, y + 0.024f, rm.y + rm.height), c, false, 16);
+    if (hz0 > rm.y + 0.01f) box(tex, V3(hx0, y + 0.016f, rm.y), V3(hx1, y + 0.024f, hz0), c, false, 16);
+    if (hz1 < rm.y + rm.height - 0.01f) box(tex, V3(hx0, y + 0.016f, hz1), V3(hx1, y + 0.024f, rm.y + rm.height), c, false, 16);
+}
 static void sofa(Rectangle rm, int wall, float u, float y, Color c) {   // a two-seat sofa against a wall, facing into the room
     float x0, z0, x1, z1; wallFoot(rm, wall, u, 1.7f, 0.8f, &x0, &z0, &x1, &z1);
     if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y)) return;
@@ -498,8 +509,9 @@ static bool wetStrip(Rectangle rm, int wall, float y, int region) {   // bathroo
     return true;
 }
 static int opp(int w) { return (w + 2) % 4; }
+
 // room plans
-enum { RM_LIVING, RM_KITCHEN, RM_BED, RM_SHOP, RM_STOCK, RM_KONBINI, RM_KOBAN, RM_OFFICE, RM_STUDY, RM_LDK, RM_WASHITSU, RM_WASHWET, RM_WBED };
+enum { RM_LIVING, RM_KITCHEN, RM_BED, RM_SHOP, RM_STOCK, RM_KONBINI, RM_KOBAN, RM_OFFICE, RM_STUDY, RM_LDK, RM_WASHITSU, RM_WASHWET, RM_WBED, RM_TOILET, RM_SENMEN, RM_BATH, RM_HALL, RM_NANDO };
 static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int street, bool tatami) {
     int sideA = (outer + 1) % 4, sideB = (outer + 3) % 4;
     float cx = rm.x + rm.width / 2, cz = rm.y + rm.height / 2; bool longX = rm.width >= rm.height;
@@ -551,6 +563,26 @@ static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int
         floorFinish(rest, y, T_TATAMI, WHITE); tokonoma(rest, ws >= 0 ? opp(ws) : sideA, y);
         int r1[] = {CK_WARDROBE}; runAlong(rest, outer, y, r1, 1, 1, region);
         tableSet(rest.x + rest.width / 2, rest.y + rest.height / 2, y, rest.width >= rest.height, 2, 0.35f, rgb(120, 80, 54)); } break;
+    case RM_TOILET: {   // the toilet room: tiled, a western bowl with its tank on the far wall, a tiny hand basin, slippers
+        floorFinish(rm, y, T_TILEWALL, rgb(214, 216, 212));
+        int fw = rm.width < rm.height ? (rm.y + rm.height / 2 > cz ? 2 : 0) : 1; fw = outer;   // against the outer wall
+        wallBox(rm, fw, wallAt(rm, fw, 0.5f), 0.42f, 0.62f, y, 0.42f, T_PLAIN, rgb(240, 240, 238), true); wallBox(rm, fw, wallAt(rm, fw, 0.5f), 0.46f, 0.2f, y + 0.42f, 0.45f, T_PLAIN, rgb(232, 232, 228), false);
+        wallBox(rm, sideA, wallAt(rm, sideA, 0.7f), 0.36f, 0.22f, y + 0.75f, 0.12f, T_PLAIN, rgb(236, 236, 234), false);
+        { float x0, z0, x1, z1; wallFoot(rm, opp(fw), wallAt(rm, opp(fw), 0.5f), 0.3f, 0.3f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y + 0.024f, z0), V3(x1, y + 0.06f, z1), rgb(90, 140, 120), false, ALL); } } break;
+    case RM_SENMEN: {   // the washroom (datsuijo): basin vanity, the washing machine, a towel rack; the bath opens off it
+        floorFinish(rm, y, T_TILEWALL, rgb(210, 214, 216));
+        int r1[] = {CK_CABINET}; runAlong(rm, outer, y, r1, 1, 0, region);
+        if (!wallBox(rm, sideA, wallAt(rm, sideA, 0.35f), 0.62f, 0.62f, y, 0.9f, T_PLAIN, rgb(238, 238, 236), true)) wallBox(rm, sideB, wallAt(rm, sideB, 0.35f), 0.62f, 0.62f, y, 0.9f, T_PLAIN, rgb(238, 238, 236), true);
+        wallBox(rm, outer, wallAt(rm, outer, 0.5f), 0.7f, 0.12f, y + 1.2f, 0.7f, T_GLASS, rgb(170, 190, 200), false); } break;   // the mirror
+    case RM_BATH: {   // the bathroom (ofuro): a deep tub against the outer wall, the washing area with a stool, a hand shower
+        floorFinish(rm, y, T_TILEWALL, rgb(196, 206, 210));
+        float x0, z0, x1, z1; bool lx = rm.width >= rm.height; int tw = lx ? (outer == 1 || outer == 3 ? outer : sideA) : (outer == 0 || outer == 2 ? outer : sideA);
+        wallFoot(rm, tw, wallAt(rm, tw, 0.5f), (tw == 0 || tw == 2) ? rm.width - 0.1f : rm.height - 0.1f, 0.8f, &x0, &z0, &x1, &z1);
+        if (fFree(x0, z0, x1, z1, y)) { box(T_PLAIN, V3(x0, y, z0), V3(x1, y + 0.58f, z1), rgb(236, 238, 238), true, ALL); box(T_PLAIN, V3(x0 + 0.08f, y + 0.581f, z0 + 0.08f), V3(x1 - 0.08f, y + 0.59f, z1 - 0.08f), rgb(110, 140, 150), false, 16); }
+        { float sx = cx - (tw == 1 ? 0.5f : tw == 3 ? -0.5f : 0), sz = cz - (tw == 2 ? 0.5f : tw == 0 ? -0.5f : 0); box(T_PLAIN, V3(sx - 0.15f, y, sz - 0.15f), V3(sx + 0.15f, y + 0.25f, sz + 0.15f), rgb(150, 190, 200), false, ALL); }
+        wallBox(rm, opp(tw), wallAt(rm, opp(tw), 0.5f), 0.08f, 0.08f, y + 0.9f, 0.6f, T_METAL, rgb(190, 192, 196), false); } break;
+    case RM_HALL: floorFinish(rm, y, T_WOOD, rgb(170, 130, 92)); break;   // the corridor (rouka): polished boards
+    case RM_NANDO: { floorFinish(rm, y, T_WOOD, rgb(160, 124, 90)); int r1[] = {CK_BOX, FX_CRATES, CK_BOX}; runAlong(rm, outer, y, r1, 3, 0, region); int r2[] = {CK_WARDROBE}; runAlong(rm, sideA, y, r2, 1, 0, region); } break;   // the store room
     case RM_WBED: {   // a western bedroom upstairs: wood floor, a bed, desk, wardrobe
         floorFinish(rm, y, T_WOOD, rgb(186, 150, 112));
         { float x0, z0, x1, z1; wallFoot(rm, sideA, wallAt(rm, sideA, 0.3f), 1.0f, 2.0f, &x0, &z0, &x1, &z1);
@@ -661,6 +693,188 @@ static void pitchedRoof(Rectangle r, float top, Color rc) {   // a tiled gable r
         if (alongX) box(T_ROOF, V3(r.x - 0.5f, h0, r.y + ins), V3(r.x + r.width + 0.5f, h1, r.y + r.height - ins), c, true, ALL);
         else box(T_ROOF, V3(r.x + ins, h0, r.y - 0.5f), V3(r.x + r.width - ins, h1, r.y + r.height + 0.5f), c, true, ALL); }
 }
+// ---------------------------------------------------------------- Japanese floor plans for houses and flats
+// Worked in (u, d): d runs from the street wall (0) to the back (D), u across (0..W). The stairwell lies either along the back
+// (a corridor runs behind the rooms) or along one side (the stair hall runs the full depth there). Rooms get plaster partitions
+// with 0.8 m doorways (lintel at 2.05 m) and are furnished by planRoom.
+typedef struct { Rectangle in; int st; float W, D; } JpF;
+static Rectangle jpRect(const JpF *J, float u0, float d0, float u1, float d1) {
+    float ua = fminf(u0, u1), ub = fmaxf(u0, u1), da = fminf(d0, d1), db = fmaxf(d0, d1); Rectangle in = J->in;
+    switch (J->st) { case 0: return (Rectangle){in.x + ua, in.y + da, ub - ua, db - da};
+                     case 2: return (Rectangle){in.x + ua, in.y + in.height - db, ub - ua, db - da};
+                     case 3: return (Rectangle){in.x + da, in.y + ua, db - da, ub - ua};
+                     default: return (Rectangle){in.x + in.width - db, in.y + ua, db - da, ub - ua}; }
+}
+static int jpSide(const JpF *J, int which) {   // 0 front (street), 1 back, 2 the u=0 side, 3 the u=W side -> wall index
+    int s = J->st; if (which == 0) return s; if (which == 1) return opp(s);
+    bool uIsX = s == 0 || s == 2; return which == 2 ? (uIsX ? 3 : 0) : (uIsX ? 1 : 2);
+}
+static float jpY0, jpYT; static int jpPT = T_PLASTER; static Color jpPC;
+static FILE *jpDump; static int jpDumpN = -1;   // KIRI_PLANDUMP=file: the plans of the first houses, for drawing
+static void jpDumpRect(const char *tag, Rectangle q) { if (!jpDump) return; Vector3 c[4] = {xfP(curXf, V3(q.x, 0, q.y)), xfP(curXf, V3(q.x + q.width, 0, q.y)), xfP(curXf, V3(q.x + q.width, 0, q.y + q.height)), xfP(curXf, V3(q.x, 0, q.y + q.height))};
+    fprintf(jpDump, "%s %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", tag, c[0].x, c[0].z, c[1].x, c[1].z, c[2].x, c[2].z, c[3].x, c[3].z); }
+static void jpWallU(const JpF *J, float u, float d0, float d1, float door) {   // a partition at constant u from d0 to d1, a doorway centred at d = door (<0: none)
+    if (d1 - d0 < 0.05f) return;
+    if (jpDump) { if (door >= 0) { jpDumpRect("W", jpRect(J, u - 0.05f, d0, u + 0.05f, door - 0.4f)); jpDumpRect("W", jpRect(J, u - 0.05f, door + 0.4f, u + 0.05f, d1)); jpDumpRect("D", jpRect(J, u - 0.05f, door - 0.4f, u + 0.05f, door + 0.4f)); } else jpDumpRect("W", jpRect(J, u - 0.05f, d0, u + 0.05f, d1)); }
+    float a = d0, b = door >= 0 ? door - 0.4f : d1;
+    if (b - a > 0.02f) { Rectangle q = jpRect(J, u - 0.05f, a, u + 0.05f, b); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
+    if (door >= 0) { Rectangle l = jpRect(J, u - 0.05f, door - 0.4f, u + 0.05f, door + 0.4f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB);
+        a = door + 0.4f; if (d1 - a > 0.02f) { Rectangle q = jpRect(J, u - 0.05f, a, u + 0.05f, d1); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
+        if (nKeep < 8) { Rectangle k = jpRect(J, u - 0.7f, door - 0.55f, u + 0.7f, door + 0.55f); keepClear[nKeep++] = k; } }
+}
+static void jpWallD(const JpF *J, float d, float u0, float u1, float door) {   // a partition at constant d from u0 to u1
+    if (u1 - u0 < 0.05f) return;
+    if (jpDump) { if (door >= 0) { jpDumpRect("W", jpRect(J, u0, d - 0.05f, door - 0.4f, d + 0.05f)); jpDumpRect("W", jpRect(J, door + 0.4f, d - 0.05f, u1, d + 0.05f)); jpDumpRect("D", jpRect(J, door - 0.4f, d - 0.05f, door + 0.4f, d + 0.05f)); } else jpDumpRect("W", jpRect(J, u0, d - 0.05f, u1, d + 0.05f)); }
+    float a = u0, b = door >= 0 ? door - 0.4f : u1;
+    if (b - a > 0.02f) { Rectangle q = jpRect(J, a, d - 0.05f, b, d + 0.05f); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
+    if (door >= 0) { Rectangle l = jpRect(J, door - 0.4f, d - 0.05f, door + 0.4f, d + 0.05f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB);
+        a = door + 0.4f; if (u1 - a > 0.02f) { Rectangle q = jpRect(J, a, d - 0.05f, u1, d + 0.05f); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
+        if (nKeep < 8) { Rectangle k = jpRect(J, door - 0.55f, d - 0.7f, door + 0.55f, d + 0.7f); keepClear[nKeep++] = k; } }
+}
+static int jpRooms; static Rectangle jpRoomR[12]; static int jpRoomP[12], jpRoomO[12];
+static void jpRoom(const JpF *J, float u0, float d0, float u1, float d1, int plan, int outerWhich) {
+    if (jpRooms >= 12 || u1 - u0 < 0.7f || d1 - d0 < 0.7f) return;
+    Rectangle r = jpRect(J, u0 + 0.05f, d0 + 0.05f, u1 - 0.05f, d1 - 0.05f); jpRoomR[jpRooms] = r; jpRoomP[jpRooms] = plan; jpRoomO[jpRooms] = jpSide(J, outerWhich); jpRooms++;
+}
+// one zone beside the hall (u from a to b, d from 0 to Dr), its doors on the wall at u = hallU. living: the bigger side.
+static void jpZone(const JpF *J, float a, float b, float Dr, float hallU, bool living, int f, int kind, bool top) {
+    float w = b - a; int sideW = a < 0.01f ? 2 : 3;   // its outer side wall
+    if (w < 1.2f) { jpRoom(J, a, 0, b, Dr, RM_NANDO, sideW); return; }
+    if (f == 0 || kind == 1) {
+        if (living) {
+            if (Dr >= 6.4f && w >= 2.6f) { float sp = Dr * 0.58f; jpWallD(J, sp, a, b, (a + b) / 2);   // the LDK in front, the tatami room behind, a fusuma between
+                jpWallU(J, hallU, 0, sp, sp - 0.9f); jpWallU(J, hallU, sp, Dr, Dr - 0.9f);
+                jpRoom(J, a, 0, b, sp, RM_LDK, 0); jpRoom(J, a, sp, b, Dr, kind == 1 && f % 2 ? RM_WBED : RM_WASHITSU, 1); }
+            else { jpWallU(J, hallU, 0, Dr, Dr * 0.5f); jpRoom(J, a, 0, b, Dr, RM_LDK, 0); }
+            if (!top) jpWallD(J, Dr, a, b, -1);   // the corridor behind
+        } else {   // the wet side: the toilet by the entrance, then the washroom and the bath off it
+            float wet = w >= 3.4f ? 1.8f : w;   // a wide side keeps a room along its outer wall
+            float wa = sideW == 2 ? b - wet : a, wb = sideW == 2 ? b : a + wet;   // the wet strip lies against the hall
+            if (sideW == 3) { wa = a; wb = a + wet; } else { wa = b - wet; wb = b; }
+            float dT = fminf(1.7f, Dr * 0.3f), dS = dT + 1.7f, dB = fminf(dS + 1.7f, Dr);
+            if (Dr < 4.6f) { dT = 1.5f; dS = Dr; dB = Dr; }   // short: toilet and washroom only
+            jpWallD(J, dT, wa, wb, -1); jpWallU(J, hallU, 0, dT, dT * 0.5f); jpRoom(J, wa, 0, wb, dT, RM_TOILET, 0);
+            jpWallU(J, hallU, dT, dS, (dT + dS) / 2); jpRoom(J, wa, dT, wb, dS, RM_SENMEN, sideW);
+            if (dB > dS + 1.0f) { jpWallD(J, dS, wa, wb, (wa + wb) / 2); jpWallU(J, hallU, dS, dB, -1); jpRoom(J, wa, dS, wb, dB, RM_BATH, sideW);
+                if (Dr - dB > 1.2f) { jpWallD(J, dB, wa, wb, -1); jpWallU(J, hallU, dB, Dr, (dB + Dr) / 2); jpRoom(J, wa, dB, wb, Dr, RM_NANDO, sideW); } else if (Dr - dB > 0.1f) jpWallU(J, hallU, dB, Dr, -1); }
+            else if (Dr - dS > 0.1f) jpWallU(J, hallU, dS, Dr, -1);
+            if (wet < w) { float oa = sideW == 3 ? wb : a, ob = sideW == 3 ? b : wa, ou = sideW == 3 ? wb : wa;   // the room along the outer wall, entered from the back
+                jpWallU(J, ou, 0, Dr, -1); jpRoom(J, oa, 0, ob, Dr, kind == 1 ? RM_WBED : RM_WASHITSU, sideW); if (!top) jpWallD(J, Dr, oa, ob, (oa + ob) / 2); }
+            if (!top) jpWallD(J, Dr, wa, wb, -1);
+        }
+    } else {   // upstairs in a house: bedrooms, one of them tatami; a toilet on the hall side
+        int n = w >= 6.0f ? 2 : 1; float step = w / n;
+        for (int k = 0; k < n; k++) { float ua = a + k * step, ub = ua + step; if (k > 0) jpWallU(J, ua, 0, Dr, -1);
+            int pl = (k == 0 && living) ? RM_WASHITSU : RM_WBED;
+            if (!living && k == 0 && ub - ua >= 2.0f && Dr >= 4.0f) { float tw = 1.0f, ta = sideW == 3 ? ua : ub - tw;   // the upstairs toilet beside the hall
+                if (sideW == 3) { jpWallU(J, ua + tw, 0, 1.7f, -1); jpWallD(J, 1.7f, ua, ua + tw, -1); jpRoom(J, ua, 0, ua + tw, 1.7f, RM_TOILET, 0); jpWallU(J, hallU, 0, 1.7f, 0.85f); jpWallU(J, hallU, 1.7f, Dr, (1.7f + Dr) / 2); jpRoom(J, ua, 1.7f, ub, Dr, RM_WBED, sideW); }
+                else { jpWallU(J, ub - tw, 0, 1.7f, -1); jpWallD(J, 1.7f, ub - tw, ub, -1); jpRoom(J, ub - tw, 0, ub, 1.7f, RM_TOILET, 0); jpWallU(J, hallU, 0, 1.7f, 0.85f); jpWallU(J, hallU, 1.7f, Dr, (1.7f + Dr) / 2); jpRoom(J, ua, 1.7f, ub, Dr, RM_WBED, sideW); }
+                (void)ta; jpRoom(J, sideW == 3 ? ua + tw : ua, 0, sideW == 3 ? ub : ub - tw, 1.7f, RM_NANDO, 0); if (!top) jpWallD(J, Dr, ua, ub, -1); continue; }
+            jpRoom(J, ua, 0, ub, Dr, pl, k == 0 ? sideW : 0);
+            float hu = (ua + ub) / 2; (void)hu;
+            if ((sideW == 3 && k == 0) || (sideW == 2 && k == n - 1)) { jpWallU(J, hallU, 0, Dr, Dr * 0.6f); if (!top) jpWallD(J, Dr, ua, ub, -1); }   // the room next to the hall opens onto it
+            else if (!top) jpWallD(J, Dr, ua, ub, (ua + ub) / 2); }   // the others open onto the back corridor
+    }
+}
+// the whole width on one side of the hall (the door is near a corner): the LDK across the front, a corridor (rouka) behind it,
+// and behind that the toilet, the washroom with the bath beyond, and a tatami room or bedroom. Upstairs: bedrooms off the corridor.
+static void jpBigZone(const JpF *J, float a, float b, float Dr, float hallU, int f, int kind, bool top) {
+    bool hallLow = hallU <= a + 0.01f; float w = b - a;
+    float sp = (f == 0 || kind == 1) ? fmaxf(2.8f, Dr - 2.6f - 0.9f) : fmaxf(2.4f, Dr * 0.5f - 0.45f), cd0 = sp, cd1 = sp + 0.9f;
+    if (Dr - cd1 < 1.6f) { jpZone(J, a, b, Dr, hallU, true, f, kind, top); return; }
+    jpWallU(J, hallU, 0, cd0, cd0 * 0.6f); jpWallD(J, cd0, a, b, -1); jpWallD(J, cd1, a, b, -1);
+    jpRoom(J, a, cd0, b, cd1, RM_HALL, 1);
+    jpRoom(J, a, 0, b, cd0, (f == 0 || kind == 1) ? RM_LDK : RM_WBED, 0);
+    if (!top) jpWallD(J, Dr, a, b, -1);
+    // the back row, from the hall side outward, each door on the corridor
+    float u = hallLow ? a : b; int dir = hallLow ? 1 : -1;
+    #define JPB(width, plan) { float u0 = u, u1 = u + dir * (width); if ((dir > 0 && u1 > b - 0.3f) || (dir < 0 && u1 < a + 0.3f)) u1 = dir > 0 ? b : a; \
+        float lo = fminf(u0, u1), hi = fmaxf(u0, u1); if (hi - lo > 0.8f) { jpRoom(J, lo, cd1, hi, Dr, plan, 1); float dm = (lo + hi) / 2; jpWallD(J, cd1, lo, hi, dm); \
+        if ((dir > 0 && hi < b - 0.05f) || (dir < 0 && lo > a + 0.05f)) jpWallU(J, dir > 0 ? hi : lo, cd1, Dr, -1); } u = u1; }
+    if (f == 0 || kind == 1) { JPB(1.0f, RM_TOILET) JPB(1.7f, RM_SENMEN) JPB(1.7f, RM_BATH) if ((dir > 0 && u < b - 0.8f) || (dir < 0 && u > a + 0.8f)) JPB(w, kind == 1 ? RM_WBED : RM_WASHITSU) }
+    else { JPB(1.0f, RM_TOILET) float rest = fabsf((dir > 0 ? b : a) - u); if (rest > 5.4f) { JPB(rest / 2, RM_WASHITSU) JPB(rest, RM_WBED) } else if (rest > 0.8f) JPB(rest, RM_WASHITSU) }
+    #undef JPB
+}
+// a narrow house with the door in the middle: the genkan with a toilet and a shoe closet either side, then the LDK across the back
+// with the washroom and the bath along one wall (the usual 3-4 m frontage plan)
+static void jpNarrow(const JpF *J, float hu0, float hu1, float Dr, int kind, bool top) {
+    float W = J->W, gD = fminf(1.8f, Dr * 0.3f);
+    if (hu0 < 0.9f) hu0 = 0; if (W - hu1 < 0.9f) hu1 = W;
+    jpRoom(J, hu0, 0, hu1, gD, RM_HALL, 0);
+    bool toiletL = hu0 >= 0.9f;
+    if (hu0 > 0) { jpWallU(J, hu0, 0, gD, gD * 0.5f); jpRoom(J, 0, 0, hu0, gD, toiletL ? RM_TOILET : RM_NANDO, 0); }
+    if (hu1 < W) { jpWallU(J, hu1, 0, gD, gD * 0.5f); jpRoom(J, hu1, 0, W, gD, toiletL ? RM_NANDO : RM_TOILET, 0); }
+    jpWallD(J, gD, 0, W, (hu0 + hu1) / 2);
+    bool wetR = W - hu1 >= hu0; float ww = 1.8f, wa = wetR ? W - ww : 0, wb = wetR ? W : ww, edge = wetR ? wa : wb;
+    float d1 = fminf(gD + 1.8f, Dr), d2 = fminf(gD + 3.6f, Dr);
+    jpWallU(J, edge, gD, d1, (gD + d1) / 2); jpRoom(J, wa, gD, wb, d1, RM_SENMEN, wetR ? 2 : 3);
+    if (d2 > d1 + 1.0f) { jpWallD(J, d1, wa, wb, (wa + wb) / 2); jpWallU(J, edge, d1, d2, -1); jpRoom(J, wa, d1, wb, d2, RM_BATH, 1); }
+    if (Dr - d2 > 1.2f) { jpWallD(J, d2, wa, wb, -1); jpWallU(J, edge, d2, Dr, (d2 + Dr) / 2); jpRoom(J, wa, d2, wb, Dr, RM_NANDO, wetR ? 2 : 3); }
+    else if (Dr - d2 > 0.05f) jpWallU(J, edge, d2, Dr, -1);
+    float la = wetR ? 0 : wb, lb = wetR ? wa : W; (void)kind;
+    jpRoom(J, la, gD, lb, Dr, RM_LDK, 0);
+    if (!top) { jpWallD(J, Dr, la, lb, (la + lb) / 2); jpWallD(J, Dr, wa, wb, -1); }
+}
+// returns true when the floor was laid out (the caller then skips its two-room plan)
+static bool jpFloor(Rectangle in, int street, Rectangle stairR, bool hasStairs, float y0, float yTop, int f, int kind, float doorLocal, int region) {
+    JpF J = {in, street, (street == 0 || street == 2) ? in.width : in.height, (street == 0 || street == 2) ? in.height : in.width};
+    if (J.W < 5.0f || J.D < 4.6f) return false;
+    if (jpDumpN < 0) { jpDumpN = 0; if (getenv("KIRI_PLANDUMP")) jpDump = fopen(getenv("KIRI_PLANDUMP"), "w"); }
+    if (jpDump && (jpDumpN >= 40 || (f > 1))) { if (jpDumpN >= 40) { fclose(jpDump); jpDump = NULL; } }
+    FILE *keepDump = jpDump; if (jpDump && f > 1) jpDump = NULL;
+    if (jpDump) { fprintf(jpDump, "B %d %d %d %d\n", jpDumpN, f, kind, street); jpDumpRect("O", in); if (hasStairs) jpDumpRect("S", stairR); { Vector3 dp = xfP(curXf, (street == 0 || street == 2) ? V3(doorLocal, 0, street == 0 ? in.y : in.y + in.height) : V3(street == 3 ? in.x : in.x + in.width, 0, doorLocal)); fprintf(jpDump, "E %.2f %.2f\n", dp.x, dp.z); } if (f == 0 || !hasStairs) jpDumpN++; }
+    jpY0 = y0; jpYT = yTop; jpPT = T_PLASTER; jpPC = kind == 0 ? rgb(226, 218, 200) : rgb(222, 222, 216); jpRooms = 0;
+    float doorU = (street == 0 || street == 2) ? doorLocal - in.x : doorLocal - in.y;   // the front door's position across
+    // the stairwell in (u, d)
+    float su0 = 0, su1 = 0, sd0 = J.D, sd1 = J.D;
+    if (hasStairs) { Rectangle s = stairR; float xs[2] = {s.x, s.x + s.width}, zs[2] = {s.y, s.y + s.height}; su0 = sd0 = 1e9f; su1 = sd1 = -1e9f;
+        for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { float x = xs[i], z = zs[j], u, d;
+            switch (street) { case 0: u = x - in.x; d = z - in.y; break; case 2: u = x - in.x; d = in.y + in.height - z; break; case 3: u = z - in.y; d = x - in.x; break; default: u = z - in.y; d = in.x + in.width - x; }
+            su0 = fminf(su0, u); su1 = fmaxf(su1, u); sd0 = fminf(sd0, d); sd1 = fmaxf(sd1, d); }
+        su0 = fmaxf(su0, 0); su1 = fminf(su1, J.W); sd0 = fmaxf(sd0, 0); sd1 = fminf(sd1, J.D); }
+    bool atBack = !hasStairs || sd0 > J.D * 0.45f;
+    bool top = !hasStairs;   // (nothing above or below that needs the back corridor)
+    if (atBack) {
+        float Dr = hasStairs ? sd0 - 0.05f : J.D; if (Dr < 3.0f) return false;
+        float hw = f == 0 ? 1.7f : 1.0f, hu0 = clampf(doorU - hw / 2, 0, J.W - hw);   // (wide enough for the genkan downstairs)   // the entrance hall from the genkan straight back
+        if (f > 0) hu0 = clampf((su0 + su1) / 2 - hw / 2, 0, J.W - hw);   // upstairs the hall meets the top of the stairs
+        float hu1 = hu0 + hw; bool leftBig = hu0 > J.W - hu1;
+        if ((f == 0 || kind == 1) && hu0 < 2.6f && J.W - hu1 < 2.6f && hu0 >= 0.9f && J.W - hu1 >= 0.9f) {   // narrow, the door in the middle
+            if (hasStairs) jpRoom(&J, 0, Dr, J.W, J.D, RM_HALL, 1);
+            jpNarrow(&J, hu0, hu1, Dr, kind, top);
+        } else if (fminf(hu0, J.W - hu1) < 1.2f) {   // the door is near a corner: the hall runs along that wall, the rest is one wide zone
+            if (hu0 < J.W - hu1) { hu0 = 0; } else { hu1 = J.W; }
+            jpRoom(&J, hu0, 0, hu1, Dr, RM_HALL, 0); if (hasStairs) jpRoom(&J, 0, Dr, J.W, J.D, RM_HALL, 1);
+            if (hu0 < 0.01f) jpBigZone(&J, hu1, J.W, Dr, hu1, f, kind, top); else jpBigZone(&J, 0, hu0, Dr, hu0, f, kind, top);
+        } else {
+            jpRoom(&J, hu0, 0, hu1, Dr, RM_HALL, 0); if (hasStairs) jpRoom(&J, 0, Dr, J.W, J.D, RM_HALL, 1);
+            if (hu0 > 0.5f) jpZone(&J, 0, hu0, Dr, hu0, leftBig, f, kind, top);
+            if (J.W - hu1 > 0.5f) jpZone(&J, hu1, J.W, Dr, hu1, !leftBig, f, kind, top); }
+    } else {   // the stairs along a side wall: that side is the hall the whole way back
+        bool low = su0 < J.W - su1; float hu0 = low ? 0 : su0 - 0.1f, hu1 = low ? su1 + 0.1f : J.W;
+        float a = low ? hu1 : 0, b = low ? J.W : hu0; if (b - a < 2.6f) return false;
+        float hallU = low ? hu1 : hu0;
+        jpRoom(&J, hu0, 0, hu1, J.D, RM_HALL, low ? 2 : 3);
+        float Dr = J.D;
+        if (f == 0 || kind == 1) {   // front: LDK; back: the wet rooms and a tatami room
+            float sp = fmaxf(Dr * 0.55f, Dr - 5.0f); jpWallD(&J, sp, a, b, -1); jpWallU(&J, hallU, 0, sp, sp * 0.5f); jpRoom(&J, a, 0, b, sp, RM_LDK, 0);
+            float wet = fminf(1.8f, (b - a) * 0.45f), wa = low ? b - wet : a, wb = low ? b : a + wet;
+            float mid = (sp + Dr) / 2; jpWallU(&J, low ? wa : wb, sp, Dr, -1); jpWallD(&J, mid, wa, wb, (wa + wb) / 2);
+            jpRoom(&J, wa, sp, wb, mid, RM_SENMEN, low ? 3 : 2); jpRoom(&J, wa, mid, wb, Dr, RM_BATH, 1);
+            float ra = low ? a : wb, rb = low ? wa : b; jpWallU(&J, hallU, sp, Dr, (sp + Dr) / 2);
+            if (rb - ra >= 2.4f) { float tz = sp + 1.6f; jpWallD(&J, tz, ra, rb, -1); jpRoom(&J, ra, sp, rb, tz, RM_TOILET, 1); jpRoom(&J, ra, tz, rb, Dr, RM_WASHITSU, 1); }
+            else jpRoom(&J, ra, sp, rb, Dr, RM_TOILET, 1);
+            /* the washroom door: from the room next to it */ jpWallD(&J, sp, wa, wb, (wa + wb) / 2);
+        } else {   // upstairs: two or three bedrooms off the stair hall
+            int n = Dr >= 8.0f ? 3 : 2; float step = Dr / n;
+            for (int k = 0; k < n; k++) { float d0 = k * step, d1 = d0 + step; if (k > 0) jpWallD(&J, d0, a, b, -1); jpWallU(&J, hallU, d0, d1, (d0 + d1) / 2);
+                jpRoom(&J, a, d0, b, d1, k == 0 ? RM_WASHITSU : k == n - 1 && n == 3 ? RM_TOILET : RM_WBED, k == 0 ? 0 : low ? 3 : 2); }
+        }
+    }
+    for (int i = 0; i < jpRooms; i++) { planRoom(jpRoomR[i], y0, jpRoomP[i], jpRoomO[i], region, street, kind == 0); if (jpDump) { char t[8]; snprintf(t, 8, "R%d", jpRoomP[i]); jpDumpRect(t, jpRoomR[i]); } }
+    if (!jpDump) jpDump = keepDump;
+    return true;
+}
 static void building(Rectangle r, int kind, int floors, int street) {
     unsigned bfl = 0;   // details: a preset's, or a town lot's picked by its kind
     if (bP) bfl = bP->flags;
@@ -747,7 +961,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
         float y0 = SIDEH + f * FH, yTop = y0 + FH - SLAB;
         extFloor(r, kind, street, y0, yTop, f == 0, extTex, ec);
         {   // floor finish, open over the stairwell coming up from below
-            Rectangle fr2 = in, h = prevHole;
+            Rectangle fr2 = in, h = prevHole; floorHoleNow = prevHole;
             if (h.width <= 0) box(ft, V3(in.x, y0, in.y), V3(in.x + in.width, y0 + 0.015f, in.y + in.height), f == 0 ? WHITE : rgb(215, 210, 205), false, 16);
             else {
                 float hx0 = fmaxf(h.x, fr2.x), hx1 = fminf(h.x + h.width, fr2.x + fr2.width), hz0 = fmaxf(h.y, fr2.y), hz1 = fminf(h.y + h.height, fr2.y + fr2.height);
@@ -793,9 +1007,14 @@ static void building(Rectangle r, int kind, int floors, int street) {
         // ceiling / next floor slab with the stairwell cut out
         prevHole = hole;
         slabWithHole(T_CONCRETE, r, hole, yTop, yTop + SLAB, rgb(150, 150, 150));
+        { float ext = (basement && f == 0) ? RUN + 0.35f : 0;   // the flight down on the ground floor too
+          fAvoid = acc > 1 ? (runX ? (Rectangle){uL - 0.7f, bandLo - 0.15f, RUN + 1.4f + ext, bandHi - bandLo + 0.3f} : (Rectangle){bandLo - 0.15f, uL - 0.7f, bandHi - bandLo + 0.3f, RUN + 1.4f + ext}) : (Rectangle){0, 0, 0, 0}; }
+        // houses and flats: a Japanese plan (hall, LDK, washitsu, toilet, washroom, bath, bedrooms); other buildings: one partition, two rooms
+        float jpDoor; { bool aX = street == 0 || street == 2; float A = aX ? r.x : r.y + curT, len = aX ? r.width : r.height - 2 * curT; int nm = (int)(len / 3.0f); if (nm < 1) nm = 1; jpDoor = A + (nm / 2 + 0.5f) * (len / nm); }
+        bool jpTry = (kind == 0 || kind == 1) && ((street == 0 || street == 2) ? in.width : in.height) >= 5.0f && ((street == 0 || street == 2) ? in.height : in.width) >= 4.6f;
         // one partition wall splitting the floor into two rooms, with a doorway (sometimes piled shut)
         nKeep = 0;
-        if (partC > 0) {
+        if (partC > 0 && !jpTry) {
             float a = runX ? in.x : in.y, b = runX ? in.x + in.width : in.y + in.height;
             float gap = fr(a + 0.8f, b - 1.9f);
             Color pc = kind == 0 ? rgb(225, 215, 195) : rgb(200, 200, 196);
@@ -809,8 +1028,6 @@ static void building(Rectangle r, int kind, int floors, int street) {
             if (f > 0 && fr(0, 1) < 0.18f) { if (runX) addDebris(V3(gap, y0, mc - 0.5f), V3(gap + 1.1f, y0 + 1.1f, mc + 0.5f)); else addDebris(V3(mc - 0.5f, y0, gap), V3(mc + 0.5f, y0 + 1.1f, gap + 1.1f)); }
         }
         // designed rooms: the stairwell stays clear, each room gets a plan for this kind of building and storey
-        { float ext = (basement && f == 0) ? RUN + 0.35f : 0;   // the flight down on the ground floor too
-          fAvoid = acc > 1 ? (runX ? (Rectangle){uL - 0.7f, bandLo - 0.15f, RUN + 1.4f + ext, bandHi - bandLo + 0.3f} : (Rectangle){bandLo - 0.15f, uL - 0.7f, bandHi - bandLo + 0.3f, RUN + 1.4f + ext}) : (Rectangle){0, 0, 0, 0}; }
         if (f == 0 && (kind == 0 || kind == 1) && nKeep < 7) {   // the genkan inside the front door: a tiled step-down, the raised edge, a shoe cabinet
             int sd = street; bool aX = sd == 0 || sd == 2; float A = aX ? r.x : r.y + curT, len = aX ? r.width : r.height - 2 * curT; int nm = (int)(len / 3.0f); if (nm < 1) nm = 1; float mw = len / nm, uc = A + (nm / 2 + 0.5f) * mw;
             float D = 1.3f; Rectangle g = sd == 0 ? (Rectangle){uc - 0.8f, in.y, 1.6f, D} : sd == 2 ? (Rectangle){uc - 0.8f, in.y + in.height - D, 1.6f, D} : sd == 1 ? (Rectangle){in.x + in.width - D, uc - 0.8f, D, 1.6f} : (Rectangle){in.x, uc - 0.8f, D, 1.6f};
@@ -820,7 +1037,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
                 Rectangle e = sd == 0 ? (Rectangle){g.x, g.y + D, g.width, 0.12f} : sd == 2 ? (Rectangle){g.x, g.y - 0.12f, g.width, 0.12f} : sd == 1 ? (Rectangle){g.x - 0.12f, g.y, 0.12f, g.height} : (Rectangle){g.x + D, g.y, 0.12f, g.height};
                 box(T_WOOD, V3(e.x, y0, e.y), V3(e.x + e.width, y0 + 0.14f, e.y + e.height), rgb(140, 100, 66), true, ALL);   // agarikamachi: you step up into the house
                 Rectangle sb = aX ? (Rectangle){g.x + g.width, sd == 0 ? g.y : g.y + D - 0.38f, 0.9f, 0.38f} : (Rectangle){sd == 3 ? g.x : g.x + D - 0.38f, g.y + g.height, 0.38f, 0.9f};
-                if (fFree(sb.x, sb.y, sb.x + sb.width, sb.y + sb.height, y0)) { box(T_WOOD, V3(sb.x, y0, sb.y), V3(sb.x + sb.width, y0 + 0.95f, sb.y + sb.height), rgb(160, 125, 90), true, ALL);
+                if (!jpTry && fFree(sb.x, sb.y, sb.x + sb.width, sb.y + sb.height, y0)) { box(T_WOOD, V3(sb.x, y0, sb.y), V3(sb.x + sb.width, y0 + 0.95f, sb.y + sb.height), rgb(160, 125, 90), true, ALL);
                     box(T_PLAIN, V3(sb.x + 0.1f, y0 + 0.95f, sb.y + 0.08f), V3(sb.x + 0.3f, y0 + 1.15f, sb.y + 0.25f), rgb(90, 130, 90), false, ALL); }   // a pot plant on top
                 for (int k = 0; k < 2 + ri(3); k++) { float sx = g.x + fr(0.2f, g.width - 0.4f), sz = g.y + fr(0.2f, g.height - 0.4f); box(T_PLAIN, V3(sx, y0 + 0.026f, sz), V3(sx + 0.12f, y0 + 0.1f, sz + 0.28f), (Color[]){{40, 40, 44, 255}, {200, 200, 205, 255}, {150, 60, 50, 255}}[ri(3)], false, ALLB); }   // shoes left behind
                 keepClear[nKeep++] = (Rectangle){g.x - 0.4f, g.y - 0.4f, g.width + 0.8f, g.height + 0.8f}; } }
@@ -839,8 +1056,9 @@ static void building(Rectangle r, int kind, int floors, int street) {
             else { pF = f == 0 ? RM_LDK : RM_WBED; pB = f == 0 ? RM_WASHWET : RM_WASHITSU; }   // a house: LDK and genkan below, bedrooms above
             if (kind == 2 && f > 0) { pF = RM_LDK; pB = RM_WASHWET; }   // the family lives over the shop
             if (!two && kind != 3 && kind != 4) { pF = f == 0 ? (kind == 2 ? RM_SHOP : RM_LDK) : (kind == 0 ? RM_WASHITSU : RM_WBED); }
-            planRoom(front, y0, pF, oF, kind, street, kind == 0);
-            if (two) planRoom(back, y0, pB, oBk, kind, street, kind == 0);
+            bool jpDone = jpTry && jpFloor(in, street, fAvoid, acc > 1, y0, yTop, f, kind, jpDoor, kind);
+            if (!jpDone) { planRoom(front, y0, pF, oF, kind, street, kind == 0);
+                if (two) planRoom(back, y0, pB, oBk, kind, street, kind == 0); }
             {   // the dead: someone who never got out
                 Vector3 wq = xfP(curXf, V3(in.x, y0, in.y)); unsigned int sd = (unsigned int)((int)(wq.x * 7.3f) * 92821 + (int)(wq.z * 5.1f) * 68917 + f * 131 + worldSeed);
                 float pr = (kind == 4 ? 0.45f : kind == 6 ? 0.22f : kind == 1 ? 0.1f : 0.08f) * gBodyK; if (wq.x < -185 && wq.z > 110 && wq.z < 300) pr *= 1.8f;
@@ -849,7 +1067,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
         // light (most upper floors stay dark)
         if (f == 0 || fr(0, 1) < 0.3f) addLight(V3(in.x + in.width / 2, yTop - 0.3f, in.y + in.height / 2), kind == 6 ? V3(0.5f, 0.9f, 0.85f) : V3(0.9f, 0.85f, 0.7f), 9, fr(0, 1) < 0.5f ? 1 : (f > 0 && fr(0, 1) < 0.4f ? 2 : 0));
         // a television on the ground floor of homes
-        if (f == 0 && (kind == 0 || kind == 1) && nTV < MAX_TV && in.width > 3) {
+        if (f == 0 && (kind == 0 || kind == 1) && !jpTry && nTV < MAX_TV && in.width > 3) {
             float tx = in.x + in.width - 1.4f, tz = stripHigh && runX ? in.y + 0.45f : in.y + 0.45f;
             if (pointFree(tx, tz, 0.6f, y0 + 0.05f)) {
                 box(T_WOOD, V3(tx - 0.55f, y0, tz - 0.3f), V3(tx + 0.55f, y0 + 0.5f, tz + 0.3f), rgb(150, 120, 100), true, ALL);

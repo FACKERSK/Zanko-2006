@@ -2,26 +2,28 @@
 // button, saved in Data/keybinds.ini. Gamepad: left stick moves, right stick looks; in menus the left stick moves the
 // cursor and A clicks, B / Start go back.
 enum { A_FWD, A_BACK, A_LEFT, A_RIGHT, A_JUMP, A_SPRINT, A_CROUCH, A_USE, A_ATTACK, A_GUARD, A_RELOAD, A_INSPECT, A_FLASH,
-       A_INV, A_MAP, A_HOLSTER, A_BARR, A_BUILD, A_SLEEP, A_Q1, A_Q2, A_Q3, A_Q4, A_Q5, A_Q6, A_N };
+       A_INV, A_MAP, A_HOLSTER, A_BARR, A_BUILD, A_SLEEP, A_Q1, A_Q2, A_Q3, A_Q4, A_Q5, A_Q6, A_QNEXT, A_QPREV, A_N };
 static const char *actName[A_N] = {"Move forward", "Move back", "Move left", "Move right", "Jump / climb / vault", "Sprint", "Sneak",
     "Use / hold to search", "Attack / fire / place", "Guard / parry", "Reload / next build piece", "Inspect", "Flashlight", "Inventory", "Map",
-    "Holster (fists)", "Barricade / repair", "Build mode", "Sleep / wake", "Quick slot 1", "Quick slot 2", "Quick slot 3", "Quick slot 4", "Quick slot 5", "Quick slot 6"};
+    "Holster (fists)", "Barricade / repair", "Build mode", "Sleep / wake", "Quick slot 1", "Quick slot 2", "Quick slot 3", "Quick slot 4", "Quick slot 5", "Quick slot 6", "Next quick slot", "Previous quick slot"};
 static const char *actIni[A_N] = {"forward", "back", "left", "right", "jump", "sprint", "sneak", "use", "attack", "guard", "reload", "inspect", "flashlight",
-    "inventory", "map", "holster", "barricade", "build", "sleep", "quick1", "quick2", "quick3", "quick4", "quick5", "quick6"};
+    "inventory", "map", "holster", "barricade", "build", "sleep", "quick1", "quick2", "quick3", "quick4", "quick5", "quick6", "quicknext", "quickprev"};
 #define BM(b) (600 + (b))   // mouse buttons are stored as 600 + raylib button
 static const int actDefK[A_N][2] = {{KEY_W, KEY_UP}, {KEY_S, KEY_DOWN}, {KEY_A, KEY_LEFT}, {KEY_D, KEY_RIGHT}, {KEY_SPACE, 0}, {KEY_LEFT_SHIFT, 0}, {KEY_LEFT_CONTROL, 0},
     {KEY_E, 0}, {BM(0), 0}, {BM(1), 0}, {KEY_R, 0}, {KEY_I, 0}, {KEY_F, 0}, {KEY_TAB, 0}, {KEY_M, 0}, {KEY_H, 0}, {KEY_G, 0}, {KEY_B, 0}, {KEY_Z, 0},
-    {KEY_ONE, 0}, {KEY_TWO, 0}, {KEY_THREE, 0}, {KEY_FOUR, 0}, {KEY_FIVE, 0}, {KEY_SIX, 0}};
+    {KEY_ONE, 0}, {KEY_TWO, 0}, {KEY_THREE, 0}, {KEY_FOUR, 0}, {KEY_FIVE, 0}, {KEY_SIX, 0}, {0, 0}, {0, 0}};
 static const int actDefP[A_N] = {0, 0, 0, 0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN, GAMEPAD_BUTTON_LEFT_THUMB, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT,
-    GAMEPAD_BUTTON_RIGHT_FACE_LEFT, GAMEPAD_BUTTON_RIGHT_TRIGGER_2, GAMEPAD_BUTTON_LEFT_TRIGGER_2, GAMEPAD_BUTTON_RIGHT_TRIGGER_1, GAMEPAD_BUTTON_LEFT_FACE_DOWN,
-    GAMEPAD_BUTTON_LEFT_TRIGGER_1, GAMEPAD_BUTTON_RIGHT_FACE_UP, GAMEPAD_BUTTON_LEFT_FACE_UP, GAMEPAD_BUTTON_LEFT_FACE_LEFT, GAMEPAD_BUTTON_LEFT_FACE_RIGHT,
-    GAMEPAD_BUTTON_MIDDLE_LEFT, GAMEPAD_BUTTON_RIGHT_THUMB, 0, 0, 0, 0, 0, 0};
+    GAMEPAD_BUTTON_RIGHT_FACE_LEFT, GAMEPAD_BUTTON_RIGHT_TRIGGER_2, GAMEPAD_BUTTON_LEFT_TRIGGER_2, GAMEPAD_BUTTON_RIGHT_TRIGGER_1, 0,
+    GAMEPAD_BUTTON_LEFT_TRIGGER_1, GAMEPAD_BUTTON_RIGHT_FACE_UP, GAMEPAD_BUTTON_LEFT_FACE_UP, 0, GAMEPAD_BUTTON_LEFT_FACE_DOWN,
+    GAMEPAD_BUTTON_MIDDLE_LEFT, GAMEPAD_BUTTON_RIGHT_THUMB, 0, 0, 0, 0, 0, 0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT, GAMEPAD_BUTTON_LEFT_FACE_LEFT};
+// pad: D-pad left / right step through the quick slots (and bare fists); D-pad down barricades; inspect is on the keyboard only
 static int bindK[A_N][2], bindP[A_N];
 static float padLookSens = 1.0f; static bool padInvertY = false, padVibe = true;
 
 // ---- gamepad state, sampled once per frame
 static int padId = -1; static bool padNow[20], padPrev[20], padActive = false, padSprintLatch = false;
 static Vector2 padMoveV = {0, 0}, padLookV = {0, 0};
+static bool padMenuNav = false, padNoCursor = false;   // menus: the pad steps a focus instead of steering the cursor; the map: the stick pans, not the cursor
 static Vector2 padDz(float x, float y) {   // radial dead zone, rescaled so the edge of the dead zone is 0
     float m = sqrtf(x * x + y * y); if (m < 0.18f) return (Vector2){0, 0};
     float k = fminf(1, (m - 0.18f) / 0.82f) / m; return (Vector2){x * k, y * k};
@@ -29,6 +31,11 @@ static Vector2 padDz(float x, float y) {   // radial dead zone, rescaled so the 
 static void inputUpdate(void) {
     memcpy(padPrev, padNow, sizeof padNow); memset(padNow, 0, sizeof padNow); padMoveV = padLookV = (Vector2){0, 0};
     padId = -1; for (int i = 0; i < 4; i++) if (IsGamepadAvailable(i)) { padId = i; break; }
+    {   // KIRI_PADSIM: a scripted pad for the tests ("frame:button,frame:button,..."; button 0 = left stick right for the frame)
+        static const char *sim = (const char *)1; if (sim == (const char *)1) sim = getenv("KIRI_PADSIM");
+        if (sim) { static int f = 0; f++; padActive = true; const char *q = sim; int fr2, b, n;
+            while (sscanf(q, "%d:%d%n", &fr2, &b, &n) == 2) { if (fr2 == f) { if (b == 0) padMoveV.x = 1; else padNow[b] = true; } q += n; if (*q == ',') q++; else break; }
+            aPadClick = aPadDown = false; return; } }
     if (padId < 0) { padActive = false; aPadClick = aPadDown = false; return; }
     for (int b = 1; b < 18; b++) padNow[b] = IsGamepadButtonDown(padId, b);
     float lt = GetGamepadAxisMovement(padId, GAMEPAD_AXIS_LEFT_TRIGGER), rt = GetGamepadAxisMovement(padId, GAMEPAD_AXIS_RIGHT_TRIGGER);
@@ -42,7 +49,8 @@ static void inputUpdate(void) {
     if (Vector2Length(padMoveV) < 0.3f) padSprintLatch = false;
     // menus: the left stick drives the mouse cursor, A clicks
     aPadClick = aPadDown = false;
-    if (!IsCursorHidden()) {
+    bool noCur = padNoCursor; padNoCursor = false;
+    if (!IsCursorHidden() && !padMenuNav && !noCur) {
         float dt = fminf(GetFrameTime(), 0.05f), sp = 900 * (GetScreenHeight() / 720.0f);
         Vector2 v = padMoveV;
         if (Vector2Length(v) > 0) { Vector2 m = GetMousePosition(); float c = Vector2Length(v);
@@ -147,15 +155,17 @@ static void keysSave(void) {
 static void keysLoad(void) {
     keysDefaults();
     FILE *f = fopen(P("Data/keybinds.ini"), "r"); if (!f) return;
-    char line[256], k[64], v[128];
+    char line[256], k[64], v[128]; bool hasCycle = false;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == '#' || sscanf(line, "%63[^=]=%127s", k, v) != 2) continue;
         if (!strcmp(k, "padLook")) { padLookSens = clampf((float)atof(v), 0.2f, 3); continue; }
         if (!strcmp(k, "padInvertY")) { padInvertY = atoi(v) != 0; continue; }
         if (!strcmp(k, "padVibrate")) { padVibe = atoi(v) != 0; continue; }
+        if (!strcmp(k, "quicknext")) hasCycle = true;
         for (int a = 0; a < A_N; a++) if (!strcmp(k, actIni[a])) { int x = 0, y = 0, z = 0; if (sscanf(v, "%d,%d,%d", &x, &y, &z) >= 1) { bindK[a][0] = x; bindK[a][1] = y; bindP[a] = z; } }
     }
     fclose(f);
+    if (!hasCycle) for (int a = 0; a < A_N; a++) bindP[a] = actDefP[a];   // saved before the quick-slot cycle existed: take the new pad layout
 }
 
 // ---- the Controls screen: click a slot, then press a key, mouse button or pad button. Esc cancels, Backspace / Delete clears.

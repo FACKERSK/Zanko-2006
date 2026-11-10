@@ -8,7 +8,7 @@
 #include <math.h>
 #include "raymath.h"
 
-#define GAME_VERSION "0.9.1"
+#define GAME_VERSION "0.9.2"
 #if defined(PLATFORM_WEB)
 #define GLSL_HEAD "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #include <emscripten/emscripten.h>
@@ -244,6 +244,21 @@ static void aW3Add(int kind, Rectangle r, int state, Color base, float v) { if (
 static Vector2 aRealMouse(void) { return vidOn ? vidMouse : GetMousePosition(); }
 static Vector2 aMousePos(void) { return aMO ? aMOp : vidOn ? vidMouse : GetMousePosition(); }
 static bool aPadClick = false, aPadDown = false;   // the game's gamepad A button acts as the left mouse button in menus
+// ---- gamepad focus: in menus the D-pad / left stick step through the buttons, toggles and sliders in the order they are drawn,
+// A presses the one in focus, left / right move a slider. The game calls aNavBegin once a frame before drawing its UI.
+static bool aNavOn = false, aNavA = false; static int aNavIdx = 0, aNavN = 0, aNavCur = 0, aNavSide = 0;
+static void aNavBegin(bool on, int move, int side, bool a) {
+    aNavN = aNavCur; aNavCur = 0; aNavOn = on; aNavA = on && a; aNavSide = on ? side : 0;
+    if (aNavN <= 0) { aNavIdx = 0; return; }
+    if (on && move) { aNavIdx += move; if (aNavIdx < 0) aNavIdx = aNavN - 1; if (aNavIdx >= aNavN) aNavIdx = 0; }
+    if (aNavIdx >= aNavN) aNavIdx = aNavN - 1;
+}
+static void aRRL(Rectangle r, float rpx, float px, Color c);
+static Rectangle aGrow(Rectangle r, float d);
+static bool aNavFocus(Rectangle r) {   // registers a widget; true when it has the pad's focus (and draws the focus ring)
+    int id = aNavCur++; if (!aNavOn || id != aNavIdx) return false;
+    float k = 0.6f + 0.4f * sinf((float)GetTime() * 6); aRRL(aGrow(r, 3 * aU), 6 * aU, 2, (Color){111, 214, 208, (unsigned char)(150 + 100 * k)}); return true;
+}
 static bool aMPressed(void) { return vidOn ? vidPress : (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || aPadClick); }
 static bool aMDown(void) { return vidOn ? vidDown : (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || aPadDown); }
 static void aDrawCursor(void) {
@@ -486,7 +501,9 @@ static void aGadget(Rectangle r) {
 static bool aButton(Rectangle r, const char *label, bool enabled) {
     float s = aU;
     Vector2 m = aMousePos();
-    bool hov = enabled && CheckCollisionPointRec(m, r), down = hov && aMDown();
+    bool foc = aNavFocus(r);
+    bool hov = enabled && (CheckCollisionPointRec(m, r) || foc), down = hov && aMDown() && !foc;
+    if (foc && aNavA && !aClickUsed) { aClickUsed = true; if (enabled) { if (aBlipOk) PlaySound(aBlip); aNavA = false; aVistaButton(r, 2, enabled); return true; } if (aErrOk) PlaySound(aErr); }
     Color base = !enabled ? (Color){70, 74, 74, 255} : aCorrupt == 3 ? (Color){120, 46, 30, 255} : C_GEL;
     if (hov && !down) base = aAdd(base, 26);
     if (down) base = aMul(base, 0.62f);
@@ -548,6 +565,7 @@ static float aSlider(Rectangle r, const char *label, float v, float mn, float mx
     Vector2 ms = aMeasure(b, 15, false);
     aText(b, r.x + r.width - ms.x, r.y - 22 * s, 15, C_CYAN, false);
     Rectangle hit = {r.x - 8, r.y - 8, r.width + 16, r.height + 16};
+    if (aNavFocus(hit) && aNavSide) { v += (mx - mn) / 20 * aNavSide; v = v < mn ? mn : v > mx ? mx : v; aNavSide = 0; if (aBlipOk) PlaySound(aBlip); }
     if (aMDown() && CheckCollisionPointRec(aMousePos(), hit)) { float t = (aMousePos().x - r.x) / r.width; t = t < 0 ? 0 : (t > 1 ? 1 : t); v = mn + (mx - mn) * t; }
     float t = (v - mn) / (mx - mn); t = t < 0 ? 0 : t > 1 ? 1 : t;
     Rectangle tr = {r.x, r.y + r.height * 0.15f, r.width, fmaxf(r.height * 0.7f, 6 * s)};
@@ -565,8 +583,10 @@ static bool aToggle(float x, float y, const char *label, bool v) {
     float s = aU;
     Rectangle r = {x, y + 1 * s, 19 * s, 19 * s};
     Rectangle hit = {x, y, 320 * s, 22 * s};
-    bool hov = CheckCollisionPointRec(aMousePos(), hit);
-    if (hov && !aClickUsed && aMPressed()) { v = !v; aClickUsed = true; if (aBlipOk) PlaySound(aBlip); }
+    bool foc = aNavFocus((Rectangle){x - 2 * s, y - 2 * s, 34 * s + aMeasure(label, 15, false).x, 24 * s});
+    bool hov = CheckCollisionPointRec(aMousePos(), hit) || foc;
+    if (foc && aNavA && !aClickUsed) { v = !v; aClickUsed = true; aNavA = false; if (aBlipOk) PlaySound(aBlip); }
+    else if (hov && !foc && !aClickUsed && aMPressed()) { v = !v; aClickUsed = true; if (aBlipOk) PlaySound(aBlip); }
     if (aIn3D) {
         aPunch(aGrow(r, 2 * s), 4 * s);
         aW3Add(1, r, hov, (Color){200, 196, 180, 255}, v);
