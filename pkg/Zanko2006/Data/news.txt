@@ -1,4 +1,24 @@
-ZANKO 2006 - Afterglow  (v0.8.4, Build tab and the mountain)
+ZANKO 2006 - Afterglow  (v0.8.5, buildings, terrain, exact editing)
+
+- 0.8.5: the Mod Maker grows up; busier buildings.
+  * 89 building presets (houses, flats, shops, restaurants and
+    bars, konbini, koban, police station, hospital, offices,
+    hotels, station, warehouses) placed from a Buildings tab:
+    move, turn, storeys, preset, wall colour.
+  * Buildings carry balconies with laundry, AC units, pipes,
+    water tanks, dishes, roof fences, outside stairs, awnings,
+    shutter boxes, tiled gable roofs, bicycles, mailboxes. The
+    town's own buildings get them too.
+  * Terrain tab: raise, lower, flatten, smooth and erase
+    brushes; saved with the mod.
+  * Exact editing: a right panel with typed X / Y / Z, size and
+    angles; blocks can tilt and lean (walkable); editable snap
+    steps; arrow keys and PgUp/PgDn nudge.
+  * Road ends snap to roads; street ends on street ends join
+    into one street; split a street.
+  * Model viewer, Items tab (weapon and item stats), undo and
+    redo, F1 help, tab groups (World, Objects, Assets, All),
+    save prompt on close.
 
 - 0.8.4: building in the Mod Maker, the mountain tunnel.
   * Mod Maker Build tab: insert blocks and props (trees,

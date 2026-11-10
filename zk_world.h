@@ -88,6 +88,7 @@ static bool cityLand(float x, float z) {   // the town's ground (the fixed Atami
 #define HF_N ((int)((CITY + 2 * WILD) / HF_S) + 1)
 static float *hf, *hfd;      // heights, distance to city land (both HF_N x HF_N)
 static bool hfReady = false;
+static float *terrEdit = NULL;   // the Mod Maker's terrain brush: metres added to the ground (HF_N x HF_N), outside the town
 static float hfAt(const float *a, float x, float z) {
     float fx = (x - HF_X0) / HF_S, fz = (z - HF_X0) / HF_S;
     fx = clampf(fx, 0, HF_N - 1.001f); fz = clampf(fz, 0, HF_N - 1.001f);
@@ -469,11 +470,81 @@ static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int
         } break;
     }
 }
+#include "zk_bpresets.h"
+static const BPreset *bP = NULL;   // set while a preset is being built (Mod Maker parts); NULL: a town lot, details chosen by kind
+static void fBox(Rectangle r, int face, float u0, float u1, float y0, float y1, float o0, float o1, int t, Color c, bool solid) {   // a box on one face: u along the face, o outward from the wall
+    Vector3 mn, mx;
+    if (face == 0) { mn = V3(r.x + u0, y0, r.y - o1); mx = V3(r.x + u1, y1, r.y - o0); }
+    else if (face == 2) { mn = V3(r.x + u0, y0, r.y + r.height + o0); mx = V3(r.x + u1, y1, r.y + r.height + o1); }
+    else if (face == 1) { mn = V3(r.x + r.width + o0, y0, r.y + u0); mx = V3(r.x + r.width + o1, y1, r.y + u1); }
+    else { mn = V3(r.x - o1, y0, r.y + u0); mx = V3(r.x - o0, y1, r.y + u1); }
+    box(t, mn, mx, c, solid, ALL);
+}
+static float fLen(Rectangle r, int face) { return (face == 0 || face == 2) ? r.width : r.height; }
+static void bDetails(Rectangle r, int kind, int floors, int street, float top, Color ec, unsigned fl) {   // the clutter that makes a Japanese street: balconies, laundry, AC units, pipes, tanks
+    int side = (street + 1) % 4, back = (street + 2) % 4; float L = fLen(r, street), Ls = fLen(r, side);
+    Color dark = (Color){(unsigned char)(ec.r * 0.7f), (unsigned char)(ec.g * 0.7f), (unsigned char)(ec.b * 0.7f), 255};
+    if ((fl & BD_BRICKBASE)) fBox(r, street, 0, L, SIDEH, SIDEH + 1.0f, 0, 0.06f, T_BRICK, WHITE, false);
+    if ((fl & BD_BANDS) && floors > 1) for (int f = 1; f < floors; f++) for (int fc = 0; fc < 4; fc++) fBox(r, fc, -0.05f, fLen(r, fc) + 0.05f, SIDEH + f * FH - 0.08f, SIDEH + f * FH + 0.08f, 0, 0.07f, T_CONCRETE, dark, false);
+    if ((fl & BD_BALC) && floors > 1) for (int f = 1; f < floors; f++) {   // balconies on the street face, with railings (and laundry poles)
+        float y = SIDEH + f * FH; int nb = L > 9 ? 2 : 1; float bw = (L - 1.0f) / nb;
+        for (int b = 0; b < nb; b++) { float u0 = 0.5f + b * bw + 0.1f, u1 = u0 + bw - 0.2f;
+            fBox(r, street, u0, u1, y - 0.12f, y + 0.05f, 0, 0.95f, T_CONCRETE, ec, false);
+            fBox(r, street, u0, u1, y + 0.05f, y + 1.0f, 0.88f, 0.95f, T_METAL, rgb(150, 155, 160), false);
+            fBox(r, street, u0, u0 + 0.06f, y + 0.05f, y + 1.0f, 0, 0.95f, T_METAL, rgb(150, 155, 160), false);
+            fBox(r, street, u1 - 0.06f, u1, y + 0.05f, y + 1.0f, 0, 0.95f, T_METAL, rgb(150, 155, 160), false);
+            if (fl & BD_LAUND) { fBox(r, street, u0 + 0.2f, u1 - 0.2f, y + 1.75f, y + 1.8f, 0.6f, 0.65f, T_METAL, rgb(170, 170, 170), false);
+                int nc = 1 + ri(4); for (int k = 0; k < nc; k++) { float cu = fr(u0 + 0.4f, u1 - 0.9f); Color cc = (Color[]){{220, 220, 225, 255}, {90, 120, 180, 255}, {200, 80, 70, 255}, {230, 210, 120, 255}, {120, 160, 110, 255}}[ri(5)];
+                    fBox(r, street, cu, cu + fr(0.4f, 0.8f), y + fr(0.9f, 1.3f), y + 1.75f, 0.6f, 0.64f, T_CLOTH, cc, false); } } } }
+    if (fl & BD_AC) for (int f = 0; f < floors && f < 8; f++) { float u = fr(0.6f, Ls - 1.5f), y = SIDEH + f * FH + (f ? 0.2f : 0.3f);   // outdoor AC units down the side wall
+        fBox(r, side, u, u + 0.8f, y, y + 0.6f, 0, 0.3f, T_METAL, rgb(205, 205, 198), false); fBox(r, side, u + 0.15f, u + 0.55f, y + 0.12f, y + 0.48f, 0.3f, 0.31f, T_METAL, rgb(80, 82, 85), false); }
+    if (fl & BD_PIPES) { fBox(r, street, 0.12f, 0.24f, SIDEH, top + 0.5f, 0, 0.12f, T_METAL, rgb(130, 130, 125), false); fBox(r, street, L - 0.24f, L - 0.12f, SIDEH, top + 0.5f, 0, 0.12f, T_METAL, rgb(130, 130, 125), false); }
+    if ((fl & BD_STAIR) && floors > 1) { int sd = back; float Lb = fLen(r, sd);   // an open steel stair up the back wall
+        for (int f = 0; f < floors - 1 && f < 6; f++) { float y = SIDEH + f * FH; bool lr = f % 2;
+            for (int k = 0; k < 8; k++) { float u = lr ? Lb - 1.0f - k * 0.35f : 1.0f + k * 0.35f; fBox(r, sd, fminf(u, u + 0.35f), fmaxf(u, u + 0.35f), y + k * FH / 8, y + k * FH / 8 + 0.08f, 0.05f, 1.0f, T_METAL, rgb(110, 115, 118), false); }
+            fBox(r, sd, 0.4f, Lb - 0.4f, y + FH - 0.08f, y + FH, 0.05f, 1.05f, T_METAL, rgb(110, 115, 118), false);
+            fBox(r, sd, 0.4f, Lb - 0.4f, y + FH, y + FH + 1.0f, 1.0f, 1.05f, T_METAL, rgb(140, 145, 148), false); } }
+    if (fl & BD_AWN) { Color ac = (Color[]){{190, 60, 50, 255}, {50, 110, 70, 255}, {60, 80, 150, 255}, {200, 150, 60, 255}}[ri(4)];   // striped awning over the shop front
+        for (float u = 0.3f; u < L - 0.3f; u += 0.6f) fBox(r, street, u, fminf(u + 0.6f, L - 0.3f), GH - 0.35f, GH - 0.15f, 0, 1.3f, T_CLOTH, ((int)(u / 0.6f)) % 2 ? ac : rgb(235, 232, 225), false);
+        fBox(r, street, 0.3f, L - 0.3f, GH - 0.65f, GH - 0.35f, 1.25f, 1.3f, T_CLOTH, ac, false); }
+    if (fl & BD_SHUT) fBox(r, street, 0.4f, L - 0.4f, GH - 0.3f, GH + 0.15f, 0, 0.3f, T_SHUTTER, rgb(170, 170, 165), false);   // shutter box over the shop front
+    if (fl & BD_MAIL) { float u = L > 4 ? L - 1.2f : 0.3f; fBox(r, street, u, u + 0.4f, SIDEH + 0.9f, SIDEH + 1.35f, 0, 0.25f, T_METAL, rgb(170, 40, 40), false); }
+    if (fl & BD_BIKES) for (int k = 0; k < 1 + ri(3); k++) { float u = 0.6f + k * 0.7f; if (u > L - 1) break;   // bicycles parked against the front
+        fBox(r, street, u, u + 0.06f, SIDEH + 0.3f, SIDEH + 0.95f, 0.3f, 1.9f, T_METAL, (Color[]){{60, 60, 65, 255}, {180, 180, 185, 255}, {150, 40, 40, 255}}[ri(3)], false);
+        fBox(r, street, u - 0.02f, u + 0.08f, SIDEH, SIDEH + 0.62f, 0.32f, 0.38f, T_PLAIN, rgb(30, 30, 30), false); fBox(r, street, u - 0.02f, u + 0.08f, SIDEH, SIDEH + 0.62f, 1.82f, 1.88f, T_PLAIN, rgb(30, 30, 30), false); }
+    if ((fl & BD_PITCH) == 0) {   // the roof
+        if (fl & BD_TANK) { float tx = r.x + r.width * fr(0.2f, 0.6f), tz = r.y + r.height * fr(0.2f, 0.6f);
+            for (int k = 0; k < 4; k++) box(T_METAL, V3(tx + (k & 1) * 1.5f, top, tz + (k >> 1) * 1.5f), V3(tx + (k & 1) * 1.5f + 0.12f, top + 1.2f, tz + (k >> 1) * 1.5f + 0.12f), rgb(120, 120, 115), false, ALL);
+            box(T_METAL, V3(tx - 0.2f, top + 1.2f, tz - 0.2f), V3(tx + 1.82f, top + 2.6f, tz + 1.82f), rgb(185, 190, 195), true, ALL); }
+        if (fl & BD_DISH) { float dx = r.x + r.width - 2, dz = r.y + 1.5f; box(T_METAL, V3(dx, top, dz), V3(dx + 0.1f, top + 0.9f, dz + 0.1f), rgb(150, 150, 150), false, ALL); box(T_PLAIN, V3(dx - 0.4f, top + 0.8f, dz - 0.05f), V3(dx + 0.5f, top + 1.6f, dz + 0.05f), rgb(225, 225, 225), false, ALL); }
+        if ((fl & BD_RFENCE) && floors > 1) for (int fc = 0; fc < 4; fc++) { float Lf = fLen(r, fc); for (float u = 0; u <= Lf; u += 2.0f) fBox(r, fc, u, u + 0.06f, top + 0.9f, top + 2.2f, -0.12f, -0.06f, T_METAL, rgb(120, 125, 120), false);
+            fBox(r, fc, 0, Lf, top + 2.15f, top + 2.22f, -0.12f, -0.06f, T_METAL, rgb(120, 125, 120), false); }
+        if ((fl & BD_BILL) && nSign < MAX_SIGN) { Color bc = (Color[]){{255, 80, 70, 255}, {80, 220, 255, 255}, {255, 210, 80, 255}, {255, 120, 220, 255}}[ri(4)];   // rooftop billboard
+            float L2 = fminf(L - 1, 8); fBox(r, street, (L - L2) / 2, (L - L2) / 2 + 0.1f, top, top + 2.0f, -1.2f, -1.1f, T_METAL, rgb(100, 100, 100), false); fBox(r, street, (L + L2) / 2 - 0.1f, (L + L2) / 2, top, top + 2.0f, -1.2f, -1.1f, T_METAL, rgb(100, 100, 100), false);
+            fBox(r, street, (L - L2) / 2, (L + L2) / 2, top + 2.0f, top + 4.2f, -1.25f, -1.05f, T_SIGNH, bc, false); }
+    }
+}
+static void pitchedRoof(Rectangle r, float top, Color rc) {   // a tiled gable roof in steps (eaves overhang the walls)
+    bool alongX = r.width >= r.height; float span = alongX ? r.height : r.width, rise = fminf(span * 0.35f, 2.4f); int steps = 6;
+    for (int k = 0; k < steps; k++) { float t0 = (float)k / steps, ins = t0 * (span / 2 + 0.4f) - 0.4f, h0 = top + t0 * rise, h1 = top + (k + 1.0f) / steps * rise;
+        Color c = (Color){(unsigned char)(rc.r * (0.85f + 0.03f * k)), (unsigned char)(rc.g * (0.85f + 0.03f * k)), (unsigned char)(rc.b * (0.85f + 0.03f * k)), 255};
+        if (alongX) box(T_ROOF, V3(r.x - 0.4f, h0, r.y + ins), V3(r.x + r.width + 0.4f, h1, r.y + r.height - ins), c, true, ALL);
+        else box(T_ROOF, V3(r.x + ins, h0, r.y - 0.4f), V3(r.x + r.width - ins, h1, r.y + r.height + 0.4f), c, true, ALL); }
+}
 static void building(Rectangle r, int kind, int floors, int street) {
+    unsigned bfl = 0;   // details: a preset's, or a town lot's picked by its kind
+    if (bP) bfl = bP->flags;
+    else if (kind == 0) bfl = (ri(3) ? BD_AC : 0) | (ri(2) ? BD_MAIL : 0) | (floors <= 2 && ri(5) < 3 ? BD_PITCH : 0) | (ri(3) == 0 ? BD_BIKES : 0) | (ri(4) == 0 ? BD_PIPES : 0);
+    else if (kind == 1) bfl = (floors > 2 && ri(3) ? BD_BALC | BD_LAUND : 0) | BD_AC | (ri(2) ? BD_TANK : 0) | (ri(2) ? BD_BANDS : 0) | (ri(3) == 0 ? BD_PIPES : 0) | (floors <= 3 && ri(3) == 0 ? BD_STAIR : 0);
+    else if (kind == 2) bfl = (ri(5) < 3 ? BD_AWN : 0) | (ri(3) == 0 ? BD_SHUT : 0) | (ri(2) ? BD_AC : 0) | (ri(4) == 0 ? BD_BIKES : 0) | (floors > 3 && ri(2) ? BD_BALC | BD_LAUND : 0);
+    else if (kind == 6) bfl = BD_BANDS | (ri(2) ? BD_RFENCE : 0) | BD_AC;
+    else bfl = BD_AC;
     curB = r; curT = 0.3f;
     if (nFoot < MAX_FOOT) { footH[nFoot] = floors * FH + 0.6f; foots[nFoot++] = (Rectangle){r.x + curT, r.y + curT, r.width - 2 * curT, r.height - 2 * curT}; }
     int extTex = kind == 0 ? T_PLASTER : kind == 1 ? T_CONCRETE : kind == 2 ? T_TILEWALL : kind == 3 ? T_PLAIN : kind == 4 ? T_PLASTER : T_CONCRETE;
     Color ec = kind == 3 ? rgb(215, 220, 225) : kind == 4 ? rgb(200, 200, 205) : kind == 6 ? rgb(235, 242, 242) : rgb(fr(200, 255), fr(195, 245), fr(185, 235));
+    if (bP && bP->tex >= 0) extTex = bP->tex;
+    if (bP && bP->wall.a) ec = bP->wall;
     Rectangle in = {r.x + curT, r.y + curT, r.width - 2 * curT, r.height - 2 * curT};
     bool runX = in.width >= in.height;
     float runLen = runX ? in.width : in.height, cross = runX ? in.height : in.width;
@@ -610,7 +681,8 @@ static void building(Rectangle r, int kind, int floors, int street) {
         top += h;
     }
     box(T_ROOF, V3(r.x, top - 0.01f, r.y), V3(r.x + r.width, top + 0.07f, r.y + r.height), WHITE, false, 16);
-    if (floors > 1) {
+    if (bfl & BD_PITCH) pitchedRoof(r, top, bP && bP->roof.a ? bP->roof : (Color[]){{80, 70, 70, 255}, {60, 80, 120, 255}, {110, 60, 50, 255}, {70, 70, 80, 255}}[ri(4)]);
+    else if (floors > 1) {
         box(T_CONCRETE, V3(r.x, top, r.y), V3(r.x + r.width, top + 0.9f, r.y + 0.2f), ec, true, ALL);
         box(T_CONCRETE, V3(r.x, top, r.y + r.height - 0.2f), V3(r.x + r.width, top + 0.9f, r.y + r.height), ec, true, ALL);
         box(T_CONCRETE, V3(r.x, top, r.y), V3(r.x + 0.2f, top + 0.9f, r.y + r.height), ec, true, ALL);
@@ -664,6 +736,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
         int li = fr(0, 1) < 0.35f ? -1 : addLight(c, V3(tc.r / 255.0f * 0.8f, tc.g / 255.0f * 0.8f, tc.b / 255.0f * 0.8f), 9, ri(2));
         signs[nSign++] = (Sign){mn, mx, tc, li, T_SIGN, ri(JP_NSHOP), street, false, (short)curXf};
     }
+    bDetails(r, kind, floors, street, top, ec, bfl);
 }
 
 // ---------------------------------------------------------------- subway

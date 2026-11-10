@@ -10,7 +10,7 @@ typedef struct {
     int bag;                              // bag: extra slots
     const char *desc;
 } ItemDef;
-static const ItemDef idef[IT_N] = {
+static ItemDef idef[IT_N] = {   // mutable: Data/items.ini (or a mod's) changes stats at start (see itemsLoad)
     [IT_FOOD]      = {"Onigiri", 0.15f, 5, CAT_FOOD, .desc = "Rice ball. Food +30."},
     [IT_DRINK]     = {"Green Tea", 0.5f, 3, CAT_DRINK, .desc = "Bottled tea. Water +35."},
     [IT_BANDAGE]   = {"Bandage", 0.1f, 5, CAT_MED, .desc = "Stops up to 2 bleeding wounds."},
@@ -50,5 +50,36 @@ static const ItemDef idef[IT_N] = {
     [IT_DUFFEL]    = {"Duffel Bag", 1.2f, 1, CAT_BAG, .bag = 10, .desc = "Gym duffel. +10 slots."},
     [IT_HIKEPACK]  = {"Hiking Pack", 1.8f, 1, CAT_BAG, .bag = 16, .desc = "Framed backpack. +16 slots."},
 };
+static ItemDef idefBase[IT_N]; static bool idefBaseOk = false; static char idefName[IT_N][32], idefDesc[IT_N][160];
+#define ITEM_FIELDS X(weight, f) X(stack, i) X(dmg, f) X(cd, f) X(range, f) X(stam, f) X(knock, f) X(bag, i)
+static void itemsReset(void) { if (!idefBaseOk) { memcpy(idefBase, idef, sizeof idef); idefBaseOk = true; } memcpy(idef, idefBase, sizeof idef); }
+static const char *itemKey(int t) { static char k[40]; int j = 0; for (const char *p = idefBase[t].name; *p && j < 38; p++) k[j++] = (*p == ' ') ? '_' : (char)tolower((unsigned char)*p); k[j] = 0; return k; }
+static bool itemsLoadFile(const char *path) {   // [item_key] then name=, desc=, weight=, stack=, dmg=, cd=, range=, stam=, knock=, bag=
+    FILE *f = fopen(path, "r"); if (!f) return false; char line[300]; int cur = -1;
+    while (fgets(line, sizeof line, f)) { char *e = line + strlen(line); while (e > line && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
+        if (line[0] == '[') { char *c = strchr(line, ']'); if (c) *c = 0; cur = -1; for (int t = 0; t < IT_N; t++) if (!strcmp(itemKey(t), line + 1)) cur = t; continue; }
+        char *eq = strchr(line, '='); if (cur < 0 || !eq || line[0] == '#') continue; *eq = 0; const char *k = line, *v = eq + 1;
+        if (!strcmp(k, "name")) { snprintf(idefName[cur], 32, "%s", v); idef[cur].name = idefName[cur]; }
+        else if (!strcmp(k, "desc")) { snprintf(idefDesc[cur], 160, "%s", v); idef[cur].desc = idefDesc[cur]; }
+#define X(n, ty) else if (!strcmp(k, #n)) idef[cur].n = (#ty[0] == 'f') ? (float)atof(v) : atoi(v);
+        ITEM_FIELDS
+#undef X
+    }
+    fclose(f); return true;
+}
+static bool itemsSave(const char *path) {   // only what differs from the game's own values
+    FILE *f = fopen(path, "w"); if (!f) return false; fprintf(f, "# Zanko 2006 item changes (Mod Maker). Sections are item names in lower case.\n");
+    for (int t = 0; t < IT_N; t++) { ItemDef *a = &idef[t], *b = &idefBase[t]; bool any = false;
+#define HDR if (!any) { fprintf(f, "\n[%s]\n", itemKey(t)); any = true; }
+        if (strcmp(a->name, b->name)) { HDR fprintf(f, "name=%s\n", a->name); }
+        if (strcmp(a->desc ? a->desc : "", b->desc ? b->desc : "")) { HDR fprintf(f, "desc=%s\n", a->desc ? a->desc : ""); }
+#define X(n, ty) if (a->n != b->n) { HDR if (#ty[0] == 'f') fprintf(f, #n "=%g\n", (double)a->n); else fprintf(f, #n "=%d\n", (int)a->n); }
+        ITEM_FIELDS
+#undef X
+#undef HDR
+    }
+    fclose(f); return true;
+}
+
 #define itName_(t) (idef[(t)].name)
 typedef struct { short t, n, w; } Slot;   // t = item type or -1, w = wear 0-100 (weapons break at 100)

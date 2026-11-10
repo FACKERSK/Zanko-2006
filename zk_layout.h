@@ -307,6 +307,7 @@ static void bakeHeightfield(void) {
             float c = br->fy + fminf(side * 1.6f, br->h + 6) + vnoise(x * 0.09f, z * 0.09f, 17) * 1.2f, w = clampf((a + 22) / 16, 0, 1) * clampf(side / 3, 0, 1) * (1 - clampf((side - 10) / 8, 0, 1));   // only the walls of the cutting, not the hills beyond
             if (c > h) h = Lerp(h, c, w); }
         if (inCore(x, z)) h = SIDEH - 0.01f;   // the town: flat paving; streets are drawn on top of it
+        else if (terrEdit) h += terrEdit[j * N + i];   // sculpted in the Mod Maker
         hf[j * N + i] = h;
     }
     hfReady = true;

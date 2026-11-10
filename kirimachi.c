@@ -8,6 +8,7 @@
 #include "silent.h"
 #include "panel3d.h"
 #include <time.h>
+#include <ctype.h>
 #include <stdarg.h>
 
 #define NB 12   // street grid of the fixed town (concept map 5b, zk_design.h)
@@ -653,8 +654,9 @@ static void interiorLoot(Rectangle r, int kind, int count) {
     }
 }
 #include "zk_design.h"
-#include "zk_map.h"
+static int mapGen = 0;   // bumped whenever the map tables change (Mod Maker): caches built from them start over
 #include "zk_world.h"
+#include "zk_map.h"
 static void shrine(Rectangle lot) {   // roadside hokora with torii and shimenawa; permanent spirit ward
     float cx = lot.x + lot.width / 2, cz = lot.y + lot.height / 2;
     Color red = rgb(190, 50, 35);

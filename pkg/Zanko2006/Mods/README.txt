@@ -13,7 +13,9 @@ Mod layout
   Models/<path>.obj (+ .mtl)    replaces Data/Models/<path>.obj
   cheats.ini                    switches on the in-game cheat menu (see the Cheat Menu mod)
   Data/map.zmap                 replaces the whole map (streets, coast, sea, river, rail, lots, spots)
-  Data/objects.zobj             placed blocks and props (the Mod Maker Build tab)
+  Data/objects.zobj             placed blocks, props and buildings (Build and Buildings tabs)
+  Data/items.ini                item stat changes (Items tab)
+  Data/terrain.zter             terrain changes (Terrain tab)
 
 Mod Maker (Root/ModMaker.exe, or "Open Mod Maker" in the launcher's Mods tab)
   Makes and edits folder mods here. Map tab: fly through the town (right mouse look, WASD, Q/E),
