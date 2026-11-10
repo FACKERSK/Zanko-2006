@@ -188,7 +188,7 @@ static void edReloadTexture(int i) {
     char rel[128], mp[800]; snprintf(rel, sizeof rel, "Textures/%s", texNames[i]); edPath(mp, sizeof mp, rel);
     Texture2D t = FileExists(mp) ? LoadTexture(mp) : LoadTexture(P(rel)); if (!t.id) return;
     SetTextureFilter(t, TEXTURE_FILTER_POINT); SetTextureWrap(t, TEXTURE_WRAP_REPEAT);
-    UnloadTexture(tex[i]); tex[i] = t; cube[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = t; if (statOk[i]) stat[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = t;
+    UnloadTexture(tex[i]); tex[i] = t; cube[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = t; statSetTex(i, t);
     edPrevFor = -1;
 }
 static void edDropped(void) {   // files dragged onto the window: a .png replaces the selected texture, an .obj the selected model

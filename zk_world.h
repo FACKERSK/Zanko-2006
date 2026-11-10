@@ -2,6 +2,7 @@
 #define FH 3.2f          // floor-to-floor height
 #define SLAB 0.2f
 #define WILD 150.0f      // walkable wilds beyond the city edge
+#define WEST 440.0f      // the world reaches this far west: the high-rise district beyond the west tunnel (0.9.0)
 #define SUBY -7.0f       // subway floor
 #define TUN_Z0 (SUB_ROW * PITCH + 1.0f)
 #define TUN_Z1 (SUB_ROW * PITCH + ROADW - 1.0f)
@@ -10,6 +11,17 @@
 #define MAX_HOLE 8
 static Rectangle holes[MAX_HOLE]; static int nHole;
 static bool inHole(float x, float z) { for (int i = 0; i < nHole; i++) if (x > holes[i].x && x < holes[i].x + holes[i].width && z > holes[i].y && z < holes[i].y + holes[i].height) return true; return false; }
+// basement stairwells: openings in a building's ground floor (in the building's own frame) where the ground drops to the basement
+#define MAX_PIT 600
+typedef struct { Rectangle r; short f; float x0, z0, x1, z1; } Pit;   // r in frame f; x0..z1 its world bounds
+static Pit pits[MAX_PIT]; static int nPit;
+static Vector3 xfInv(int f, Vector3 p);
+static bool inPit(float x, float z) {
+    for (int i = 0; i < nPit; i++) { Pit *q = &pits[i]; if (x < q->x0 || x > q->x1 || z < q->z0 || z > q->z1) continue;
+        Vector3 L = xfInv(q->f, V3(x, 0, z)); if (L.x > q->r.x && L.x < q->r.x + q->r.width && L.z > q->r.y && L.z < q->r.y + q->r.height) return true; }
+    return false;
+}
+static bool gBasementAll = false;   // the high-rise district: every building that can have one gets a basement
 static bool rectOverlap(Rectangle a, Rectangle b) { return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y; }
 // building footprints in the block being generated (their floor replaces the sidewalk surface, so nothing overlaps)
 #define MAX_FOOT 16
@@ -84,8 +96,10 @@ static bool cityLand(float x, float z) {   // the town's ground (the fixed Atami
     return blockOn(ci, cj);
 }
 #define HF_S 2.0f
-#define HF_X0 (-WILD)
-#define HF_N ((int)((CITY + 2 * WILD) / HF_S) + 1)
+#define HF_X0 (-WEST)
+#define HF_N ((int)((CITY + WILD + WEST) / HF_S) + 1)
+#define HF_OLD_X0 (-150.0f)   // terrain files written before 0.9.0 counted from here
+static bool hfOut(float x, float z) { return z < -WILD - 30 || z > CITY + WILD + 2 || x > CITY + WILD + 2; }   // grid rows outside the world (the grid is square, the world is not)
 static float *hf, *hfd;      // heights, distance to city land (both HF_N x HF_N)
 static bool hfReady = false;
 static float *terrEdit = NULL;   // the Mod Maker's terrain brush: metres added to the ground (HF_N x HF_N), outside the town
@@ -99,8 +113,8 @@ static float hfAt(const float *a, float x, float z) {
 static float cityDist(float x, float z) { if (cityLand(x, z)) return 0; return hfReady ? hfAt(hfd, x, z) : 50; }
 static float terrainH(float x, float z) { return hfReady ? hfAt(hf, x, z) : -0.3f; }
 // tunnels: axis-aligned bores (dir 0 +x, 1 -x, 2 +z, 3 -z) from a portal into the hills, ending in a collapse
-typedef struct { float px, pz, fy, w, h, len; int dir, kind; } Bore;   // kind 0 road tunnel, 1 old brick tunnel
-#define MAX_BORE 6
+typedef struct { float px, pz, fy, w, h, len; int dir, kind, through; } Bore;   // kind 0 road tunnel, 1 old brick tunnel; through 1: open at the far end, 2: that far portal (its face only)
+#define MAX_BORE 8
 static Bore bores[MAX_BORE]; static int nBore;
 static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is inside a tunnel's interior volume
     for (int i = 0; i < nBore; i++) { Bore *b = &bores[i];
@@ -112,7 +126,7 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
 }
 static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool coastSeaward(float x, float z); static bool mainRoadAt(float x, float z, float m); static float polyEdgeDist(const float (*p)[2], int n, float x, float z);
 static float baseGroundY(float x, float z, float y) {
-    if (cityLand(x, z)) return inHole(x, z) ? -1e9f : SIDEH;
+    if (cityLand(x, z)) return inHole(x, z) || inPit(x, z) ? -1e9f : SIDEH;
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
     float h = terrainH(x, z);
     if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coast_d(x, z) > 5.0f && coastSeaward(x, z)) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
@@ -152,7 +166,7 @@ static void genTerrain(void) {
         float ax = HF_X0 + i * S, az = HF_X0 + j * S;
         bool land = cityLand(ax + 0.1f, az + 0.1f) && cityLand(ax + S - 0.1f, az + 0.1f) && cityLand(ax + 0.1f, az + S - 0.1f) && cityLand(ax + S - 0.1f, az + S - 0.1f);
         bool paved = inCore(ax + 0.1f, az + 0.1f) && inCore(ax + S - 0.1f, az + 0.1f) && inCore(ax + 0.1f, az + S - 0.1f) && inCore(ax + S - 0.1f, az + S - 0.1f);   // paving quads cover it
-        if (land || paved || terrainSkip(ax, az)) continue;
+        if (land || paved || hfOut(ax, az) || terrainSkip(ax, az)) continue;
         keep[j * n + i] = 1; quads++;
     }
     Mesh m = {0};
@@ -214,9 +228,9 @@ static void genWilds(void) {   // lone trees, white info pylons and a dead Aero 
 
 // ---------------------------------------------------------------- spawning at a position (all creature types)
 static void crStats(Cr *c) {
-    static const float hp[10] = {3, 5, 2, 2, 1, 6, 4, 3, 3, 12};
-    static const float sp[10] = {3.2f, 2.4f, 4.8f, 6.0f, 3.6f, 2.4f, 3.0f, 6.5f, 4.6f, 2.2f};
-    int t = c->type < 0 || c->type > 9 ? 0 : c->type;
+    static const float hp[18] = {3, 5, 2, 2, 1, 6, 4, 3, 3, 12, 4, 3, 8, 7, 4, 10, 2, 5};
+    static const float sp[18] = {3.2f, 2.4f, 4.8f, 6.0f, 3.6f, 2.4f, 3.0f, 6.5f, 4.6f, 2.2f, 3.0f, 5.0f, 1.6f, 4.2f, 3.4f, 2.6f, 4.4f, 3.0f};
+    int t = c->type < 0 || c->type > 17 ? 0 : c->type;
     c->maxhp = c->hp = hp[t];
     c->spd = sp[t] * fr(0.92f, 1.1f);
     c->var = ri(4);
@@ -235,12 +249,12 @@ static int spawnAt(Vector3 p, int type, bool alerted) {
 static void spawnIndoor(Vector3 nearP, float minD) {
     for (int tries = 0; tries < 30; tries++) {
         int i = ri(nCont > 0 ? nCont : 1); if (nCont == 0) return;
-        Cont *c = &conts[i]; if (!c->on || c->kind == CK_PILE || c->region == 9) continue;
+        Cont *c = &conts[i]; if (!c->on || c->kind == CK_PILE || (c->region == 9 && c->pos.y < -5)) continue;   // not down in the subway (basements are fine)
         if (Vector3Distance(c->pos, nearP) < minD) continue;
         Vector3 p = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.1f, 0, cosf(c->yaw) * 1.1f));
         if (!pointFree(p.x, p.z, 0.35f, p.y + 0.05f)) continue;
         float r = fr(0, 1);
-        int t = r < 0.4f ? 0 : r < 0.55f ? 2 : r < 0.7f ? 7 : r < 0.85f ? 8 : 6;
+        int t = r < 0.32f ? 0 : r < 0.44f ? 2 : r < 0.56f ? 7 : r < 0.68f ? 8 : r < 0.78f ? 11 : r < 0.88f ? 14 : 6;   // crawlers and nurses come from inside
         int s = spawnAt(p, t, false);
         if (s >= 0 && t == 8) { crs[s].hanging = true; crs[s].pos.y = p.y + 2.6f; }
         return;
@@ -422,9 +436,57 @@ static void futon(Rectangle rm, int wall, float u, float y, Color cover) {
     box(T_CLOTH, V3(x0, y, z0), V3(x1, y + 0.12f, z1), rgb(236, 232, 222), false, ALLB);
     float k = 0.35f; box(T_CLOTH, V3(x0 + 0.02f, y + 0.12f, z0 + (wall == 0 ? 0.55f : 0.02f)), V3(x1 - 0.02f, y + 0.2f, z1 - (wall == 2 ? 0.55f : 0.02f)), cover, false, ALLB); (void)k;
 }
+// ---- Japanese room pieces (0.9.0)
+static bool wallBox(Rectangle rm, int wall, float u, float w, float d, float y0, float h, int tex, Color c, bool solid) {   // a w x d piece against a wall, if it fits
+    float x0, z0, x1, z1; wallFoot(rm, wall, u, w, d, &x0, &z0, &x1, &z1);
+    if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y0)) return false;
+    box(tex, V3(x0, y0, z0), V3(x1, y0 + h, z1), c, solid, ALL); return true;
+}
+static float wallAt(Rectangle rm, int wall, float frac) { return wallLo(rm, wall) + (wallHi(rm, wall) - wallLo(rm, wall)) * frac; }
+static void floorFinish(Rectangle rm, float y, int tex, Color c) { box(tex, V3(rm.x, y + 0.016f, rm.y), V3(rm.x + rm.width, y + 0.024f, rm.y + rm.height), c, false, 16); }
+static void sofa(Rectangle rm, int wall, float u, float y, Color c) {   // a two-seat sofa against a wall, facing into the room
+    float x0, z0, x1, z1; wallFoot(rm, wall, u, 1.7f, 0.8f, &x0, &z0, &x1, &z1);
+    if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y)) return;
+    box(T_CLOTH, V3(x0, y, z0), V3(x1, y + 0.42f, z1), c, true, ALL);
+    float bx0 = x0, bx1 = x1, bz0 = z0, bz1 = z1; if (wall == 0) bz1 = bz0 + 0.2f; else if (wall == 2) bz0 = bz1 - 0.2f; else if (wall == 1) bx0 = bx1 - 0.2f; else bx1 = bx0 + 0.2f;
+    box(T_CLOTH, V3(bx0, y + 0.42f, bz0), V3(bx1, y + 0.85f, bz1), aMul(c, 0.85f), false, ALLB);
+}
+static void tokonoma(Rectangle rm, int wall, float y) {   // the alcove: a raised board, a hanging scroll, a vase
+    float u = wallAt(rm, wall, 0.75f), x0, z0, x1, z1; wallFoot(rm, wall, u, 1.6f, 0.75f, &x0, &z0, &x1, &z1);
+    if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y)) return;
+    box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.14f, z1), rgb(120, 85, 55), true, ALL);
+    float sx0, sz0, sx1, sz1; wallFoot(rm, wall, u, 0.5f, 0.02f, &sx0, &sz0, &sx1, &sz1); box(T_PLAIN, V3(sx0, y + 0.6f, sz0), V3(sx1, y + 1.9f, sz1), rgb(226, 218, 196), false, ALL);
+    { float ix0, iz0, ix1, iz1; wallFoot(rm, wall, u, 0.06f, 0.03f, &ix0, &iz0, &ix1, &iz1); box(T_PLAIN, V3(ix0, y + 0.9f, iz0), V3(ix1, y + 1.6f, iz1), rgb(30, 28, 26), false, ALL); }   // one brush stroke
+    float vx = (x0 + x1) / 2 + (wall == 0 || wall == 2 ? 0.45f : 0), vz = (z0 + z1) / 2 + (wall == 1 || wall == 3 ? 0.45f : 0); box(T_PLAIN, V3(vx - 0.08f, y + 0.14f, vz - 0.08f), V3(vx + 0.08f, y + 0.45f, vz + 0.08f), rgb(70, 90, 110), false, ALL);
+}
+static void butsudan(Rectangle rm, int wall, float y) {   // the family altar: black lacquer, gold inside, a photograph
+    float u = wallAt(rm, wall, 0.25f), x0, z0, x1, z1; wallFoot(rm, wall, u, 0.7f, 0.5f, &x0, &z0, &x1, &z1);
+    if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y)) return;
+    box(T_WOOD, V3(x0, y, z0), V3(x1, y + 1.3f, z1), rgb(30, 22, 20), true, ALL);
+    float fx0 = x0, fx1 = x1, fz0 = z0, fz1 = z1; float e = 0.01f; if (wall == 0) fz0 = fz1 - e; else if (wall == 2) fz1 = fz0 + e; else if (wall == 1) fx1 = fx0 + e; else fx0 = fx1 - e;
+    box(T_PLAIN, V3(fx0 + (wall == 0 || wall == 2 ? 0.1f : -0.005f), y + 0.55f, fz0 + (wall == 1 || wall == 3 ? 0.1f : -0.005f)), V3(fx1 - (wall == 0 || wall == 2 ? 0.1f : -0.005f), y + 1.15f, fz1 - (wall == 1 || wall == 3 ? 0.1f : -0.005f)), rgb(200, 160, 60), false, ALL);
+}
+static bool wetStrip(Rectangle rm, int wall, float y, int region) {   // bathroom, toilet and washroom behind a partition along one wall
+    bool alongX = wall == 0 || wall == 2; float D = 1.7f, len = alongX ? rm.width : rm.height; if (len < 3.4f || (alongX ? rm.height : rm.width) < D + 2.0f) return false;
+    Rectangle st = alongX ? (Rectangle){rm.x, wall == 0 ? rm.y : rm.y + rm.height - D, rm.width, D} : (Rectangle){wall == 3 ? rm.x : rm.x + rm.width - D, rm.y, D, rm.height};
+    if (!fFree(st.x + 0.05f, st.y + 0.05f, st.x + st.width - 0.05f, st.y + st.height - 0.05f, y)) return false;   // clear of the stairs and the doorway
+    float yT = y + FH - SLAB, wc = alongX ? (wall == 0 ? st.y + D : st.y) : (wall == 3 ? st.x + D : st.x), lo = alongX ? st.x : st.y, door0 = lo + len - 1.3f, door1 = door0 + 0.8f;
+    Color pc = rgb(226, 224, 218);
+    if (alongX) { box(T_PLASTER, V3(lo, y, wc - 0.05f), V3(door0, yT, wc + 0.05f), pc, true, ALL); box(T_PLASTER, V3(door1, y, wc - 0.05f), V3(lo + len, yT, wc + 0.05f), pc, true, ALL); box(T_PLASTER, V3(door0, y + 2.05f, wc - 0.05f), V3(door1, yT, wc + 0.05f), pc, false, ALLB); }
+    else { box(T_PLASTER, V3(wc - 0.05f, y, lo), V3(wc + 0.05f, yT, door0), pc, true, ALL); box(T_PLASTER, V3(wc - 0.05f, y, door1), V3(wc + 0.05f, yT, lo + len), pc, true, ALL); box(T_PLASTER, V3(wc - 0.05f, y + 2.05f, door0), V3(wc + 0.05f, yT, door1), pc, false, ALLB); }
+    floorFinish(st, y, T_TILEWALL, rgb(210, 214, 216));
+    float b = lo + 0.3f;   // inside the strip, along the outer wall: the unit bath, a partition, the toilet, the basin and washing machine
+    float x0, z0, x1, z1; wallFoot(st, wall, b + 0.85f, 1.6f, D - 0.1f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y, z0), V3(x1, y + 0.55f, z1), rgb(236, 238, 238), true, ALL);
+    box(T_PLAIN, V3(x0 + 0.12f, y + 0.551f, z0 + 0.12f), V3(x1 - 0.12f, y + 0.56f, z1 - 0.12f), rgb(120, 150, 160), false, 16);   // cold water still standing in the tub
+    float pw = b + 1.75f; if (alongX) box(T_PLASTER, V3(pw, y, st.y), V3(pw + 0.08f, yT, st.y + st.height), pc, true, ALL); else box(T_PLASTER, V3(st.x, y, pw), V3(st.x + st.width, yT, pw + 0.08f), pc, true, ALL);
+    wallBox(st, wall, b + 2.2f, 0.42f, 0.62f, y, 0.42f, T_PLAIN, rgb(240, 240, 238), true); wallBox(st, wall, b + 2.2f, 0.46f, 0.2f, y + 0.42f, 0.42f, T_PLAIN, rgb(232, 232, 228), false);   // toilet bowl and tank
+    if (b + 3.1f < door0 - 0.1f) { wallBox(st, wall, b + 2.95f, 0.62f, 0.62f, y, 0.9f, T_PLAIN, rgb(238, 238, 236), true); }   // washing machine
+    addCont(CK_CABINET, alongX ? V3(door0 - 0.6f, y, wall == 0 ? st.y + 0.3f : st.y + D - 0.3f) : V3(wall == 3 ? st.x + 0.3f : st.x + D - 0.3f, y, door0 - 0.6f), wallYaw(wall), region, false);   // the vanity: medicine, a towel
+    return true;
+}
 static int opp(int w) { return (w + 2) % 4; }
 // room plans
-enum { RM_LIVING, RM_KITCHEN, RM_BED, RM_SHOP, RM_STOCK, RM_KONBINI, RM_KOBAN, RM_OFFICE, RM_STUDY };
+enum { RM_LIVING, RM_KITCHEN, RM_BED, RM_SHOP, RM_STOCK, RM_KONBINI, RM_KOBAN, RM_OFFICE, RM_STUDY, RM_LDK, RM_WASHITSU, RM_WASHWET, RM_WBED };
 static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int street, bool tatami) {
     int sideA = (outer + 1) % 4, sideB = (outer + 3) % 4;
     float cx = rm.x + rm.width / 2, cz = rm.y + rm.height / 2; bool longX = rm.width >= rm.height;
@@ -460,6 +522,28 @@ static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int
         int r2[] = {FX_BOARD}; runAlong(rm, (street + 1) % 4, y, r2, 1, 0, region); int r3[] = {FX_BENCH}; runAlong(rm, (street + 3) % 4, y, r3, 1, 0, region);
         float ox = street == 1 ? 1.0f : street == 3 ? -1.0f : 0, oz = street == 2 ? 1.0f : street == 0 ? -1.0f : 0;
         if (addCont(CK_DESK, V3(cx + ox, y, cz + oz), wallYaw(opp(street)), region, true) >= 0) { chair(cx + ox * 1.6f, cz + oz * 1.6f, y, opp(street) == 0 ? 0 : opp(street) == 2 ? 2 : opp(street) == 1 ? 1 : 3, rgb(60, 60, 70)); } } break;
+    case RM_LDK: {   // living-dining-kitchen: a wood floor, the kitchen run along the outer wall, table and chairs, a sofa facing the TV
+        floorFinish(rm, y, T_WOOD, rgb(196, 160, 120));
+        int run[] = {CK_FRIDGE, CK_CABINET, FX_SINK, FX_STOVE, CK_CABINET}; runAlong(rm, outer, y, run, 5, 0, region);
+        float ox = outer == 1 ? -1.0f : outer == 3 ? 1.0f : 0, oz = outer == 0 ? 1.0f : outer == 2 ? -1.0f : 0; tableSet(cx + ox * 0.3f + (longX ? -rm.width * 0.18f : 0), cz + oz * 0.3f + (longX ? 0 : -rm.height * 0.18f), y, longX, 4, 0.72f, rgb(170, 130, 96));
+        sofa(rm, opp(outer), wallAt(rm, opp(outer), 0.7f), y, (Color[]){{120, 110, 100, 255}, {90, 110, 130, 255}, {140, 90, 80, 255}}[ri(3)]);
+        int r2[] = {CK_CABINET, FX_PLANT}; runAlong(rm, sideA, y, r2, 2, 1, region); } break;
+    case RM_WASHITSU: {   // tatami room: tokonoma, butsudan, oshiire (the closet), a low table; at night the futon
+        floorFinish(rm, y, T_TATAMI, WHITE); tokonoma(rm, sideA, y); butsudan(rm, sideA, y);
+        int r1[] = {CK_WARDROBE, CK_WARDROBE}; runAlong(rm, sideB, y, r1, 2, 0, region);
+        if (ri(2)) futon(rm, outer, wallLo(rm, outer) + 1.2f, y, rgb(70, 100, 150)); else tableSet(cx, cz, y, longX, 4, 0.35f, rgb(120, 80, 54)); } break;
+    case RM_WASHWET: {   // the back room: bathroom, toilet and washroom behind a partition at one end, a tatami room in the rest
+        int ws = sideA; if (!wetStrip(rm, sideA, y, region)) { ws = sideB; if (!wetStrip(rm, sideB, y, region)) { ws = outer; if (!wetStrip(rm, outer, y, region)) ws = -1; } }   // whichever end is clear of the stairs and the doorway
+        bool alongX = ws == 0 || ws == 2; Rectangle rest = rm; if (ws >= 0) { if (alongX) { if (ws == 0) { rest.y += 1.8f; } rest.height -= 1.8f; } else { if (ws == 3) { rest.x += 1.8f; } rest.width -= 1.8f; } }
+        floorFinish(rest, y, T_TATAMI, WHITE); tokonoma(rest, ws >= 0 ? opp(ws) : sideA, y);
+        int r1[] = {CK_WARDROBE}; runAlong(rest, outer, y, r1, 1, 1, region);
+        tableSet(rest.x + rest.width / 2, rest.y + rest.height / 2, y, rest.width >= rest.height, 2, 0.35f, rgb(120, 80, 54)); } break;
+    case RM_WBED: {   // a western bedroom upstairs: wood floor, a bed, desk, wardrobe
+        floorFinish(rm, y, T_WOOD, rgb(186, 150, 112));
+        { float x0, z0, x1, z1; wallFoot(rm, sideA, wallAt(rm, sideA, 0.3f), 1.0f, 2.0f, &x0, &z0, &x1, &z1);
+          if (x0 >= rm.x && x1 <= rm.x + rm.width && z0 >= rm.y && z1 <= rm.y + rm.height && fFree(x0, z0, x1, z1, y)) { box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.3f, z1), rgb(130, 95, 70), true, ALL);
+              box(T_CLOTH, V3(x0 + 0.03f, y + 0.3f, z0 + 0.03f), V3(x1 - 0.03f, y + 0.48f, z1 - 0.03f), (Color[]){{200, 200, 210, 255}, {140, 160, 190, 255}, {200, 170, 170, 255}}[ri(3)], false, ALLB); } }
+        int r1[] = {CK_DESK, FX_BOOKS}; runAlong(rm, outer, y, r1, 2, 0, region); int r2[] = {CK_WARDROBE, CK_BOX}; runAlong(rm, sideB, y, r2, 2, 0, region); } break;
     case RM_OFFICE: { int r1[] = {CK_LOCKER, CK_LOCKER, CK_CABINET, FX_COOLER}; runAlong(rm, outer, y, r1, 4, 0, region);
         int r2[] = {FX_BOARD}; runAlong(rm, sideA, y, r2, 1, 0, region);
         for (int isl = -1; isl <= 1; isl += 2) { float ix = longX ? cx + isl * 1.7f : cx, iz = longX ? cz : cz + isl * 1.7f;   // a desk island: two desks face to face, screens, chairs
@@ -509,10 +593,35 @@ static void bDetails(Rectangle r, int kind, int floors, int street, float top, C
         fBox(r, street, 0.3f, L - 0.3f, GH - 0.65f, GH - 0.35f, 1.25f, 1.3f, T_CLOTH, ac, false); }
     if (fl & BD_SHUT) fBox(r, street, 0.4f, L - 0.4f, GH - 0.3f, GH + 0.15f, 0, 0.3f, T_SHUTTER, rgb(170, 170, 165), false);   // shutter box over the shop front
     if (fl & BD_MAIL) { float u = L > 4 ? L - 1.2f : 0.3f; fBox(r, street, u, u + 0.4f, SIDEH + 0.9f, SIDEH + 1.35f, 0, 0.25f, T_METAL, rgb(170, 40, 40), false); }
+    {   // Odawara house details (0.9.0, after street photos): block wall + fence, garage shutter, pent roof, door hood, carport
+        int sd = street; float len = (sd == 0 || sd == 2) ? r.width : r.height - 2 * curT, base = (sd == 0 || sd == 2) ? 0 : curT; int nm = (int)(len / 3.0f); if (nm < 1) nm = 1; float mw = len / nm, uc = base + (nm / 2 + 0.5f) * mw;
+        Color rc = bP && bP->roof.a ? bP->roof : rgb(72, 74, 80);
+        if (fl & BD_FENCE) { float o0 = 0.55f, o1 = 0.72f; bool ok = true;
+            for (float u = 0; u <= L && ok; u += 1.0f) { Vector3 q = sd == 0 ? V3(r.x + u, 0, r.y - 0.8f) : sd == 2 ? V3(r.x + u, 0, r.y + r.height + 0.8f) : sd == 1 ? V3(r.x + r.width + 0.8f, 0, r.y + u) : V3(r.x - 0.8f, 0, r.y + u); Vector3 wq = xfP(curXf, q); if (mainRoadAt(wq.x, wq.z, 0.15f)) ok = false; }
+            if (ok) for (int pc = 0; pc < 2; pc++) { float a0 = pc ? uc + 1.0f : 0.1f, a1 = pc ? L - 0.1f : uc - 1.0f; if (a1 - a0 < 0.5f) continue;
+                fBox(r, sd, a0, a1, SIDEH, SIDEH + 0.75f, o0, o1, T_BLOCKWALL, WHITE, true);
+                fBox(r, sd, a0, a1, SIDEH + 1.25f, SIDEH + 1.3f, o0 + 0.06f, o1 - 0.06f, T_METAL, rgb(150, 110, 95), false);
+                for (float u = a0 + 0.05f; u < a1; u += 0.22f) fBox(r, sd, u, u + 0.025f, SIDEH + 0.75f, SIDEH + 1.3f, o0 + 0.07f, o0 + 0.1f, T_METAL, rgb(150, 110, 95), false); } }
+        if ((fl & BD_GARAGE) && len >= 6.0f) { float g0 = uc > len / 2 ? base + 0.3f : base + len - 2.9f; fBox(r, sd, g0, g0 + 2.5f, SIDEH, SIDEH + 2.25f, 0, 0.05f, T_SHUTTER, rgb(200, 200, 196), false);
+            fBox(r, sd, g0 - 0.1f, g0 + 2.6f, SIDEH + 2.25f, SIDEH + 2.55f, 0, 0.25f, T_PLAIN, rgb(185, 180, 170), false); }   // its shutter box
+        if ((fl & BD_SKIRT) && floors >= 2) { float y = SIDEH + FH; for (int fc = 0; fc < 4; fc++) { float Lf = fLen(r, fc);   // the pent roof between the floors of an old house
+            fBox(r, fc, -0.55f, Lf + 0.55f, y - 0.1f, y + 0.05f, 0, 0.75f, T_ROOF, (Color){(unsigned char)(rc.r * 0.85f), (unsigned char)(rc.g * 0.85f), (unsigned char)(rc.b * 0.85f), 255}, false);
+            fBox(r, fc, -0.4f, Lf + 0.4f, y + 0.05f, y + 0.22f, 0, 0.4f, T_ROOF, rc, false); } }
+        if (fl & BD_HISASHI) { fBox(r, sd, uc - 0.95f, uc + 0.95f, SIDEH + 2.45f, SIDEH + 2.58f, 0, 0.9f, T_PLAIN, rgb(200, 198, 192), false);   // the hood over the front door
+            if (floors >= 2) for (int m = 0; m < nm; m++) { float u0 = base + m * mw + 0.4f; fBox(r, sd, u0, u0 + mw - 0.8f, SIDEH + FH + 2.2f, SIDEH + FH + 2.28f, 0, 0.35f, T_PLAIN, rgb(190, 188, 182), false); } }
+        if (fl & BD_CARPORT) { int cs = (sd + 1) % 4; float Lc = fLen(r, cs); bool ok = true;   // a polycarbonate carport against the side wall, nearest the street
+            float c0 = sd == 0 || sd == 3 ? 0.2f : Lc - 5.2f, c1 = c0 + 5.0f; if (c0 < 0) { c0 = 0; c1 = fminf(5.0f, Lc); }
+            for (int q = 0; q < 2 && ok; q++) { float u = q ? c1 - 0.1f : c0 + 0.1f; Vector3 lp = cs == 0 ? V3(r.x + u, 0, r.y - 2.7f) : cs == 2 ? V3(r.x + u, 0, r.y + r.height + 2.7f) : cs == 1 ? V3(r.x + r.width + 2.7f, 0, r.y + u) : V3(r.x - 2.7f, 0, r.y + u);
+                Vector3 wq = xfP(curXf, lp); if (mainRoadAt(wq.x, wq.z, 0.3f) || !pointFree(lp.x, lp.z, 0.4f, SIDEH + 0.1f)) ok = false; }
+            if (ok) { for (int q = 0; q < 2; q++) { float u = q ? c1 - 0.15f : c0 + 0.05f; fBox(r, cs, u, u + 0.1f, SIDEH, SIDEH + 2.3f, 2.6f, 2.7f, T_METAL, rgb(120, 110, 100), true); }
+                fBox(r, cs, c0, c1, SIDEH + 2.3f, SIDEH + 2.38f, 0, 2.8f, T_METAL, rgb(120, 110, 100), false); fBox(r, cs, c0 + 0.1f, c1 - 0.1f, SIDEH + 2.38f, SIDEH + 2.42f, 0.1f, 2.75f, T_GLASS, rgb(150, 160, 150), false); } }
+    }
     if (fl & BD_BIKES) for (int k = 0; k < 1 + ri(3); k++) { float u = 0.6f + k * 0.7f; if (u > L - 1) break;   // bicycles parked against the front
+        { Vector3 q = street == 0 ? V3(r.x + u, 0, r.y - 2.0f) : street == 2 ? V3(r.x + u, 0, r.y + r.height + 2.0f) : street == 1 ? V3(r.x + r.width + 2.0f, 0, r.y + u) : V3(r.x - 2.0f, 0, r.y + u);
+          Vector3 wq = xfP(curXf, q); if (mainRoadAt(wq.x, wq.z, 0.1f)) continue; }   // never out in the road
         fBox(r, street, u, u + 0.06f, SIDEH + 0.3f, SIDEH + 0.95f, 0.3f, 1.9f, T_METAL, (Color[]){{60, 60, 65, 255}, {180, 180, 185, 255}, {150, 40, 40, 255}}[ri(3)], false);
         fBox(r, street, u - 0.02f, u + 0.08f, SIDEH, SIDEH + 0.62f, 0.32f, 0.38f, T_PLAIN, rgb(30, 30, 30), false); fBox(r, street, u - 0.02f, u + 0.08f, SIDEH, SIDEH + 0.62f, 1.82f, 1.88f, T_PLAIN, rgb(30, 30, 30), false); }
-    if ((fl & BD_PITCH) == 0) {   // the roof
+    if ((fl & (BD_PITCH | BD_HIP)) == 0) {   // the roof
         if (fl & BD_TANK) { float tx = r.x + r.width * fr(0.2f, 0.6f), tz = r.y + r.height * fr(0.2f, 0.6f);
             for (int k = 0; k < 4; k++) box(T_METAL, V3(tx + (k & 1) * 1.5f, top, tz + (k >> 1) * 1.5f), V3(tx + (k & 1) * 1.5f + 0.12f, top + 1.2f, tz + (k >> 1) * 1.5f + 0.12f), rgb(120, 120, 115), false, ALL);
             box(T_METAL, V3(tx - 0.2f, top + 1.2f, tz - 0.2f), V3(tx + 1.82f, top + 2.6f, tz + 1.82f), rgb(185, 190, 195), true, ALL); }
@@ -524,17 +633,26 @@ static void bDetails(Rectangle r, int kind, int floors, int street, float top, C
             fBox(r, street, (L - L2) / 2, (L + L2) / 2, top + 2.0f, top + 4.2f, -1.25f, -1.05f, T_SIGNH, bc, false); }
     }
 }
+static void hipRoof(Rectangle r, float top, Color rc) {   // a low hipped tile roof with deep eaves, the commonest Odawara house roof
+    float E = 0.65f, span = fminf(r.width, r.height), rise = fminf(span * 0.28f, 2.0f); int steps = 7;
+    for (int k = 0; k < steps; k++) { float t0 = (float)k / steps, ins = t0 * (span / 2 + E) - E, h0 = top + t0 * rise, h1 = top + (k + 1.0f) / steps * rise;
+        Color c = (Color){(unsigned char)(rc.r * (0.84f + 0.03f * k)), (unsigned char)(rc.g * (0.84f + 0.03f * k)), (unsigned char)(rc.b * (0.84f + 0.03f * k)), 255};
+        if (r.width - 2 * ins < 0.3f || r.height - 2 * ins < 0.3f) break;
+        box(T_ROOF, V3(r.x + ins, h0, r.y + ins), V3(r.x + r.width - ins, h1, r.y + r.height - ins), c, true, ALL); }
+    box(T_ROOF, V3(r.x - E, top - 0.12f, r.y - E), V3(r.x + r.width + E, top, r.y + r.height + E), (Color){(unsigned char)(rc.r * 0.6f), (unsigned char)(rc.g * 0.6f), (unsigned char)(rc.b * 0.6f), 255}, false, ALL);   // the eave's dark underside
+}
 static void pitchedRoof(Rectangle r, float top, Color rc) {   // a tiled gable roof in steps (eaves overhang the walls)
     bool alongX = r.width >= r.height; float span = alongX ? r.height : r.width, rise = fminf(span * 0.35f, 2.4f); int steps = 6;
-    for (int k = 0; k < steps; k++) { float t0 = (float)k / steps, ins = t0 * (span / 2 + 0.4f) - 0.4f, h0 = top + t0 * rise, h1 = top + (k + 1.0f) / steps * rise;
+    for (int k = 0; k < steps; k++) { float t0 = (float)k / steps, ins = t0 * (span / 2 + 0.6f) - 0.6f, h0 = top + t0 * rise, h1 = top + (k + 1.0f) / steps * rise;
         Color c = (Color){(unsigned char)(rc.r * (0.85f + 0.03f * k)), (unsigned char)(rc.g * (0.85f + 0.03f * k)), (unsigned char)(rc.b * (0.85f + 0.03f * k)), 255};
-        if (alongX) box(T_ROOF, V3(r.x - 0.4f, h0, r.y + ins), V3(r.x + r.width + 0.4f, h1, r.y + r.height - ins), c, true, ALL);
-        else box(T_ROOF, V3(r.x + ins, h0, r.y - 0.4f), V3(r.x + r.width - ins, h1, r.y + r.height + 0.4f), c, true, ALL); }
+        if (alongX) box(T_ROOF, V3(r.x - 0.5f, h0, r.y + ins), V3(r.x + r.width + 0.5f, h1, r.y + r.height - ins), c, true, ALL);
+        else box(T_ROOF, V3(r.x + ins, h0, r.y - 0.5f), V3(r.x + r.width - ins, h1, r.y + r.height + 0.5f), c, true, ALL); }
 }
 static void building(Rectangle r, int kind, int floors, int street) {
     unsigned bfl = 0;   // details: a preset's, or a town lot's picked by its kind
     if (bP) bfl = bP->flags;
-    else if (kind == 0) bfl = (ri(3) ? BD_AC : 0) | (ri(2) ? BD_MAIL : 0) | (floors <= 2 && ri(5) < 3 ? BD_PITCH : 0) | (ri(3) == 0 ? BD_BIKES : 0) | (ri(4) == 0 ? BD_PIPES : 0);
+    else if (kind == 0) bfl = (ri(3) ? BD_AC : 0) | (ri(2) ? BD_MAIL : 0) | (floors <= 2 && ri(5) < 4 ? (ri(3) ? BD_HIP : BD_PITCH) : 0) | (ri(3) == 0 ? BD_BIKES : 0) | (ri(4) == 0 ? BD_PIPES : 0)
+                              | (ri(5) < 3 ? BD_FENCE : 0) | (ri(10) < 3 ? BD_GARAGE : 0) | (ri(3) == 0 ? BD_HISASHI : 0) | (floors == 2 && ri(5) == 0 ? BD_SKIRT : 0) | (ri(8) == 0 ? BD_CARPORT : 0) | (floors >= 2 && ri(3) == 0 ? BD_BALC : 0);   // Odawara houses
     else if (kind == 1) bfl = (floors > 2 && ri(3) ? BD_BALC | BD_LAUND : 0) | BD_AC | (ri(2) ? BD_TANK : 0) | (ri(2) ? BD_BANDS : 0) | (ri(3) == 0 ? BD_PIPES : 0) | (floors <= 3 && ri(3) == 0 ? BD_STAIR : 0);
     else if (kind == 2) bfl = (ri(5) < 3 ? BD_AWN : 0) | (ri(3) == 0 ? BD_SHUT : 0) | (ri(2) ? BD_AC : 0) | (ri(4) == 0 ? BD_BIKES : 0) | (floors > 3 && ri(2) ? BD_BALC | BD_LAUND : 0);
     else if (kind == 6) bfl = BD_BANDS | (ri(2) ? BD_RFENCE : 0) | BD_AC;
@@ -548,7 +666,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
     Rectangle in = {r.x + curT, r.y + curT, r.width - 2 * curT, r.height - 2 * curT};
     bool runX = in.width >= in.height;
     float runLen = runX ? in.width : in.height, cross = runX ? in.height : in.width;
-    int acc = floors > 4 ? 4 : floors;                       // floors you can walk into
+    int acc = floors > 6 ? 6 : floors;                       // floors you can walk into
     const float SW = 1.05f, RUN = 3.6f; const int NS = 12;
     if (runLen < 5.7f || cross < 2 * SW + 2.0f) acc = 1;
     if (kind == 3 || kind == 4) acc = 1;
@@ -576,6 +694,40 @@ static void building(Rectangle r, int kind, int floors, int street) {
     }
     int ft = kind == 0 ? T_TATAMI : (kind == 3 || kind == 4 || kind == 6) ? T_TILEWALL : T_WOOD;
     Rectangle prevHole = {0, 0, 0, 0};
+    // a basement under some buildings: a flight down on the stair strip beyond the flight up, one big room under the whole floor
+    float uB0 = uH + 0.25f, uB1 = uB0 + RUN; Rectangle bHole = {0, 0, 0, 0};
+    bool basement = acc > 1 && kind != 0 && uB1 + 0.9f < uStart + runLen && nPit < MAX_PIT &&
+                    (gBasementAll || kind == 6 || (kind == 1 && floors >= 3 && ri(3) == 0) || (kind == 2 && floors >= 2 && ri(4) == 0) || (bP && (bfl & BD_BRICKBASE)));
+    if (basement) {
+        float BY = SIDEH - FH, rise = FH / NS, tread = RUN / NS;
+        bHole = runX ? (Rectangle){uB0 - 0.05f, c0A, RUN + 0.1f, SW} : (Rectangle){c0A, uB0 - 0.05f, SW, RUN + 0.1f};
+        { Pit *q = &pits[nPit++]; q->r = bHole; q->f = (short)curXf; q->x0 = q->z0 = 1e9f; q->x1 = q->z1 = -1e9f;
+          for (int k = 0; k < 4; k++) { Vector3 w = xfP(curXf, V3(bHole.x + (k & 1) * bHole.width, 0, bHole.y + (k >> 1) * bHole.height)); q->x0 = fminf(q->x0, w.x); q->x1 = fmaxf(q->x1, w.x); q->z0 = fminf(q->z0, w.z); q->z1 = fmaxf(q->z1, w.z); } }
+        prevHole = bHole;   // the ground floor's finish is cut there
+        for (int k = 0; k < NS; k++) { float u0 = uB0 + k * tread, u1 = u0 + tread, top = SIDEH - (k + 1) * rise;   // the flight down, top step first
+            if (runX) box(T_CONCRETE, V3(u0, BY - 0.3f, c0A), V3(u1, top, c0A + SW), rgb(150, 146, 140), true, ALL); else box(T_CONCRETE, V3(c0A, BY - 0.3f, u0), V3(c0A + SW, top, u1), rgb(150, 146, 140), true, ALL); }
+        box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y), V3(r.x + r.width, BY, r.y + r.height), rgb(120, 118, 112), true, ALL);      // basement floor
+        box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y), V3(r.x + r.width, SIDEH, r.y + curT), rgb(150, 148, 140), true, ALL);    // its walls
+        box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y + r.height - curT), V3(r.x + r.width, SIDEH, r.y + r.height), rgb(150, 148, 140), true, ALL);
+        box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y), V3(r.x + curT, SIDEH, r.y + r.height), rgb(150, 148, 140), true, ALL);
+        box(T_CONCRETE, V3(r.x + r.width - curT, BY - 0.3f, r.y), V3(r.x + r.width, SIDEH, r.y + r.height), rgb(150, 148, 140), true, ALL);
+        slabWithHole(T_CONCRETE, in, bHole, SIDEH - 0.32f, SIDEH - 0.02f, rgb(135, 135, 132));                              // its ceiling, open over the stairs
+        {   // railing round the opening on the ground floor: the room side (open for the first metre: step in from the side) and the far end
+            float cE = (c0A < c0B) ? c0A + SW : c0A, ry = SIDEH + 1.0f; Color rc = rgb(150, 155, 150);
+            if (runX) { box(T_METAL, V3(uB0 + 1.0f, SIDEH, cE - 0.03f), V3(uB1 + 0.05f, ry, cE + 0.03f), rc, true, ALL); box(T_METAL, V3(uB1 + 0.02f, SIDEH, c0A), V3(uB1 + 0.08f, ry, c0A + SW), rc, true, ALL); }
+            else { box(T_METAL, V3(cE - 0.03f, SIDEH, uB0 + 1.0f), V3(cE + 0.03f, ry, uB1 + 0.05f), rc, true, ALL); box(T_METAL, V3(c0A, SIDEH, uB1 + 0.02f), V3(c0A + SW, ry, uB1 + 0.08f), rc, true, ALL); } }
+        {   float mC = c0A + SW / 2; Vector3 bot = runX ? V3(uB1 + 0.45f, BY, mC) : V3(mC, BY, uB1 + 0.45f), topP = runX ? V3(uB0 - 0.2f, SIDEH, (c0A < c0B) ? c0A + SW + 0.5f : c0A - 0.5f) : V3((c0A < c0B) ? c0A + SW + 0.5f : c0A - 0.5f, SIDEH, uB0 - 0.2f);
+            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, bot), xfP(curXf, topP)}; }
+        {   // what is down there: storage along the wall away from the stairs, a boiler, one bad light
+            float farC = stripHigh ? cMin + 0.3f : cMax - 0.3f; float yaw = runX ? (stripHigh ? 0 : PI) : (stripHigh ? -PI / 2 : PI / 2);
+            int kinds[7] = {CK_SHELF, CK_BOX, CK_LOCKER, CK_TOOLBOX, CK_SHELF, CK_BOX, CK_LOCKER}; float u = uStart + 0.9f;
+            for (int k = 0; k < 7; k++) { int ck = kinds[(k + ri(3)) % 7]; float wdt = ckSize[ck].x, dep = ckSize[ck].z; if (u + wdt > uStart + runLen - 2.4f) break;   // clear of the end wall and the boiler
+                float cc = stripHigh ? farC + dep / 2 : farC - dep / 2; Vector3 p = runX ? V3(u + wdt / 2, BY, cc) : V3(cc, BY, u + wdt / 2);
+                addCont(ck, p, yaw, 9, true); u += wdt + fr(0.3f, 1.2f); }
+            float bx = uStart + runLen - 1.6f, bc = (cMin + cMax) / 2;
+            if (runX) box(T_METAL, V3(bx - 0.6f, BY, bc - 0.6f), V3(bx + 0.6f, BY + 1.8f, bc + 0.6f), rgb(90, 95, 92), true, ALL); else box(T_METAL, V3(bc - 0.6f, BY, bx - 0.6f), V3(bc + 0.6f, BY + 1.8f, bx + 0.6f), rgb(90, 95, 92), true, ALL);
+            addLight(V3(in.x + in.width / 2, SIDEH - 0.6f, in.y + in.height / 2), V3(0.8f, 0.85f, 0.7f), 8, ri(3) ? 1 : 2); }
+    }
     for (int f = 0; f < acc; f++) {
         float y0 = SIDEH + f * FH, yTop = y0 + FH - SLAB;
         extFloor(r, kind, street, y0, yTop, f == 0, extTex, ec);
@@ -642,7 +794,21 @@ static void building(Rectangle r, int kind, int floors, int street) {
             if (f > 0 && fr(0, 1) < 0.18f) { if (runX) addDebris(V3(gap, y0, mc - 0.5f), V3(gap + 1.1f, y0 + 1.1f, mc + 0.5f)); else addDebris(V3(mc - 0.5f, y0, gap), V3(mc + 0.5f, y0 + 1.1f, gap + 1.1f)); }
         }
         // designed rooms: the stairwell stays clear, each room gets a plan for this kind of building and storey
-        fAvoid = acc > 1 ? (runX ? (Rectangle){uL - 0.7f, bandLo - 0.15f, RUN + 1.4f, bandHi - bandLo + 0.3f} : (Rectangle){bandLo - 0.15f, uL - 0.7f, bandHi - bandLo + 0.3f, RUN + 1.4f}) : (Rectangle){0, 0, 0, 0};
+        { float ext = (basement && f == 0) ? RUN + 0.35f : 0;   // the flight down on the ground floor too
+          fAvoid = acc > 1 ? (runX ? (Rectangle){uL - 0.7f, bandLo - 0.15f, RUN + 1.4f + ext, bandHi - bandLo + 0.3f} : (Rectangle){bandLo - 0.15f, uL - 0.7f, bandHi - bandLo + 0.3f, RUN + 1.4f + ext}) : (Rectangle){0, 0, 0, 0}; }
+        if (f == 0 && (kind == 0 || kind == 1) && nKeep < 7) {   // the genkan inside the front door: a tiled step-down, the raised edge, a shoe cabinet
+            int sd = street; bool aX = sd == 0 || sd == 2; float A = aX ? r.x : r.y + curT, len = aX ? r.width : r.height - 2 * curT; int nm = (int)(len / 3.0f); if (nm < 1) nm = 1; float mw = len / nm, uc = A + (nm / 2 + 0.5f) * mw;
+            float D = 1.3f; Rectangle g = sd == 0 ? (Rectangle){uc - 0.8f, in.y, 1.6f, D} : sd == 2 ? (Rectangle){uc - 0.8f, in.y + in.height - D, 1.6f, D} : sd == 1 ? (Rectangle){in.x + in.width - D, uc - 0.8f, D, 1.6f} : (Rectangle){in.x, uc - 0.8f, D, 1.6f};
+            bool gav = g.x < fAvoid.x + fAvoid.width && g.x + g.width > fAvoid.x && g.y < fAvoid.y + fAvoid.height && g.y + g.height > fAvoid.y;
+            if (!gav && boxFree(g.x + 0.05f, g.y + 0.05f, g.x + g.width - 0.05f, g.y + g.height - 0.05f, y0)) {   // (it stands in front of the door on purpose)
+                box(T_TILEWALL, V3(g.x, y0 + 0.017f, g.y), V3(g.x + g.width, y0 + 0.026f, g.y + g.height), rgb(120, 118, 112), false, 16);
+                Rectangle e = sd == 0 ? (Rectangle){g.x, g.y + D, g.width, 0.12f} : sd == 2 ? (Rectangle){g.x, g.y - 0.12f, g.width, 0.12f} : sd == 1 ? (Rectangle){g.x - 0.12f, g.y, 0.12f, g.height} : (Rectangle){g.x + D, g.y, 0.12f, g.height};
+                box(T_WOOD, V3(e.x, y0, e.y), V3(e.x + e.width, y0 + 0.14f, e.y + e.height), rgb(140, 100, 66), true, ALL);   // agarikamachi: you step up into the house
+                Rectangle sb = aX ? (Rectangle){g.x + g.width, sd == 0 ? g.y : g.y + D - 0.38f, 0.9f, 0.38f} : (Rectangle){sd == 3 ? g.x : g.x + D - 0.38f, g.y + g.height, 0.38f, 0.9f};
+                if (fFree(sb.x, sb.y, sb.x + sb.width, sb.y + sb.height, y0)) { box(T_WOOD, V3(sb.x, y0, sb.y), V3(sb.x + sb.width, y0 + 0.95f, sb.y + sb.height), rgb(160, 125, 90), true, ALL);
+                    box(T_PLAIN, V3(sb.x + 0.1f, y0 + 0.95f, sb.y + 0.08f), V3(sb.x + 0.3f, y0 + 1.15f, sb.y + 0.25f), rgb(90, 130, 90), false, ALL); }   // a pot plant on top
+                for (int k = 0; k < 2 + ri(3); k++) { float sx = g.x + fr(0.2f, g.width - 0.4f), sz = g.y + fr(0.2f, g.height - 0.4f); box(T_PLAIN, V3(sx, y0 + 0.026f, sz), V3(sx + 0.12f, y0 + 0.1f, sz + 0.28f), (Color[]){{40, 40, 44, 255}, {200, 200, 205, 255}, {150, 60, 50, 255}}[ri(3)], false, ALLB); }   // shoes left behind
+                keepClear[nKeep++] = (Rectangle){g.x - 0.4f, g.y - 0.4f, g.width + 0.8f, g.height + 0.8f}; } }
         {   Rectangle rA = in, rB = in; int oA, oB; bool two = partC > 0;
             if (two) { if (runX) { rA.height = partC - in.y - 0.06f; rB.y = partC + 0.06f; rB.height = in.y + in.height - rB.y; oA = 0; oB = 2; }
                        else { rA.width = partC - in.x - 0.06f; rB.x = partC + 0.06f; rB.width = in.x + in.width - rB.x; oA = 3; oB = 1; } }
@@ -654,9 +820,10 @@ static void building(Rectangle r, int kind, int floors, int street) {
             else if (kind == 4) { pF = RM_KOBAN; pB = RM_STOCK; }
             else if (kind == 6) { pF = RM_OFFICE; pB = RM_OFFICE; }
             else if (kind == 2) { pF = f == 0 ? RM_SHOP : RM_KITCHEN; pB = f == 0 ? RM_STOCK : RM_BED; }
-            else if (kind == 1) { pF = f % 2 ? RM_BED : RM_KITCHEN; pB = f % 2 ? RM_STUDY : RM_BED; if (f == 0) { pF = RM_KITCHEN; pB = RM_LIVING; } }
-            else { pF = f == 0 ? RM_LIVING : RM_BED; pB = f == 0 ? RM_KITCHEN : RM_STUDY; }
-            if (!two && kind != 3 && kind != 4) { pF = f == 0 ? (kind == 2 ? RM_SHOP : RM_LIVING) : RM_BED; }
+            else if (kind == 1) { pF = f % 2 ? RM_WBED : RM_LDK; pB = RM_WASHWET; }   // every flat: an LDK (or a western room) at the front, tatami and the wet rooms behind
+            else { pF = f == 0 ? RM_LDK : RM_WBED; pB = f == 0 ? RM_WASHWET : RM_WASHITSU; }   // a house: LDK and genkan below, bedrooms above
+            if (kind == 2 && f > 0) { pF = RM_LDK; pB = RM_WASHWET; }   // the family lives over the shop
+            if (!two && kind != 3 && kind != 4) { pF = f == 0 ? (kind == 2 ? RM_SHOP : RM_LDK) : (kind == 0 ? RM_WASHITSU : RM_WBED); }
             planRoom(front, y0, pF, oF, kind, street, kind == 0);
             if (two) planRoom(back, y0, pB, oBk, kind, street, kind == 0);
         }
@@ -681,7 +848,8 @@ static void building(Rectangle r, int kind, int floors, int street) {
         top += h;
     }
     box(T_ROOF, V3(r.x, top - 0.01f, r.y), V3(r.x + r.width, top + 0.07f, r.y + r.height), WHITE, false, 16);
-    if (bfl & BD_PITCH) pitchedRoof(r, top, bP && bP->roof.a ? bP->roof : (Color[]){{80, 70, 70, 255}, {60, 80, 120, 255}, {110, 60, 50, 255}, {70, 70, 80, 255}}[ri(4)]);
+    if (bfl & (BD_PITCH | BD_HIP)) { Color rc = bP && bP->roof.a ? bP->roof : (Color[]){{80, 70, 70, 255}, {60, 80, 120, 255}, {110, 60, 50, 255}, {70, 70, 80, 255}, {60, 95, 75, 255}, {72, 74, 80, 255}}[ri(6)];
+        if (bfl & BD_HIP) hipRoof(r, top, rc); else pitchedRoof(r, top, rc); }
     else if (floors > 1) {
         box(T_CONCRETE, V3(r.x, top, r.y), V3(r.x + r.width, top + 0.9f, r.y + 0.2f), ec, true, ALL);
         box(T_CONCRETE, V3(r.x, top, r.y + r.height - 0.2f), V3(r.x + r.width, top + 0.9f, r.y + r.height), ec, true, ALL);
@@ -857,13 +1025,13 @@ static void genWater(void) {
     }
     if (DPARKS_N > 0 && nWs < MAX_WS) {   // the fountain in the waterfront park
         float x = dParks[0][0], z = dParks[0][1];
-        for (int tries = 0; tries < 60; tries++) { if (pointFree(x, z, 0.8f, SIDEH + 0.05f) && !mainRoadAt(x, z, 1.2f) && cityLand(x, z)) break; x = dParks[0][0] + fr(-12, 12); z = dParks[0][1] + fr(-12, 12); }
-        wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 1}; addSolid(V3(x - 0.75f, SIDEH, z - 0.75f), V3(x + 0.75f, SIDEH + 0.6f, z + 0.75f));
+        bool ok = false; for (int tries = 0; tries < 120 && !ok; tries++) { if (pointFree(x, z, 0.8f, SIDEH + 0.05f) && !mainRoadAt(x, z, 1.2f) && cityLand(x, z)) ok = true; else { float rr = tries < 60 ? 12 : 22; x = dParks[0][0] + fr(-rr, rr); z = dParks[0][1] + fr(-rr, rr); } }
+        if (ok) { wsrc[nWs++] = (WSrc){V3(x, SIDEH, z), 1}; addSolid(V3(x - 0.75f, SIDEH, z - 0.75f), V3(x + 0.75f, SIDEH + 0.6f, z + 0.75f)); }   // never on a street
     }
     for (int k = 0; k < 7 && nWs < MAX_WS; k++) {   // clear springs in the hills (the water there is fine; the hills are not)
         float a = fr(0, 2 * PI), d = fr(30, 110);
         float x = CITY / 2 + cosf(a) * (CITY / 2 + d), z = CITY / 2 + sinf(a) * (CITY / 2 + d);
-        x = clampf(x, -WILD + 10, CITY + WILD - 10); z = clampf(z, -WILD + 10, CITY + WILD - 10);
+        x = clampf(x, -WEST + 10, CITY + WILD - 10); z = clampf(z, -WILD + 10, CITY + WILD - 10);
         if (cityDist(x, z) < 25 || seaDepth(x, z) > 0 || terrainH(x, z) < 1 || terrainH(x, z) > 20) continue;
         wsrc[nWs++] = (WSrc){V3(x, terrainH(x, z), z), 2};
     }

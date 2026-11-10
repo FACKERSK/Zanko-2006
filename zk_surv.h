@@ -187,22 +187,31 @@ static bool survPrompt(Vector3 eye, Vector3 aim, bool act) {
 #define MAX_MARK 8
 static Vector2 marks[MAX_MARK]; static int nMark;
 // ---- the 3D map: a miniature of the town in the reference palette (blue ground, peach roads, glassy blue blocks, white pins)
-static RenderTexture2D mapRT; static bool mapRTok = false; static float mapYaw = 0.6f, mapZoom = 1.0f, mapPitch = 0.95f; static Vector2 mapDrag; static bool mapDragging, mapMoved;
+static RenderTexture2D mapRT; static bool mapRTok = false; static float mapYaw = 0.6f, mapZoom = 1.0f, mapPitch = 0.95f; static Vector2 mapTgt = {220, 280}; static Vector2 mapDrag; static bool mapDragging, mapMoved;
 static Camera3D mapCamera(void) {
-    Vector3 tgt = V3(220, 0, 280); float d = 520 * mapZoom;   // the city and the east mountain
+    Vector3 tgt = V3(mapTgt.x, 0, mapTgt.y); float d = 520 * mapZoom;   // the town by default; WASD pans, the wheel zooms out to the whole world
     return (Camera3D){Vector3Add(tgt, V3(sinf(mapYaw) * cosf(mapPitch) * d, sinf(mapPitch) * d, cosf(mapYaw) * cosf(mapPitch) * d)), tgt, V3(0, 1, 0), 38, CAMERA_PERSPECTIVE};
 }
 static int mapXf = 0;   // frame of the building being drawn on the map
+// the map's static scene is built once into a mesh (mapCap: quads go into these arrays instead of straight to the screen)
+static bool mapCap = false; static float *mcV; static unsigned char *mcC; static int mcN, mcCap;
+static void mcPut(Vector3 p, Color c) { if (mcN >= mcCap) { mcCap = mcCap ? mcCap * 2 : 65536; mcV = realloc(mcV, sizeof(float) * 3 * mcCap); mcC = realloc(mcC, 4 * (size_t)mcCap); }
+    mcV[mcN * 3] = p.x; mcV[mcN * 3 + 1] = p.y; mcV[mcN * 3 + 2] = p.z; mcC[mcN * 4] = c.r; mcC[mcN * 4 + 1] = c.g; mcC[mcN * 4 + 2] = c.b; mcC[mcN * 4 + 3] = 255; mcN++; }
 static void mapQuadC(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color ca, Color cb, Color cc, Color cd) {
     if (mapXf) { a = xfP(mapXf, a); b = xfP(mapXf, b); c = xfP(mapXf, c); d = xfP(mapXf, d); }
+    if (mapCap) { mcPut(a, ca); mcPut(b, cb); mcPut(c, cc); mcPut(a, ca); mcPut(c, cc); mcPut(d, cd); return; }
     rlColor4ub(ca.r, ca.g, ca.b, 255); rlVertex3f(a.x, a.y, a.z); rlColor4ub(cb.r, cb.g, cb.b, 255); rlVertex3f(b.x, b.y, b.z); rlColor4ub(cc.r, cc.g, cc.b, 255); rlVertex3f(c.x, c.y, c.z);
     rlColor4ub(ca.r, ca.g, ca.b, 255); rlVertex3f(a.x, a.y, a.z); rlColor4ub(cc.r, cc.g, cc.b, 255); rlVertex3f(c.x, c.y, c.z); rlColor4ub(cd.r, cd.g, cd.b, 255); rlVertex3f(d.x, d.y, d.z);
 }
 // map palette: the 5b concept map (green hills, cedar slopes, bare rock, blue bay, dark asphalt, pale sidewalks, beige buildings, brown old houses)
-static const Color MP_HILL_LO = {96, 170, 70, 255}, MP_HILL_HI = {150, 205, 95, 255}, MP_FOREST = {40, 92, 52, 255}, MP_ROCK = {128, 124, 112, 255},
-    MP_SEA = {40, 110, 160, 255}, MP_DEEP = {18, 55, 98, 255}, MP_ROAD = {70, 72, 76, 255}, MP_WALK = {176, 174, 166, 255}, MP_BLD = {218, 200, 190, 255},
-    MP_BLD2 = {205, 210, 220, 255}, MP_OLD = {112, 82, 64, 255}, MP_PARK = {92, 150, 78, 255}, MP_DASH = {240, 240, 230, 255}, MP_TUN = {240, 200, 80, 255},
-    MP_TUNK = {40, 40, 45, 255}, MP_X = {200, 40, 30, 255}, MP_SUB = {230, 120, 40, 255}, MP_EDGE = {60, 58, 56, 255};
+// Silent Aero (Afterglow) palette: ash and steel first, bone for what people built, halo amber for light, signal cyan only for what still works
+static const Color MP_HILL_LO = {88, 95, 85, 255}, MP_HILL_HI = {118, 122, 112, 255}, MP_FOREST = {38, 60, 58, 255}, MP_ROCK = {139, 136, 124, 255},
+    MP_SEA = {47, 93, 94, 255}, MP_DEEP = {16, 38, 42, 255}, MP_ROAD = {30, 37, 38, 255}, MP_WALK = {92, 98, 96, 255}, MP_BLD = {216, 210, 196, 255},
+    MP_BLD2 = {185, 179, 165, 255}, MP_OLD = {150, 112, 70, 255}, MP_PARK = {70, 82, 66, 255}, MP_DASH = {170, 164, 150, 255}, MP_TUN = {176, 122, 62, 255},
+    MP_TUNK = {18, 21, 22, 255}, MP_X = {163, 38, 30, 255}, MP_SUB = {176, 122, 62, 255}, MP_EDGE = {18, 21, 22, 255}, MP_CYAN = {111, 214, 208, 255};
+static Color mpBand(float h) {   // hills in hard height bands (contours you can read), dead teal low, steel above, fog-grey rock on the tops
+    static const Color B[7] = {{62, 70, 64, 255}, {74, 82, 74, 255}, {88, 95, 85, 255}, {102, 108, 98, 255}, {118, 122, 112, 255}, {140, 140, 130, 255}, {168, 164, 152, 255}};   // ash-moss to fog-grey
+    int b = (int)floorf(h / 7.0f); if (b < 0) b = 0; if (b > 6) b = 6; return B[b]; }
 static Color mpLerp(Color a, Color b, float t) { t = clampf(t, 0, 1); return (Color){(unsigned char)(a.r + (b.r - a.r) * t), (unsigned char)(a.g + (b.g - a.g) * t), (unsigned char)(a.b + (b.b - a.b) * t), 255}; }
 static void mapBlock(float x0, float z0, float x1, float z1, float y0, float h) {   // an extruded building: lit top, shaded sides, dark outline at the eaves
     bool old = h < 4; Color lid = old ? MP_OLD : (((int)(x0 * 7 + z0 * 3) & 1) ? MP_BLD : MP_BLD2), side = aMul(lid, 0.78f), foot = aMul(lid, 0.55f);
@@ -234,27 +243,33 @@ static void mapDashes(const Vector3 *p, int n, float w, float y, float on, float
             s0 += fmaxf(seg, 0.01f); }
         acc += L; }
 }
-static void renderMapScene(float t) {
-    if (!mapRTok) { mapRT = LoadRenderTexture(1100, 820); SetTextureFilter(mapRT.texture, TEXTURE_FILTER_BILINEAR); mapRTok = true; }
-    Camera3D cam3 = mapCamera();
-    BeginTextureMode(mapRT); ClearBackground(MP_DEEP);
-    rlSetClipPlanes(4.0, 3000.0);   // depth range sized for a 500 m view: streets 0.2 m above the ground stay on top
-    BeginMode3D(cam3);
-    rlDisableBackfaceCulling(); rlBegin(RL_TRIANGLES);
-    const int st = 4; int N = HF_N;   // terrain every 8 m, heights halved; sea in deep blue
+static bool mapMeshOk = false; static Model mapModel; static unsigned int mapMeshWorld = 0;
+static Shader mapPost; static bool mapPostOk = false;   // the map through the game's own look: 4-bit colour, 4x4 Bayer dither, a faint scanline
+static const char *MAP_FS = GLSL_HEAD
+"in vec2 fragTexCoord; in vec4 fragColor; uniform sampler2D texture0; uniform vec4 colDiffuse; out vec4 finalColor;\n"
+"const float bay[16]=float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.);\n"
+"void main(){ vec3 c=texture(texture0,fragTexCoord).rgb*fragColor.rgb*colDiffuse.rgb; ivec2 q=ivec2(mod(gl_FragCoord.xy,4.0));\n"
+" c+= (bay[q.y*4+q.x]/16.0-0.5)/15.0; c=floor(clamp(c,0.0,1.0)*15.0+0.5)/15.0;\n"
+" if(mod(gl_FragCoord.y,3.0)<1.0) c*=0.9; finalColor=vec4(c,1.0); }\n";
+static void buildMapMesh(void) {   // everything on the map that does not move, once per world
+    if (mapMeshOk) { UnloadModel(mapModel); mapMeshOk = false; }
+    mcN = 0; mapCap = true;
+    const int st = 2; int N = HF_N;   // terrain every 4 m, heights halved; sea in deep blue
     for (int j = 0; j + st < N; j += st) for (int i = 0; i + st < N; i += st) {
-        float x0 = HF_X0 + i * HF_S, z0 = HF_X0 + j * HF_S, x1 = x0 + st * HF_S, z1 = z0 + st * HF_S;
+        float x0 = HF_X0 + i * HF_S, z0 = HF_X0 + j * HF_S, x1 = x0 + st * HF_S, z1 = z0 + st * HF_S; if (hfOut(x0, z0) || hfOut(x1, z1)) continue;
         float h[4] = {hf[j * N + i], hf[j * N + i + st], hf[(j + st) * N + i + st], hf[(j + st) * N + i]}; Color cc[4];
         int vi[4] = {i, i + st, i + st, i}, vj[4] = {j, j, j + st, j + st};
         for (int q = 0; q < 4; q++) {
-            if (h[q] < SEA_Y + 0.1f || (h[q] < RIVER_Y && inRiverRaw(HF_X0 + vi[q] * HF_S, HF_X0 + vj[q] * HF_S))) { cc[q] = mpLerp(MP_SEA, MP_DEEP, (SEA_Y - h[q]) / 6); h[q] = -0.4f; continue; }
+            if (h[q] < SEA_Y + 0.1f || (h[q] < RIVER_Y && inRiverRaw(HF_X0 + vi[q] * HF_S, HF_X0 + vj[q] * HF_S))) { int db = (int)floorf((SEA_Y - h[q]) / 1.6f); if (db > 3) db = 3; cc[q] = mpLerp(MP_SEA, MP_DEEP, db / 3.0f); h[q] = -0.4f; continue; }   // still, oily water in four depth bands
             int ii = vi[q], jj = vj[q]; float hx = hf[jj * N + (ii + st < N ? ii + st : ii)] - hf[jj * N + (ii >= st ? ii - st : ii)], hz = hf[(jj + st < N ? jj + st : jj) * N + ii] - hf[(jj >= st ? jj - st : jj) * N + ii];
-            float shade = clampf(0.92f + (-hx * 0.6f - hz * 0.4f) * 0.035f, 0.55f, 1.15f);   // light from the north-west, like the concept map
-            Color g = mpLerp(MP_HILL_LO, MP_HILL_HI, h[q] / 18);
-            g = mpLerp(g, MP_FOREST, (h[q] - 14) / 14); g = mpLerp(g, MP_ROCK, (h[q] - 46) / 12);
-            if (h[q] < 1.2f) g = mpLerp((Color){226, 208, 160, 255}, g, h[q] / 1.2f);   // sand at the waterline
+            float shade = clampf(0.92f + (-hx * 0.6f - hz * 0.4f) * 0.035f, 0.55f, 1.15f);   // light from the north-west
+            shade = 0.62f + floorf((shade - 0.55f) / 0.6f * 4.0f) * 0.13f;   // cel-banded: four steps, no smooth ramp
+            Color g = mpBand(h[q]);
+            if (h[q] < 1.2f) g = (Color){120, 112, 92, 255};   // ash-grey sand at the waterline
             cc[q] = aMul(g, shade); h[q] *= 0.5f; }
-        for (int q = 0; q < 4; q++) { float qx = q == 1 || q == 2 ? x1 : x0, qz = q >= 2 ? z1 : z0; if (inCore(qx, qz) || cityLand(qx, qz)) { cc[q] = MP_WALK; h[q] = 0.0f; } }
+        for (int q = 0; q < 4; q++) { float qx = q == 1 || q == 2 ? x1 : x0, qz = q >= 2 ? z1 : z0; int in = 0;   // the town's paving, blended over 5 samples: a soft edge, not a staircase
+            for (int k = 0; k < 5; k++) { float ox = k == 1 ? -1.6f : k == 2 ? 1.6f : 0, oz = k == 3 ? -1.6f : k == 4 ? 1.6f : 0; if (inCore(qx + ox, qz + oz) || cityLand(qx + ox, qz + oz)) in++; }
+            if (in) { float f = in >= 3 ? 1.0f : 0.0f; cc[q] = mpLerp(cc[q], MP_WALK, f); h[q] = Lerp(h[q], 0.0f, in / 5.0f); } }   // hard edge in colour (the supersampling smooths it), soft in height
         mapQuadC(V3(x0, h[0], z0), V3(x1, h[1], z0), V3(x1, h[2], z1), V3(x0, h[3], z1), cc[0], cc[1], cc[2], cc[3]);
     }
     Color road = MP_ROAD;
@@ -272,50 +287,69 @@ static void renderMapScene(float t) {
     mapRibbon(coastP, nCoast, 5.6f, 0.25f, MP_WALK); mapRibbon(coastP, nCoast, 4.5f, 0.3f, road); mapRibbon(northP, nNorth, 4.5f, 0.3f, road);
     mapRibbon(tougeP, nTouge, 4.4f, 0.35f, MP_WALK); mapRibbon(tougeP, nTouge, 3.6f, 0.4f, road); mapRibbon(laneP, nLane, 2.5f, 0.4f, road);
     for (int r = 0; r < 4; r++) if (nRing[r] > 1) mapRibbon(ringP[r], nRing[r], 4.4f, 0.3f, road);
-    for (int s2 = 0; s2 < nStreet; s2++) mapRibbon(stPts + dStreets[s2][0], dStreets[s2][1], dStreets[s2][2] / 20.0f, 0.3f, road);   // every street
-    if (nRail > 1) mapRibbon(railP, nRail, 2.2f, 0.35f, (Color){120, 116, 108, 255});
+    for (int s2 = 0; s2 < nStreet; s2++) mapRibbon(ST_P(s2), ST_N(s2), stW10[s2] / 20.0f, 0.3f, road);   // every street
+    if (nRail > 1) mapRibbon(railP, nRail, 2.2f, 0.35f, (Color){70, 88, 91, 255});
     for (int e = 0; e < nExt; e++) { Rectangle r = extR[e]; mapQuadC(V3(r.x, 0.25f, r.y), V3(r.x + r.width, 0.25f, r.y), V3(r.x + r.width, 0.25f, r.y + r.height), V3(r.x, 0.25f, r.y + r.height), road, road, road, road); }
     if (nAvenue > 1) { mapRibbon(avenueP, nAvenue, 7.0f, 0.32f, road); mapDashes(avenueP, nAvenue, 0.35f, 0.4f, 4, 4, MP_TUN); }
     mapDashes(coastP, nCoast, 0.35f, 0.38f, 4, 4, MP_DASH); mapDashes(northP, nNorth, 0.35f, 0.38f, 4, 4, MP_DASH); mapDashes(tougeP, nTouge, 0.3f, 0.48f, 3, 3, MP_DASH);
     for (int i = 0; i < nMapFoot; i++) { Rectangle r = mapFoot[i]; float y0 = mapFootY[i] > 0.5f ? mapFootY[i] * 0.5f : 0.1f; mapXf = mapFootF[i]; mapBlock(r.x + 0.3f, r.y + 0.3f, r.x + r.width - 0.3f, r.y + r.height - 0.3f, y0, mapFootH[i]);  mapXf = 0; }
-    rlEnd(); rlEnableBackfaceCulling();
-    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b];   // tunnels: yellow-on-black dashes, ending in a red cross
+    mapCap = false;
+    Mesh m = {0}; m.vertexCount = mcN; m.triangleCount = mcN / 3;
+    m.vertices = MemAlloc(sizeof(float) * 3 * mcN); memcpy(m.vertices, mcV, sizeof(float) * 3 * mcN); m.colors = MemAlloc(4 * (size_t)mcN); memcpy(m.colors, mcC, 4 * (size_t)mcN);
+    UploadMesh(&m, false); mapModel = LoadModelFromMesh(m); mapMeshOk = true;
+    TraceLog(LOG_INFO, "MAP: mesh of %d triangles", mcN / 3);
+}
+static void renderMapScene(float t) {
+    if (!mapRTok) { mapRT = LoadRenderTexture(2200, 1640); mapRTok = true; }   // drawn at twice the size it is shown, then filtered down: smooth edges
+    if (!mapMeshOk || mapMeshWorld != worldGenCount) { buildMapMesh(); mapMeshWorld = worldGenCount; }
+    Camera3D cam3 = mapCamera();
+    BeginTextureMode(mapRT); ClearBackground((Color){18, 21, 22, 255});
+    rlSetClipPlanes(4.0, 3000.0);   // depth range sized for a 500 m view: streets 0.2 m above the ground stay on top
+    BeginMode3D(cam3);
+    rlDisableBackfaceCulling(); DrawModel(mapModel, V3(0, 0, 0), 1, WHITE); rlEnableBackfaceCulling();
+    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; if (br->through == 2) continue;   // tunnels: yellow-on-black dashes, ending in a red cross (unless it goes through)
         for (float a = 0; a < br->len; a += 6) { Vector3 p0 = boreAt(br, a, 0, br->fy * 0.5f + 1), p1 = boreAt(br, fminf(a + 6, br->len), 0, br->fy * 0.5f + 1);
             DrawCylinderEx(p0, p1, 1.5f, 1.5f, 4, MP_TUNK); if (((int)(a / 6)) % 2 == 0) DrawCylinderEx(Vector3Add(p0, V3(0, 0.9f, 0)), Vector3Add(p1, V3(0, 0.9f, 0)), 0.7f, 0.7f, 4, br->kind ? (Color){190, 120, 80, 255} : MP_TUN); }
+        if (br->through) continue;
         Vector3 e = boreAt(br, br->len, 0, br->fy * 0.5f + 2), dd = Vector3Normalize(Vector3Subtract(boreAt(br, 1, 0, 0), boreAt(br, 0, 0, 0))); Vector3 sd = V3(-dd.z, 0, dd.x);
         Vector3 k1 = Vector3Scale(Vector3Add(dd, sd), 4.2f), k2 = Vector3Scale(Vector3Subtract(dd, sd), 4.2f);
         DrawCylinderEx(Vector3Subtract(e, k1), Vector3Add(e, k1), 1.1f, 1.1f, 4, MP_X); DrawCylinderEx(Vector3Subtract(e, k2), Vector3Add(e, k2), 1.1f, 1.1f, 4, MP_X); }
     for (int i = 0; i < nHole; i++) { Vector3 c = V3(holes[i].x + holes[i].width / 2, 2.0f, holes[i].y + holes[i].height / 2); DrawCylinder(c, 3.2f, 3.2f, 1.6f, 12, MP_EDGE); DrawCylinder(V3(c.x, c.y + 0.2f, c.z), 2.5f, 2.5f, 1.6f, 12, MP_SUB); }
-    for (int i = 0; i < nWs; i++) DrawSphere(V3(wsrc[i].pos.x, fmaxf(0, wsrc[i].pos.y * 0.5f) + 1.5f, wsrc[i].pos.z), 1.6f, (Color){120, 210, 250, 255});
+    for (int i = 0; i < nWs; i++) DrawSphere(V3(wsrc[i].pos.x, fmaxf(0, wsrc[i].pos.y * 0.5f) + 1.5f, wsrc[i].pos.z), 1.6f, MP_CYAN);
     if (baseShrine >= 0 && builds[baseShrine].alive) { Vector3 c = builds[baseShrine].mn; mapPin(V3(c.x, fmaxf(0, c.y * 0.5f), c.z), (Color){220, 60, 50, 255}, 1.2f); }
-    for (int i = 0; i < nMark; i++) mapPin(V3(marks[i].x, terrainH(marks[i].x, marks[i].y) > 0 ? terrainH(marks[i].x, marks[i].y) * 0.5f : 0, marks[i].y), (Color){250, 205, 70, 255}, 1.2f);
-    {   Vector3 pp = V3(pl.pos.x, fmaxf(0, pl.pos.y * 0.5f) + sinf(t * 3) * 0.8f, pl.pos.z); mapPin(pp, WHITE, 1.6f);   // you, facing the way you look
-        Vector3 d = V3(sinf(pl.yaw), 0, cosf(pl.yaw)); DrawCylinderEx(Vector3Add(pp, V3(0, 0.6f, 0)), Vector3Add(pp, Vector3Add(V3(0, 0.6f, 0), Vector3Scale(d, 12))), 1.6f, 0.1f, 4, WHITE); }
+    for (int i = 0; i < nMark; i++) mapPin(V3(marks[i].x, terrainH(marks[i].x, marks[i].y) > 0 ? terrainH(marks[i].x, marks[i].y) * 0.5f : 0, marks[i].y), MP_TUN, 1.2f);
+    {   Vector3 pp = V3(pl.pos.x, fmaxf(0, pl.pos.y * 0.5f) + sinf(t * 3) * 0.8f, pl.pos.z); mapPin(pp, MP_CYAN, 1.6f);   // you, facing the way you look
+        Vector3 d = V3(sinf(pl.yaw), 0, cosf(pl.yaw)); DrawCylinderEx(Vector3Add(pp, V3(0, 0.6f, 0)), Vector3Add(pp, Vector3Add(V3(0, 0.6f, 0), Vector3Scale(d, 12))), 1.6f, 0.1f, 4, MP_CYAN); }
     EndMode3D(); EndTextureMode();
+    GenTextureMipmaps(&mapRT.texture); SetTextureFilter(mapRT.texture, TEXTURE_FILTER_TRILINEAR);
     rlSetClipPlanes(0.08, 700.0);   // back to the game's own range
 }
 static void drawMap(float W, float H) {
     float t = (float)GetTime();
     DrawRectangle(0, 0, (int)W, (int)H, (Color){6, 8, 9, 150});
-    { float wh = GetMouseWheelMove(); if (wh != 0) mapZoom = clampf(mapZoom * (wh > 0 ? 0.88f : 1.13f), 0.35f, 1.6f); }
+    { float wh = GetMouseWheelMove(); if (wh != 0) mapZoom = clampf(mapZoom * (wh > 0 ? 0.88f : 1.13f), 0.35f, 2.6f); }
     {   // gamepad: right stick turns and tilts, RT / LT zoom in / out
         float dt = fminf(GetFrameTime(), 0.05f);
         mapYaw -= padLookV.x * 2.2f * dt; mapPitch = clampf(mapPitch + padLookV.y * 1.2f * dt, 0.45f, 1.45f);
-        if (padNow[GAMEPAD_BUTTON_RIGHT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 - 1.2f * dt), 0.35f, 1.6f);
-        if (padNow[GAMEPAD_BUTTON_LEFT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 + 1.2f * dt), 0.35f, 1.6f); }
+        if (padNow[GAMEPAD_BUTTON_RIGHT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 - 1.2f * dt), 0.35f, 2.6f);
+        if (padNow[GAMEPAD_BUTTON_LEFT_TRIGGER_2]) mapZoom = clampf(mapZoom * (1 + 1.2f * dt), 0.35f, 2.6f);
+        float px = (actD(A_RIGHT) ? 1.0f : 0) - (actD(A_LEFT) ? 1.0f : 0) + padMoveV.x, pz = (actD(A_FWD) ? 1.0f : 0) - (actD(A_BACK) ? 1.0f : 0) - padMoveV.y;   // pan, relative to the view
+        if (px != 0 || pz != 0) { float sp = 260 * mapZoom * dt; Vector2 f = {-sinf(mapYaw), -cosf(mapYaw)}, r = {-f.y, f.x}; mapTgt.x += (f.x * pz - r.x * px) * sp; mapTgt.y += (f.y * pz - r.y * px) * sp;
+            mapTgt.x = clampf(mapTgt.x, -WEST + 40, CITY + WILD - 40); mapTgt.y = clampf(mapTgt.y, -WILD + 40, CITY + WILD - 40); } }
     renderMapScene(t);
     p3Begin(t);
     Rectangle mp = p3Panel(4, 0, 0, 800, 640, true); float s = aU;
     if (aWindow(mp, "Map  -  Kirimachi")) { pl.mapOpen = false; DisableCursor(); }
     if (jpOk) DrawTextEx(jpFont, jpMapTitle, (Vector2){mp.x + 210 * s, mp.y + 12 * s}, 18 * s, 1, (Color){236, 230, 216, 255});
     Rectangle mr = {mp.x + 14 * s, mp.y + 46 * s, mp.width - 28 * s, mp.height - 100 * s};
-    DrawTexturePro(mapRT.texture, (Rectangle){0, 0, (float)mapRT.texture.width, -(float)mapRT.texture.height}, mr, (Vector2){0, 0}, 0, WHITE);
+    if (!mapPostOk) { mapPost = LoadShaderFromMemory(NULL, MAP_FS); mapPostOk = true; }
+    BeginShaderMode(mapPost); DrawTexturePro(mapRT.texture, (Rectangle){0, 0, (float)mapRT.texture.width, -(float)mapRT.texture.height}, mr, (Vector2){0, 0}, 0, WHITE); EndShaderMode();
     DrawRectangleLinesEx(mr, 2 * s, (Color){8, 10, 10, 255});
     float ly = mr.y + mr.height + 10 * s, lx = mr.x;
-    struct { Color c; const char *t; } leg[] = {{MP_BLD, "Buildings"}, {MP_OLD, "Old houses"}, {MP_SEA, "Bay"}, {MP_HILL_LO, "Hills"}, {MP_ROAD, "Roads"}, {{120, 116, 108, 255}, "Railway"},
-        {MP_TUN, "Road tunnel"}, {MP_X, "Collapse"}, {{120, 210, 250, 255}, "Water"}, {{250, 205, 70, 255}, "Markers"}};
+    struct { Color c; const char *t; } leg[] = {{MP_BLD, "Buildings"}, {MP_OLD, "Old houses"}, {MP_SEA, "Bay"}, {MP_HILL_LO, "Hills"}, {MP_ROAD, "Roads"}, {{70, 88, 91, 255}, "Railway"},
+        {MP_TUN, "Road tunnel"}, {MP_X, "Collapse"}, {MP_CYAN, "Water"}, {MP_TUN, "Markers"}};
     for (int i = 0; i < 10; i++) { DrawRectangle((int)lx, (int)(ly + 3 * s), (int)(12 * s), (int)(12 * s), leg[i].c); aText(leg[i].t, lx + 16 * s, ly, 12, C_BONE2, false); lx += (aMeasure(leg[i].t, 12, false).x + 34 * s); }
-    aText(padActive ? "A marker   X remove nearest   Right stick rotate   RT / LT zoom   B close" : TextFormat("LMB marker   RMB drag rotate / click remove   Wheel zoom   %s / Esc close", actKey(A_MAP)), mr.x, ly + 20 * s, 12, C_BONE2, false);
+    aText(padActive ? "A marker   X remove nearest   Left stick pan   Right stick rotate   RT / LT zoom   B close" : TextFormat("LMB marker   RMB drag rotate / click remove   WASD pan   Wheel zoom   %s / Esc close", actKey(A_MAP)), mr.x, ly + 20 * s, 12, C_BONE2, false);
     Vector2 m = aMousePos(); bool over = CheckCollisionPointRec(m, mr);
     if (over) {
         Vector2 rtp = {(m.x - mr.x) / mr.width * mapRT.texture.width, (m.y - mr.y) / mr.height * mapRT.texture.height};
@@ -347,7 +381,7 @@ static bool saveGame(void) {
     ensureDir("Data"); ensureDir("Data/Userdata");
     { char rel[128]; snprintf(rel, sizeof rel, "Data/Userdata/%s", prof.name[0] ? prof.name : "Guest"); ensureDir(rel); }
     FILE *f = fopen(savePath(), "wb"); if (!f) return false;
-    unsigned int magic = SAVE_MAGIC, ver = 5; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
+    unsigned int magic = SAVE_MAGIC, ver = 6; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
     Player p = pl; p.invOpen = false; p.mapOpen = false; p.openC = -1; p.searchC = -1; p.dragFrom = -1; p.drag.t = -1; p.build = false; WR(p);
     unsigned char *bits = calloc((size_t)worldSolids, 1); for (int i = 0; i < worldSolids; i++) bits[i] = sol[i].off; fwrite(bits, 1, (size_t)worldSolids, f); free(bits);
     WRA(ops, nOps); WRA(debs, nDeb); WRA(crates, nCrate); WRA(vends, nVend); WRA(builds, nBuild); WRA(conts, nCont); WRA(crs, nCr); WRA(wards, nWard); WRA(fires, nFire); WRA(marks, nMark);
@@ -364,7 +398,7 @@ static bool rdArr(FILE *f, void *a, size_t el, int max, int *n, bool exact) {
 static bool loadGame(void) {
     FILE *f = fopen(savePath(), "rb"); if (!f) return false;
     unsigned int magic, ver, seed; int ws;
-    if (!RD(magic) || magic != SAVE_MAGIC || !RD(ver) || ver != 5 || !RD(seed) || !RD(ws)) { fclose(f); return false; }
+    if (!RD(magic) || magic != SAVE_MAGIC || !RD(ver) || ver != 6 || !RD(seed) || !RD(ws)) { fclose(f); return false; }
     genWorld(seed);
     if (ws != worldSolids) { fclose(f); TraceLog(LOG_WARNING, "SAVE: world mismatch"); return false; }
     Player p; if (!RD(p)) { fclose(f); return false; }

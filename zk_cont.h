@@ -75,24 +75,25 @@ static void lootFill0(Cont *c) {
     int rolls = 0; const LootW *tb = NULL; int n = 0;
     bool sub = c->region == 9;
     switch (c->kind) {
-    case CK_CABINET: rolls = 1 + ri(3); { static LootW t[] = {{IT_CANNED, 3}, {IT_RAMEN, 3}, {IT_FOOD, 2}, {IT_DRINK, 2}, {IT_WATER, 2}, {IT_KNIFE, 0.8f}, {IT_RAG, 2}, {IT_BATTERY, 1}, {IT_SALT, 0.8f}, {IT_SEEDS, 0.7f}, {IT_DISINFECT, 0.5f}, {IT_BOTTLE, 1.2f}}; tb = t; n = 12; } break;
+    case CK_CABINET: rolls = 1 + ri(3); { static LootW t[] = {{IT_CANNED, 3}, {IT_RAMEN, 3}, {IT_FOOD, 2}, {IT_DRINK, 2}, {IT_WATER, 2}, {IT_KNIFE, 0.8f}, {IT_RAG, 2}, {IT_BATTERY, 1}, {IT_SALT, 0.8f}, {IT_SEEDS, 0.7f}, {IT_DISINFECT, 0.5f}, {IT_BOTTLE, 1.2f}, {IT_CLEAVER, 0.6f}}; tb = t; n = 13; } break;
     case CK_FRIDGE: rolls = 1 + ri(2); { static LootW t[] = {{IT_DRINK, 4}, {IT_WATER, 3}, {IT_FOOD, 3}, {IT_CANNED, 1}}; tb = t; n = 4; } break;
-    case CK_WARDROBE: rolls = 1 + ri(3); { static LootW t[] = {{IT_RAG, 5}, {IT_SCHOOLBAG, 0.9f}, {IT_DUFFEL, 0.6f}, {IT_BAT, 0.9f}, {IT_MANGA, 1.2f}, {IT_PAINKILLER, 0.8f}, {IT_BANDAGE, 0.8f}, {IT_KATANA, 0.07f}, {IT_VHS, 0.6f}}; tb = t; n = 9; } break;
-    case CK_DESK: rolls = ri(3); { static LootW t[] = {{IT_MANGA, 3}, {IT_VHS, 2}, {IT_BATTERY, 2}, {IT_PAINKILLER, 1}, {IT_OFUDA, 0.5f}, {IT_KNIFE, 0.4f}, {IT_NAILS, 1}}; tb = t; n = 7; } break;
+    case CK_WARDROBE: rolls = 1 + ri(3); { static LootW t[] = {{IT_RAG, 5}, {IT_SCHOOLBAG, 0.9f}, {IT_DUFFEL, 0.6f}, {IT_BAT, 0.9f}, {IT_MANGA, 1.2f}, {IT_PAINKILLER, 0.8f}, {IT_BANDAGE, 0.8f}, {IT_KATANA, 0.07f}, {IT_VHS, 0.6f}, {IT_BEANIE, 1.2f}, {IT_COAT, 0.8f}, {IT_HANTEN, 0.8f}, {IT_GAKURAN, 0.6f}, {IT_WORKPANTS, 0.7f}, {IT_LEATHER, 0.4f}, {IT_RUBBERBOOTS, 0.5f}, {IT_UMBRELLA, 0.7f}, {IT_GOLFCLUB, 0.3f}, {IT_BOKKEN, 0.2f}}; tb = t; n = 19; } break;
+    case CK_DESK: rolls = ri(3); { static LootW t[] = {{IT_MANGA, 3}, {IT_VHS, 2}, {IT_BATTERY, 2}, {IT_PAINKILLER, 1}, {IT_OFUDA, 0.5f}, {IT_KNIFE, 0.4f}, {IT_NAILS, 1}, {IT_UMBRELLA, 0.6f}, {IT_SCALPEL, 0.15f}}; tb = t; n = 9; } break;
     case CK_SHELF: rolls = 1 + ri(3); { static LootW t[] = {{IT_FOOD, 3}, {IT_DRINK, 3}, {IT_RAMEN, 2}, {IT_CANNED, 2}, {IT_BATTERY, 2}, {IT_BANDAGE, 1}, {IT_SALT, 1}, {IT_RAG, 1}, {IT_WATER, 2}, {IT_SEEDS, 1}, {IT_CHARCOAL, 0.6f}, {IT_DISINFECT, 0.6f}}; tb = t; n = 12; } break;
     case CK_LOCKER: rolls = 1 + ri(2) + (sub ? 1 : 0);
-        if (sub) { static LootW t[] = {{IT_RAG, 2}, {IT_BANDAGE, 2.5f}, {IT_PAINKILLER, 1.5f}, {IT_AMMO, 1.4f}, {IT_PIPE, 1}, {IT_CROWBAR, 1}, {IT_KATANA, 0.2f}, {IT_SLEDGE, 0.25f}, {IT_HIKEPACK, 0.35f}, {IT_DUFFEL, 0.6f}, {IT_WATER, 1}}; tb = t; n = 11; }
-        else { static LootW t[] = {{IT_RAG, 2}, {IT_BANDAGE, 2}, {IT_PAINKILLER, 1}, {IT_BAT, 1}, {IT_PIPE, 1}, {IT_CROWBAR, 0.8f}, {IT_DUFFEL, 0.8f}, {IT_AMMO, 0.4f}, {IT_HIKEPACK, 0.25f}, {IT_DISINFECT, 0.6f}, {IT_SPLINT, 0.4f}}; tb = t; n = 11; } break;
-    case CK_BOX: rolls = ri(3); { static LootW t[] = {{IT_PLANKS, 3}, {IT_NAILS, 2}, {IT_SCRAP, 2}, {IT_RAG, 1}, {IT_FOOD, 1}, {IT_SLEDGE, 0.05f}, {IT_PIPE, 0.8f}, {IT_HAMMER, 0.4f}}; tb = t; n = 8; } break;
-    case CK_TOOLBOX: rolls = 1 + ri(2); { static LootW t[] = {{IT_HAMMER, 3}, {IT_NAILS, 4}, {IT_CROWBAR, 1}, {IT_SCRAP, 2}}; tb = t; n = 4; } break;
-    case CK_TRUNK: rolls = ri(3); { static LootW t[] = {{IT_SCRAP, 2}, {IT_RAG, 1}, {IT_WATER, 1}, {IT_CROWBAR, 0.8f}, {IT_HAMMER, 0.7f}, {IT_DUFFEL, 0.5f}, {IT_BAT, 0.5f}, {IT_PLANKS, 1}}; tb = t; n = 8; } break;
-    case CK_OFFERING: rolls = 1 + ri(2); { static LootW t[] = {{IT_OFUDA, 4}, {IT_SALT, 2}, {IT_ROPE, 2}, {IT_FOOD, 1}}; tb = t; n = 4; } break;
-    case CK_COUNTER: rolls = ri(3); { static LootW t[] = {{IT_BATTERY, 2}, {IT_PAINKILLER, 1}, {IT_BANDAGE, 1}, {IT_MANGA, 1}, {IT_VHS, 1}, {IT_RAG, 1}, {IT_CHARCOAL, 0.8f}, {IT_DISINFECT, 0.8f}}; tb = t; n = 8; } break;
+        if (sub) { static LootW t[] = {{IT_RAG, 2}, {IT_BANDAGE, 2.5f}, {IT_PAINKILLER, 1.5f}, {IT_AMMO, 1.4f}, {IT_PIPE, 1}, {IT_CROWBAR, 1}, {IT_KATANA, 0.2f}, {IT_SLEDGE, 0.25f}, {IT_HIKEPACK, 0.35f}, {IT_DUFFEL, 0.6f}, {IT_WATER, 1}, {IT_BOOTS, 0.6f}, {IT_HARDHAT, 0.5f}, {IT_BIKEPANTS, 0.3f}, {IT_MACHETE, 0.3f}, {IT_TETSUBO, 0.05f}, {IT_STABVEST, 0.12f}}; tb = t; n = 17; }
+        else { static LootW t[] = {{IT_RAG, 2}, {IT_BANDAGE, 2}, {IT_PAINKILLER, 1}, {IT_BAT, 1}, {IT_PIPE, 1}, {IT_CROWBAR, 0.8f}, {IT_DUFFEL, 0.8f}, {IT_AMMO, 0.4f}, {IT_HIKEPACK, 0.25f}, {IT_DISINFECT, 0.6f}, {IT_SPLINT, 0.4f}, {IT_BOOTS, 0.4f}, {IT_BEANIE, 0.5f}, {IT_GOLFCLUB, 0.4f}, {IT_BOKKEN, 0.3f}, {IT_HARDHAT, 0.3f}}; tb = t; n = 16; } break;
+    case CK_BOX: rolls = ri(3); { static LootW t[] = {{IT_PLANKS, 3}, {IT_NAILS, 2}, {IT_SCRAP, 2}, {IT_RAG, 1}, {IT_FOOD, 1}, {IT_SLEDGE, 0.05f}, {IT_PIPE, 0.8f}, {IT_HAMMER, 0.4f}, {IT_SHOVEL, 0.25f}, {IT_PICKAXE, 0.06f}, {IT_HARDHAT, 0.3f}, {IT_SICKLE, 0.3f}, {IT_BOOTS, 0.15f}, {IT_STOPSIGN, 0.03f}}; tb = t; n = 14; } break;
+    case CK_TOOLBOX: rolls = 1 + ri(2); { static LootW t[] = {{IT_HAMMER, 3}, {IT_NAILS, 4}, {IT_CROWBAR, 1}, {IT_SCRAP, 2}, {IT_WRENCH, 1.0f}, {IT_MACHETE, 0.3f}}; tb = t; n = 6; } break;
+    case CK_TRUNK: rolls = ri(3); { static LootW t[] = {{IT_SCRAP, 2}, {IT_RAG, 1}, {IT_WATER, 1}, {IT_CROWBAR, 0.8f}, {IT_HAMMER, 0.7f}, {IT_DUFFEL, 0.5f}, {IT_BAT, 0.5f}, {IT_PLANKS, 1}, {IT_GOLFCLUB, 0.6f}, {IT_UMBRELLA, 0.6f}, {IT_BOOTS, 0.3f}, {IT_BIKEPANTS, 0.25f}, {IT_LEATHER, 0.2f}}; tb = t; n = 13; } break;
+    case CK_OFFERING: rolls = 1 + ri(2); { static LootW t[] = {{IT_OFUDA, 4}, {IT_SALT, 2}, {IT_ROPE, 2}, {IT_FOOD, 1}, {IT_BOKKEN, 0.25f}, {IT_WAKIZASHI, 0.08f}, {IT_NAGINATA, 0.04f}}; tb = t; n = 7; } break;
+    case CK_COUNTER: rolls = ri(3); { static LootW t[] = {{IT_BATTERY, 2}, {IT_PAINKILLER, 1}, {IT_BANDAGE, 1}, {IT_MANGA, 1}, {IT_VHS, 1}, {IT_RAG, 1}, {IT_CHARCOAL, 0.8f}, {IT_DISINFECT, 0.8f}, {IT_UMBRELLA, 0.8f}, {IT_CLEAVER, 0.3f}}; tb = t; n = 10; } break;
     case CK_GUNLOCKER: slotsAdd(c->s, CSLOTS, IT_REVOLVER, 1); slotsAdd(c->s, CSLOTS, IT_AMMO, 4 + ri(4));
-        rolls = 1; { static LootW t[] = {{IT_BANDAGE, 2}, {IT_CROWBAR, 1}, {IT_AMMO, 1}}; tb = t; n = 3; } break;
-    case CK_FIRECAB: if (fr(0, 1) < 0.6f) slotsAdd(c->s, CSLOTS, IT_AXE, 1); rolls = ri(2); { static LootW t[] = {{IT_BANDAGE, 1}, {IT_RAG, 1}}; tb = t; n = 2; } break;
+        rolls = 1; { static LootW t[] = {{IT_BANDAGE, 2}, {IT_CROWBAR, 1}, {IT_AMMO, 1}, {IT_BATON, 1.6f}, {IT_RIOTHELM, 0.8f}, {IT_STABVEST, 0.6f}}; tb = t; n = 6; } break;
+    case CK_FIRECAB: if (fr(0, 1) < 0.6f) slotsAdd(c->s, CSLOTS, IT_AXE, 1); else if (fr(0, 1) < 0.5f) slotsAdd(c->s, CSLOTS, IT_FIREEXT, 1); rolls = ri(2); { static LootW t[] = {{IT_BANDAGE, 1}, {IT_RAG, 1}}; tb = t; n = 2; } break;
     default: break;
     }
+    if (tb && c->pos.x < -185 && c->pos.z > 110 && c->pos.z < 300) rolls += 1 + ri(2);   // the high-rise district: richer pickings
     if (tb) for (int k = 0; k < rolls; k++) { int t = lootPick(tb, n); slotsAdd(c->s, ckSlots[c->kind] < CSLOTS ? ckSlots[c->kind] : CSLOTS, t, lootQty(t)); }
     for (int i = 0; i < CSLOTS; i++) if (c->s[i].t >= 0 && idef[c->s[i].t].cat == CAT_MELEE && c->s[i].w == 0) c->s[i].w = (short)(50 + ri(500));   // found weapons are already worn
 }

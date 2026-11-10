@@ -64,7 +64,7 @@ static unsigned int mapHash(void) {   // multiplayer: both sides must have gener
     for (int i = 0; i < MAP_NARR; i++) { MapArr *a = &mapArrs[i]; int rows = mapRows(a); const unsigned char *b = a->p; size_t sz = (size_t)rows * a->cols * mapElem(a->type);
         for (size_t k = 0; k < sz; k++) { h ^= b[k]; h *= 16777619u; } h ^= (unsigned)rows; h *= 16777619u; }
     for (int i = 0; i < MAP_NVAL; i++) { const unsigned char *b = mapVals[i].p; for (int k = 0; k < 4; k++) { h ^= b[k]; h *= 16777619u; } }
-    for (int t = 0; t < IT_N; t++) { float v[8] = {idef[t].weight, (float)idef[t].stack, idef[t].dmg, idef[t].cd, idef[t].range, idef[t].stam, idef[t].knock, (float)idef[t].bag}; const unsigned char *b = (const unsigned char *)v; for (int k = 0; k < 32; k++) { h ^= b[k]; h *= 16777619u; } }   // item stats count too
+    for (int t = 0; t < IT_N; t++) { float v[10] = {idef[t].weight, (float)idef[t].stack, idef[t].dmg, idef[t].cd, idef[t].range, idef[t].stam, idef[t].knock, (float)idef[t].bag, idef[t].armor, idef[t].warm}; const unsigned char *b = (const unsigned char *)v; for (int k = 0; k < 40; k++) { h ^= b[k]; h *= 16777619u; } }   // item stats count too
     if (terrEdit) for (int k = 0; k < HF_N * HF_N; k++) if (terrEdit[k] != 0) { h ^= (unsigned)k; h *= 16777619u; const unsigned char *b = (const unsigned char *)&terrEdit[k]; for (int q = 0; q < 4; q++) { h ^= b[q]; h *= 16777619u; } }
     return mobjHash(h);
 }
@@ -78,12 +78,14 @@ static bool itemsLoadFile(const char *path); static void itemsReset(void);
 static void itemsLoad(void) { char mp[800]; itemsReset(); if (modFind("Data/items.ini", mp, sizeof mp)) itemsLoadFile(mp); else if (FileExists(P("Data/items.ini"))) itemsLoadFile(P("Data/items.ini")); }
 static bool terrLoadFile(const char *path) {   // "i j metres" for every changed ground point
     FILE *f = fopen(path, "r"); if (!f) return false; if (!terrEdit) terrEdit = calloc((size_t)HF_N * HF_N, sizeof(float)); else memset(terrEdit, 0, (size_t)HF_N * HF_N * sizeof(float));
-    int i, j; float v; char line[128]; while (fgets(line, sizeof line, f)) if (line[0] != '#' && sscanf(line, "%d %d %f", &i, &j, &v) == 3 && i >= 0 && j >= 0 && i < HF_N && j < HF_N) terrEdit[j * HF_N + i] = v;
+    int i, j, off = (int)lroundf((HF_OLD_X0 - HF_X0) / HF_S); float v, o; char line[128];   // files without an origin line count from the pre-0.9.0 corner
+    while (fgets(line, sizeof line, f)) { if (sscanf(line, "# origin %f", &o) == 1) { off = (int)lroundf((o - HF_X0) / HF_S); continue; }
+        if (line[0] != '#' && sscanf(line, "%d %d %f", &i, &j, &v) == 3) { i += off; j += off; if (i >= 0 && j >= 0 && i < HF_N && j < HF_N) terrEdit[j * HF_N + i] = v; } }
     fclose(f); return true;
 }
 static bool terrSave(const char *path) {
     if (!terrEdit) { remove(path); return true; } bool any = false; for (int k = 0; k < HF_N * HF_N && !any; k++) if (terrEdit[k] != 0) any = true; if (!any) { remove(path); return true; }
-    FILE *f = fopen(path, "w"); if (!f) return false; fprintf(f, "# Zanko 2006 terrain changes (Mod Maker): grid i, grid j (2 m apart), metres added\n");
+    FILE *f = fopen(path, "w"); if (!f) return false; fprintf(f, "# Zanko 2006 terrain changes (Mod Maker): grid i, grid j (2 m apart), metres added\n# origin %.0f\n", (double)HF_X0);
     for (int j = 0; j < HF_N; j++) for (int i = 0; i < HF_N; i++) { float v = terrEdit[j * HF_N + i]; if (fabsf(v) > 0.005f) fprintf(f, "%d %d %.2f\n", i, j, v); }
     fclose(f); return true;
 }

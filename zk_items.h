@@ -2,12 +2,18 @@
 enum { IT_FOOD, IT_DRINK, IT_BANDAGE, IT_BATTERY, IT_AMMO, IT_PLANKS, IT_OFUDA, IT_SALT, IT_ROPE, IT_MANGA, IT_VHS, IT_RAMEN, IT_AXE, IT_KATANA, IT_REVOLVER,
        IT_PIPE, IT_BAT, IT_CROWBAR, IT_KNIFE, IT_SLEDGE, IT_HAMMER, IT_NAILS, IT_SCRAP, IT_RAG, IT_PAINKILLER, IT_CANNED, IT_WATER,
        IT_BOTTLE, IT_DIRTYWATER, IT_SPLINT, IT_CHARCOAL, IT_DISINFECT, IT_SEEDS, IT_DAIKON, IT_NAILBAT,
-       IT_SCHOOLBAG, IT_DUFFEL, IT_HIKEPACK, IT_N };
-enum { CAT_FOOD, CAT_DRINK, CAT_MED, CAT_TOOL, CAT_MELEE, CAT_GUN, CAT_AMMO, CAT_MAT, CAT_SPIRIT, CAT_COMFORT, CAT_BAG };
+       IT_SCHOOLBAG, IT_DUFFEL, IT_HIKEPACK,
+       IT_WAKIZASHI, IT_NAGINATA, IT_BOKKEN, IT_GOLFCLUB, IT_SHOVEL, IT_MACHETE, IT_CLEAVER, IT_SICKLE, IT_WRENCH, IT_BATON, IT_TETSUBO, IT_PICKAXE, IT_SCALPEL, IT_FIREEXT, IT_UMBRELLA, IT_STOPSIGN,
+       IT_HARDHAT, IT_RIOTHELM, IT_BEANIE, IT_COAT, IT_LEATHER, IT_STABVEST, IT_GAKURAN, IT_HANTEN, IT_WORKPANTS, IT_BIKEPANTS, IT_BOOTS, IT_RUBBERBOOTS, IT_N };
+enum { CAT_FOOD, CAT_DRINK, CAT_MED, CAT_TOOL, CAT_MELEE, CAT_GUN, CAT_AMMO, CAT_MAT, CAT_SPIRIT, CAT_COMFORT, CAT_BAG, CAT_CLOTHES };
+enum { WS_HEAD, WS_BODY, WS_LEGS, WS_FEET, WS_N };
+static const char *wsName[WS_N] = {"Head", "Body", "Legs", "Feet"};
 typedef struct {
     const char *name; float weight; int stack, cat;
     float dmg, cd, range, stam, knock;   // melee: damage per hit, swing time (s), reach (m), stamina per swing, knockback (m)
     int bag;                              // bag: extra slots
+    int style;                            // melee swing: 0 by type, 1 blade, 2 stab, 3 blunt, 4 heavy two-handed
+    int wslot; float armor, warm;         // clothes: where worn (WS_*), share of damage stopped, warmth added; stam = % more stamina used
     const char *desc;
 } ItemDef;
 static ItemDef idef[IT_N] = {   // mutable: Data/items.ini (or a mod's) changes stats at start (see itemsLoad)
@@ -49,9 +55,37 @@ static ItemDef idef[IT_N] = {   // mutable: Data/items.ini (or a mod's) changes 
     [IT_SCHOOLBAG] = {"Randoseru", 0.8f, 1, CAT_BAG, .bag = 6, .desc = "Leather school bag. +6 slots."},
     [IT_DUFFEL]    = {"Duffel Bag", 1.2f, 1, CAT_BAG, .bag = 10, .desc = "Gym duffel. +10 slots."},
     [IT_HIKEPACK]  = {"Hiking Pack", 1.8f, 1, CAT_BAG, .bag = 16, .desc = "Framed backpack. +16 slots."},
+    [IT_WAKIZASHI] = {"Wakizashi", 0.9f, 1, CAT_MELEE, 1.6f, 0.48f, 2.1f, 8, 0.3f, .style = 1, .desc = "Short companion sword. Quick, keen, forgiving."},
+    [IT_NAGINATA]  = {"Naginata", 2.4f, 1, CAT_MELEE, 2.0f, 0.85f, 3.0f, 14, 0.7f, .style = 1, .desc = "Curved blade on a long shaft. Keeps them at arm's length and then some."},
+    [IT_BOKKEN]    = {"Bokken", 0.7f, 1, CAT_MELEE, 1.1f, 0.5f, 2.2f, 7, 0.6f, .style = 1, .desc = "Oak practice sword. Light, bruising, never needs sharpening."},
+    [IT_GOLFCLUB]  = {"Golf Club", 0.6f, 1, CAT_MELEE, 1.2f, 0.6f, 2.4f, 9, 0.7f, .style = 3, .desc = "A driver from a bag left in a car. Whippy and loud."},
+    [IT_SHOVEL]    = {"Shovel", 1.8f, 1, CAT_MELEE, 1.5f, 0.8f, 2.5f, 13, 0.9f, .style = 4, .desc = "Spade from a garden shed. Digs into anything."},
+    [IT_MACHETE]   = {"Machete", 0.8f, 1, CAT_MELEE, 1.7f, 0.55f, 2.0f, 9, 0.35f, .style = 1, .desc = "Brush knife. Wide blade, chops through limbs."},
+    [IT_CLEAVER]   = {"Meat Cleaver", 0.7f, 1, CAT_MELEE, 1.45f, 0.45f, 1.6f, 7, 0.3f, .style = 3, .desc = "From a butcher's block. Short but it bites deep."},
+    [IT_SICKLE]    = {"Kama Sickle", 0.5f, 1, CAT_MELEE, 1.35f, 0.42f, 1.7f, 6, 0.2f, .style = 2, .desc = "Farmer's sickle. Hooks and pulls."},
+    [IT_WRENCH]    = {"Pipe Wrench", 1.6f, 1, CAT_MELEE, 1.4f, 0.65f, 1.9f, 10, 0.8f, .style = 3, .desc = "Heavy plumber's wrench. Cracks skulls and padlocks."},
+    [IT_BATON]     = {"Police Baton", 0.6f, 1, CAT_MELEE, 1.0f, 0.38f, 1.8f, 5, 0.5f, .style = 3, .desc = "Extending steel baton from the koban. Fast and tireless."},
+    [IT_TETSUBO]   = {"Tetsubo", 4.2f, 1, CAT_MELEE, 2.4f, 1.05f, 2.4f, 18, 1.2f, .style = 4, .desc = "Iron-studded war club from the castle museum. Two hands, every ounce of you."},
+    [IT_PICKAXE]   = {"Pickaxe", 3.0f, 1, CAT_MELEE, 2.1f, 0.95f, 2.2f, 16, 0.8f, .style = 4, .desc = "Mining pick. Punches through bone and doors alike."},
+    [IT_SCALPEL]   = {"Scalpel", 0.05f, 1, CAT_MELEE, 0.9f, 0.3f, 1.3f, 3, 0.05f, .style = 2, .desc = "Surgical steel. Barely any reach; barely any effort."},
+    [IT_FIREEXT]   = {"Fire Extinguisher", 4.5f, 1, CAT_MELEE, 1.8f, 1.0f, 1.8f, 15, 1.3f, .style = 4, .desc = "Red cylinder. Clumsy, but it knocks them flat."},
+    [IT_UMBRELLA]  = {"Umbrella", 0.5f, 1, CAT_MELEE, 0.6f, 0.4f, 2.2f, 4, 0.4f, .style = 3, .desc = "A clear convenience-store umbrella. Better than bare hands. Just."},
+    [IT_STOPSIGN]  = {"Stop Sign", 3.4f, 1, CAT_MELEE, 1.9f, 0.9f, 2.8f, 15, 1.1f, .style = 4, .desc = "Tomare. Pulled out of the pavement, post and all."},
+    [IT_HARDHAT]   = {"Hard Hat", 0.4f, 1, CAT_CLOTHES, .stam = 0, .wslot = 0, .armor = 0.1f, .warm = 2.0f, .desc = "Construction helmet. Glancing blows to the head stay glancing."},
+    [IT_RIOTHELM]  = {"Riot Helmet", 1.1f, 1, CAT_CLOTHES, .stam = 2, .wslot = 0, .armor = 0.18f, .warm = 3.0f, .desc = "Police riot helmet with a visor. Heavy, close, safe."},
+    [IT_BEANIE]    = {"Wool Beanie", 0.1f, 1, CAT_CLOTHES, .stam = 0, .wslot = 0, .armor = 0.02f, .warm = 8.0f, .desc = "Knitted cap. Most of your warmth goes out through your head."},
+    [IT_COAT]      = {"Winter Coat", 1.6f, 1, CAT_CLOTHES, .stam = 3, .wslot = 1, .armor = 0.06f, .warm = 18.0f, .desc = "Down parka. Stays warm through the coldest night outdoors."},
+    [IT_LEATHER]   = {"Leather Jacket", 1.4f, 1, CAT_CLOTHES, .stam = 1, .wslot = 1, .armor = 0.12f, .warm = 9.0f, .desc = "Biker's jacket. Teeth and claws struggle with it."},
+    [IT_STABVEST]  = {"Stab Vest", 2.6f, 1, CAT_CLOTHES, .stam = 6, .wslot = 1, .armor = 0.24f, .warm = 4.0f, .desc = "Police body armour. Turns most bites, slows you down."},
+    [IT_GAKURAN]   = {"Gakuran", 0.9f, 1, CAT_CLOTHES, .stam = 0, .wslot = 1, .armor = 0.03f, .warm = 6.0f, .desc = "Black school uniform jacket with brass buttons. Someone's son."},
+    [IT_HANTEN]    = {"Hanten", 1.0f, 1, CAT_CLOTHES, .stam = 0, .wslot = 1, .armor = 0.04f, .warm = 14.0f, .desc = "Padded winter house jacket. Smells of someone's grandmother."},
+    [IT_WORKPANTS] = {"Work Trousers", 0.9f, 1, CAT_CLOTHES, .stam = 0, .wslot = 2, .armor = 0.06f, .warm = 5.0f, .desc = "Tobi carpenter's trousers, baggy at the knee. Thick canvas."},
+    [IT_BIKEPANTS] = {"Motorcycle Pants", 1.5f, 1, CAT_CLOTHES, .stam = 2, .wslot = 2, .armor = 0.12f, .warm = 6.0f, .desc = "Armoured riding trousers. Knee pads built in."},
+    [IT_BOOTS]     = {"Work Boots", 1.2f, 1, CAT_CLOTHES, .stam = 1, .wslot = 3, .armor = 0.06f, .warm = 4.0f, .desc = "Steel toecaps. Fewer broken bones when you fall."},
+    [IT_RUBBERBOOTS] = {"Rubber Boots", 0.9f, 1, CAT_CLOTHES, .stam = 0, .wslot = 3, .armor = 0.03f, .warm = 5.0f, .desc = "Fisherman's wellingtons from the market. Dry feet."},
 };
 static ItemDef idefBase[IT_N]; static bool idefBaseOk = false; static char idefName[IT_N][32], idefDesc[IT_N][160];
-#define ITEM_FIELDS X(weight, f) X(stack, i) X(dmg, f) X(cd, f) X(range, f) X(stam, f) X(knock, f) X(bag, i)
+#define ITEM_FIELDS X(weight, f) X(stack, i) X(dmg, f) X(cd, f) X(range, f) X(stam, f) X(knock, f) X(bag, i) X(armor, f) X(warm, f)
 static void itemsReset(void) { if (!idefBaseOk) { memcpy(idefBase, idef, sizeof idef); idefBaseOk = true; } memcpy(idef, idefBase, sizeof idef); }
 static const char *itemKey(int t) { static char k[40]; int j = 0; for (const char *p = idefBase[t].name; *p && j < 38; p++) k[j++] = (*p == ' ') ? '_' : (char)tolower((unsigned char)*p); k[j] = 0; return k; }
 static bool itemsLoadFile(const char *path) {   // [item_key] then name=, desc=, weight=, stack=, dmg=, cd=, range=, stam=, knock=, bag=

@@ -28,16 +28,21 @@ static void quickAuto(int t) {   // weapons and medicine get a quickbar key auto
 static int invAdd(int t, int n) {   // returns leftover that did not fit
     if (idef[t].cat == CAT_BAG && pl.back.t < 0 && n > 0) { pl.back.t = (short)t; pl.back.n = 1; n--; say(TextFormat("Wearing the %s.", idef[t].name)); }
     if ((idef[t].cat == CAT_MELEE || idef[t].cat == CAT_GUN) && pl.hands.t < 0 && n > 0) { pl.hands.t = (short)t; pl.hands.n = 1; pl.hands.w = 0; n--; }
+    if (idef[t].cat == CAT_CLOTHES && n > 0) { int ws = idef[t].wslot; if (ws >= 0 && ws < WS_N && pl.wear[ws].t < 0) { pl.wear[ws].t = (short)t; pl.wear[ws].n = 1; pl.wear[ws].w = 0; n--; say(TextFormat("Wearing the %s.", idef[t].name)); } }
     int left = slotsAdd(pl.sl, invNSlots(), t, n);
     if (left < n || pl.hands.t == t) quickAuto(t);
     return left;
 }
 static float slotW(Slot s) { return s.t >= 0 ? idef[s.t].weight * s.n : 0; }
-static float invWeight(void) { float w = slotW(pl.hands) + slotW(pl.back); for (int i = 0; i < invNSlots(); i++) w += slotW(pl.sl[i]); return w; }
+static float invWeight(void) { float w = slotW(pl.hands) + slotW(pl.back); for (int i = 0; i < WS_N; i++) w += slotW(pl.wear[i]) * 0.5f; for (int i = 0; i < invNSlots(); i++) w += slotW(pl.sl[i]); return w; }
 // encumbrance: up to 8 kg is free; heavier loads slow walking, swings and recovery
 static float encSpeed(void) { float w = invWeight(); return clampf(1.0f - fmaxf(0, w - 8) / 38.0f, 0.55f, 1.0f); }
 static float encSwing(void) { float w = invWeight(); return 1.0f + fmaxf(0, w - 10) / 30.0f; }
-static float encStam(void) { float w = invWeight(); return 1.0f + fmaxf(0, w - 10) / 22.0f; }
+// clothes: worn weight counts half; armour and warmth add up across what you wear
+static float wearArmor(void) { float a = 0; for (int i = 0; i < WS_N; i++) if (pl.wear[i].t >= 0) a += idef[pl.wear[i].t].armor; return fminf(a, 0.55f); }
+static float wearWarm(void) { float a = 0; for (int i = 0; i < WS_N; i++) if (pl.wear[i].t >= 0) a += idef[pl.wear[i].t].warm; return a; }
+static float wearStam(void) { float a = 0; for (int i = 0; i < WS_N; i++) if (pl.wear[i].t >= 0) a += idef[pl.wear[i].t].stam; return a / 100.0f; }
+static float encStam(void) { float w = invWeight(); return (1.0f + fmaxf(0, w - 10) / 22.0f) * (1 + wearStam()); }
 static int handsType(void) { return pl.hands.t; }
 static const ItemDef *weaponDef(void) {   // bare fists when nothing melee is held
     static const ItemDef fists = {"Fists", 0, 1, CAT_MELEE, 0.45f, 0.45f, 1.6f, 5, 0.25f};
@@ -149,7 +154,7 @@ static void consumeItem(int t) {
 }
 static void quickUse(int k) { if (pl.quick[k] >= 0) useItem(pl.quick[k]); }
 static void invReset(void) {
-    pl.hands.t = pl.back.t = -1; pl.hands.n = pl.back.n = 0;
+    pl.hands.t = pl.back.t = -1; pl.hands.n = pl.back.n = 0; slotsClear(pl.wear, WS_N);
     slotsClear(pl.sl, POCK + 18);
     for (int i = 0; i < 6; i++) pl.quick[i] = -1;
     pl.openC = -1; pl.searchC = -1; pl.dragFrom = -1; pl.drag.t = -1;

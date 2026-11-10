@@ -1,4 +1,48 @@
-ZANKO 2006 - Afterglow  (v0.8.5, buildings, terrain, exact editing)
+ZANKO 2006 - Afterglow  (v0.9.0, the west city, the station, Odawara streets)
+
+- 0.9.0: the town grows west; a station; new clothes, weapons
+  and creatures.
+  * The high-rise district beyond the west tunnel: the coast
+    road's tunnel now goes through the headland to towers of
+    8 to 22 storeys, shop rows and bars on a waterfront
+    boulevard. More creatures there, and more in every
+    container. The world is 290 m wider; the bay runs on west.
+  * Kirimachi station: the station house (concourse, ticket
+    machines, gates, ticket office, kiosk), a 64 m platform
+    with a canopy, benches and vending machines, and a
+    two-car train stopped at it that you can walk through.
+  * Basements under many flats, shops and offices: stairs
+    down to storage rooms with better loot.
+  * Streets: no more square 90-degree corners; every bend and
+    every corner where two streets meet is rounded. Zebra
+    crossings and stop lines at junctions, traffic signals on
+    the avenues, centre and edge lines, white-lined narrow
+    lanes without pavements, tall street lamps, more overhead
+    wires, portal gates at the bridges (after Odawara).
+  * Houses after Odawara street photos: low hipped tile roofs
+    with deep eaves, pent roofs, door hoods, block walls with
+    metal fences, garage shutters, carports. The 16 house
+    presets are replaced.
+  * Doors open and shut: [E] at any building door. A quarter
+    of the shut ones are locked and have to be forced.
+  * Japanese room layouts: genkan with shoe cabinet and step,
+    LDK, tatami rooms with tokonoma, butsudan and oshiire,
+    bathroom, toilet and washroom, western bedrooms upstairs.
+  * 16 new weapons (wakizashi, naginata, bokken, golf club,
+    shovel, machete, cleaver, kama, pipe wrench, police baton,
+    tetsubo, pickaxe, scalpel, fire extinguisher, umbrella,
+    stop sign) and 12 clothes in 4 new wear slots (head, body,
+    legs, feet): protection, warmth, some cost stamina.
+  * 8 new creatures: kuchisake, crawler, bloated (bursts),
+    tsuchigumo, nurse, riot police (armoured), gaki (packs),
+    burned. More detailed creature skin, cloth and gore.
+  * Map: sharp, smooth edges (rendered at twice the size,
+    terrain every 4 m, built once).
+  * Distance detail (LOD): the town is drawn in 64 m chunks,
+    far ones as simple blocks in the fog; higher limits for
+    lights, signs and creatures.
+  * Saves from 0.8.5 do not carry over (the town changed).
+
 
 - 0.8.5: the Mod Maker grows up; busier buildings.
   * 89 building presets (houses, flats, shops, restaurants and

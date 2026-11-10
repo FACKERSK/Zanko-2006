@@ -158,7 +158,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     float wu = ez(s / 0.3f), st = ezOut((s - 0.3f) / 0.15f), rc = ez((s - 0.45f) / 0.55f);
     float shakeHit = pl.hitStopT > 0 ? fr(-0.03f, 0.03f) : 0;
     // weapon styles: 0 blade (alternating diagonal slashes), 1 knife (stab), 2 blunt (horizontal sweep), 3 heavy (two-handed overhead chop)
-    int style = ht == IT_KATANA ? 0 : ht == IT_KNIFE ? 1 : (ht == IT_AXE || ht == IT_SLEDGE) ? 3 : 2;
+    int style = ht >= 0 && idef[ht].style > 0 ? idef[ht].style - 1 : ht == IT_KATANA ? 0 : ht == IT_KNIFE ? 1 : (ht == IT_AXE || ht == IT_SLEDGE) ? 3 : 2;
     {   // sounds keyed to points in the animations: each fires once as the animation passes it
         static int sA = -1, sHt = -2; static float sU = 0, sShot = 9, sFall = 9, sLd = 9;
         if (A != sA || ht != sHt) sU = -1;

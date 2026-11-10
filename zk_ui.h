@@ -51,11 +51,12 @@ static bool invPutSlot(Slot *a) {
     for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t < 0) { pl.sl[i] = *a; quickAuto(a->t); a->t = -1; a->n = 0; return true; }
     return false;
 }
-// ---- slot addressing: region 0 hands, 1 back, 2 inventory index, 3 open container index
+// ---- slot addressing: region 0 hands, 1 back, 2 inventory index, 3 open container index, 4 worn clothes (WS_*)
 static Slot *slotRef(int id) {
     int reg = id >> 8, i = id & 255;
     if (reg == 0) return &pl.hands;
     if (reg == 1) return &pl.back;
+    if (reg == 4) return i < WS_N ? &pl.wear[i] : NULL;
     if (reg == 2) return i < invNSlots() ? &pl.sl[i] : NULL;
     if (reg == 3 && pl.openC >= 0) return i < (ckSlots[conts[pl.openC].kind] < CSLOTS ? ckSlots[conts[pl.openC].kind] : CSLOTS) ? &conts[pl.openC].s[i] : NULL;
     return NULL;
@@ -65,6 +66,7 @@ static bool slotAccepts(int id, int t) {
     if (t < 0) return true;
     if (reg == 0) return idef[t].cat == CAT_MELEE || idef[t].cat == CAT_GUN;
     if (reg == 1) return idef[t].cat == CAT_BAG;
+    if (reg == 4) return idef[t].cat == CAT_CLOTHES && idef[t].wslot == (id & 255);
     return true;
 }
 static bool bagHasItems(void) { for (int i = POCK; i < invNSlots(); i++) if (pl.sl[i].t >= 0) return true; return false; }
@@ -72,7 +74,7 @@ static void moveSlot(int from, int to) {
     Slot *a = slotRef(from), *b = slotRef(to);
     if (!a || !b || a == b || a->t < 0) return;
     if ((from >> 8) == 1 && bagHasItems() && !(b->t >= 0 && idef[b->t].cat == CAT_BAG)) { say("Empty the bag before taking it off."); return; }
-    if (!slotAccepts(to, a->t) || !slotAccepts(from, b->t)) { say(to >> 8 == 0 ? "Only weapons go in your hands." : to >> 8 == 1 ? "Only bags go on your back." : "That doesn't fit there."); return; }
+    if (!slotAccepts(to, a->t) || !slotAccepts(from, b->t)) { say(to >> 8 == 0 ? "Only weapons go in your hands." : to >> 8 == 1 ? "Only bags go on your back." : to >> 8 == 4 ? TextFormat("Only %s clothes go there.", wsName[to & 255]) : "That doesn't fit there."); return; }
     if (b->t == a->t && idef[a->t].stack > 1) { int room = idef[a->t].stack - b->n, k = a->n < room ? a->n : room; b->n += k; a->n -= k; if (a->n <= 0) { a->t = -1; a->n = 0; } }
     else { Slot tmp = *a; *a = *b; *b = tmp; }
     if ((to >> 8) == 0 || (from >> 8) == 0) { pl.swingT = 0; pl.reloadT = 0; }
@@ -89,8 +91,10 @@ static void quickTransfer(int from) {   // right click: inventory <-> container,
         int t = a->t, cat = idef[t].cat;
         if (cat == CAT_MELEE || cat == CAT_GUN) { equipFromSlot(from & 255); return; }
         if (cat == CAT_BAG) { if (pl.back.t < 0) { pl.back = *a; a->t = -1; a->n = 0; say(TextFormat("Wearing the %s.", idef[t].name)); } else moveSlot(from, 1 << 8); return; }
+        if (cat == CAT_CLOTHES) { int ws = idef[t].wslot; moveSlot(from, (4 << 8) | ws); play(sCloth, 0.6f); if (pl.wear[ws].t == t) say(TextFormat("Wearing the %s.", idef[t].name)); return; }
         useItem(t); return;
     }
+    if (reg == 4) { for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t < 0) { pl.sl[i] = *a; a->t = -1; a->n = 0; play(sCloth, 0.5f); return; } say("No room to take it off."); return; }
     if (reg == 0) holster();
 }
 static void dropSlot(int from) {
@@ -130,6 +134,7 @@ static void slotTooltip(Rectangle panel) {
     aText(TextFormat("%.2f kg each", d->weight), tp.x + 12 * s, tp.y + 30 * s, 11, C_BONE2, false);
     if (d->cat == CAT_MELEE) aText(TextFormat("Damage %.1f   Swing %.2fs   Reach %.1fm   Condition %d%%", d->dmg, d->cd, d->range, 100 - sl->w / 10), tp.x + 12 * s, tp.y + 46 * s, 11, C_CYAN, false);
     else if (d->cat == CAT_BAG) aText(TextFormat("+%d slots", d->bag), tp.x + 12 * s, tp.y + 46 * s, 11, C_CYAN, false);
+    else if (d->cat == CAT_CLOTHES) aText(TextFormat("%s   Protection %d%%   Warmth +%d%s", wsName[d->wslot], (int)lroundf(d->armor * 100), (int)lroundf(d->warm), d->stam > 0 ? TextFormat("   Stamina -%d%%", (int)d->stam) : ""), tp.x + 12 * s, tp.y + 46 * s, 11, C_CYAN, false);
     aText(d->desc ? d->desc : "", tp.x + 12 * s, tp.y + 64 * s, 11, C_BONE, false);
 }
 static bool invOverPanel; static int invQHot;
@@ -149,13 +154,20 @@ static void drawInventory(void) {
     // ---- survivor: equipment, load, skills
     float pxDeg = 2 * tanf(22.5f * DEG2RAD) / 720.0f * RAD2DEG;   // degrees per reference px on the panel sphere
     float halfIn = (6 * 70 + 36) / 2.0f + 46;   // a clear gap: neighbouring slabs never cover each other's text, even as the view sways with the mouse   // side panels hug the pockets panel instead of drifting off-screen
-    Rectangle ep = p3Panel(0, -(halfIn + 150) * pxDeg, 0, 300, 560, true); s = aU; cell = 62 * s;
+    Rectangle ep = p3Panel(0, -(halfIn + 150) * pxDeg, 0, 300, 650, true); s = aU; cell = 62 * s;
     aWindow(ep, "Survivor");
     aText("Hands", ep.x + 22 * s, ep.y + 52 * s, 13, C_BONE2, false);
     aText("Back", ep.x + 160 * s, ep.y + 52 * s, 13, C_BONE2, false);
     slotGrid(ep.x + 22 * s, ep.y + 72 * s, 1, 1, 0 << 8, cell * 1.4f);
     slotGrid(ep.x + 160 * s, ep.y + 72 * s, 1, 1, 1 << 8, cell * 1.4f);
-    float w = invWeight(), y = ep.y + 72 * s + cell * 1.4f + 22 * s;
+    float w = invWeight(), y = ep.y + 72 * s + cell * 1.4f + 14 * s;
+    {   // worn clothes: head, body, legs, feet
+        float wc = (ep.width - 44 * s - 3 * 8 * s) / 4;
+        for (int k = 0; k < WS_N; k++) aText(wsName[k], ep.x + 22 * s + k * (wc + 8 * s), y, 11, C_BONE2, false);
+        slotGrid(ep.x + 22 * s, y + 16 * s, 4, WS_N, 4 << 8, wc);
+        y += 16 * s + wc + 8 * s;
+        aText(TextFormat("Protection %d%%   Warmth +%d", (int)lroundf(wearArmor() * 100), (int)lroundf(wearWarm())), ep.x + 22 * s, y, 11, C_CYAN, false);
+        y += 22 * s; }
     aText(TextFormat("Load  %.1f kg", w), ep.x + 22 * s, y, 15, C_BONE, true);
     aProgress((Rectangle){ep.x + 22 * s, y + 24 * s, ep.width - 44 * s, 10 * s}, w / 30, w > 18 ? (Color){190, 70, 50, 255} : w > 8 ? (Color){200, 150, 60, 255} : (Color){80, 160, 150, 255});
     aText(TextFormat("Speed %d%%   Swing %d%%   Stamina %d%%", (int)(encSpeed() * 100), (int)(100 / encSwing()), (int)(encStam() * 100)), ep.x + 22 * s, y + 42 * s, 11, C_BONE2, false);

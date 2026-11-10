@@ -60,6 +60,7 @@ static void hurtPlayer(float dmg, float bleed) {
             if (dmg < 0.5f) return;
         }
     }
+    { float ar = wearArmor(); dmg *= 1 - ar; bleed *= 1 - fminf(0.8f, ar * 1.5f); }   // what you wear takes some of it
     pl.hp -= dmg; pl.hurtT = 0.6f; pl.shake = fmaxf(pl.shake, 0.4f); pl.punch = fmaxf(pl.punch, 0.6f);
     pl.sanity -= 3; pl.sleeping = false; pl.watchT = 0;
     if (fr(0, 1) < bleed) { addWound(1); say(pl.wounds > 1 ? "Another wound. You are bleeding badly." : "You are bleeding. Bandage it."); showHint(1);
@@ -129,6 +130,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         Cr *c = &crs[best];
         float dmg = meleeDmg();
         if (c->type == 7) dmg *= 1.4f;
+        if (c->type == 15) dmg *= 0.55f;   // riot armour
         if (cht.on[CH_ONEHIT]) dmg = 9999;   // mannequins crack easily
         c->hp -= dmg; c->hurt = 0.18f; c->wind = 0; c->atkCd = fmaxf(c->atkCd, 0.7f);
         if (netMode == NM_CLIENT) netCreatureHit(best, dmg);
@@ -150,7 +152,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         Debris *d = &debs[i]; if (!d->alive) continue;
         Vector3 c = xfP(d->f, Vector3Scale(Vector3Add(d->mn, d->mx), 0.5f));
         if (Vector3Distance(c, tip) > 1.6f) continue;
-        float dm = meleeDmg() * (handsType() == IT_CROWBAR || handsType() == IT_SLEDGE ? 2.2f : 1.0f);
+        float dm = meleeDmg() * (handsType() == IT_CROWBAR || handsType() == IT_SLEDGE || handsType() == IT_PICKAXE || handsType() == IT_TETSUBO || handsType() == IT_WRENCH ? 2.2f : 1.0f);
         d->hp -= dm; play(sWood, 0.9f); spawnParts(c, 6, T_WOOD, WHITE, 1.6f, 0.08f); alertAll(c, 14); weaponWear(0.5f);
         pl.shake = fmaxf(pl.shake, 0.15f); pl.hitStopT = 0.03f;
         if (d->hp <= 0) { d->alive = false; sol[d->sid].off = true; say("The junk pile collapses."); addItem(V3(c.x, d->mn.y, c.z), IT_PLANKS, 1 + ri(2)); }
@@ -164,7 +166,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         if (o->type == OP_WINDOW && o->state == 0) { breakWindow(o); return; }
         if (o->type == OP_DOOR && o->state == 1) {
             o->hp -= meleeDmg(); play(sWood, 0.8f); spawnParts(c, 5, T_WOOD, WHITE, 1.5f, 0.08f); alertAll(c, 15); pl.hitStopT = 0.03f; weaponWear(0.5f);
-            if (o->hp <= 0) { o->state = 0; sol[o->sid].off = true; say("Door forced open."); }
+            if (o->hp <= 0) { o->state = 0; o->locked = false; sol[o->sid].off = true; say("Door forced open."); }
             return;
         }
     }
@@ -468,7 +470,7 @@ static void updatePlayer(float dt) {
     // ---- movement (weight slows you; swinging heavy weapons slows you more)
     Vector3 fwd = V3(sinf(pl.yaw), 0, cosf(pl.yaw)), right = V3(-cosf(pl.yaw), 0, sinf(pl.yaw));
     Vector3 mv = {0};
-    { Vector2 am = actMove(); mv = Vector3Add(Vector3Scale(fwd, am.y), Vector3Scale(right, am.x)); vmStrafe = clampf(am.x, -1, 1);
+    { Vector2 am = pl.mapOpen ? (Vector2){0, 0} : actMove(); mv = Vector3Add(Vector3Scale(fwd, am.y), Vector3Scale(right, am.x)); vmStrafe = clampf(am.x, -1, 1);
       static float lastFwd = 0; float fw = clampf(am.y, -1, 1); if (fabsf(fw - lastFwd) > 0.5f) vmPushV += (fw - lastFwd) * 0.35f; lastFwd = fw; }   // start / stop: the hands lag
     bool moving = Vector3Length(mv) > 0.1f;
     if (moving) { float ml = Vector3Length(mv); mv = Vector3Scale(mv, (ml > 1 ? 1 : ml < 0.45f ? 0.45f : ml) / ml); }   // a half-tilted stick walks slower
@@ -490,7 +492,7 @@ static void updatePlayer(float dt) {
     if (pl.food <= 0 || pl.water <= 0) spd *= 0.85f;
     if (cht.on[CH_NOCLIP]) {   // cheat: fly through everything where you look
         Vector3 f3 = dirOf(pl.tyaw, pl.tpitch), v = {0};
-        { Vector2 am = actMove(); v = Vector3Add(Vector3Scale(f3, am.y), Vector3Scale(right, am.x)); }
+        { Vector2 am = pl.mapOpen ? (Vector2){0, 0} : actMove(); v = Vector3Add(Vector3Scale(f3, am.y), Vector3Scale(right, am.x)); }
         if (actD(A_JUMP)) v.y += 1; if (actD(A_CROUCH)) v.y -= 1;
         if (Vector3Length(v) > 0.01f) pl.pos = Vector3Add(pl.pos, Vector3Scale(Vector3Normalize(v), (actD(A_SPRINT) ? 26.0f : 9.0f) * cht.speed * dt));
         pl.vy = 0; pl.ground = false; moving = false;
@@ -502,8 +504,8 @@ static void updatePlayer(float dt) {
     pl.pos.y += pl.vy * dt;
     float g = groundAt(pl.pos, 0.3f, 0.42f);
     if (pl.pos.y <= g && pl.vy < -4) { pl.landK = fminf(1.5f, -pl.vy / 9); vmVy -= pl.landK * 0.5f; play(sLand, fminf(1, 0.3f + pl.landK * 0.4f)); }
-    if (pl.pos.y <= g) { if (pl.vy < -12) { hurtPlayer((-pl.vy - 12) * 5, 0.5f); if (pl.fracture == 0 && fr(0, 1) < 0.55f * trMul(2)) breakLeg("You land badly. Your leg is broken."); }
-        else if (pl.vy < -9.5f && pl.fracture == 0 && fr(0, 1) < 0.08f * trMul(2)) breakLeg("You land badly. Your leg is broken.");
+    if (pl.pos.y <= g) { if (pl.vy < -12) { hurtPlayer((-pl.vy - 12) * 5, 0.5f); if (pl.fracture == 0 && fr(0, 1) < 0.55f * trMul(2) * (pl.wear[WS_FEET].t == IT_BOOTS ? 0.5f : 1.0f)) breakLeg("You land badly. Your leg is broken."); }
+        else if (pl.vy < -9.5f && pl.fracture == 0 && fr(0, 1) < 0.08f * trMul(2) * (pl.wear[WS_FEET].t == IT_BOOTS ? 0.5f : 1.0f)) breakLeg("You land badly. Your leg is broken.");
         pl.pos.y = g; pl.vy = 0; pl.ground = true; }
     else if (pl.pos.y - g < 0.45f && pl.vy <= 0 && pl.ground) { pl.pos.y = g; pl.vy = 0; }
     else pl.ground = false;
@@ -520,8 +522,9 @@ static void updatePlayer(float dt) {
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
     int cont = pl.invOpen ? -1 : facingCont(eye, aim, 2.3f);
     int vaultOp = facingOpening(pl.pos, aim, 1.5f, OP_WINDOW, 1);
-    int barrOp = -1;
+    int barrOp = -1, useDoor = -1;
     { int a = facingOpening(pl.pos, aim, 2.0f, OP_WINDOW, 1); int b = facingOpening(pl.pos, aim, 2.0f, OP_DOOR, 0); barrOp = a >= 0 ? a : b; }
+    useDoor = facingOpening(pl.pos, aim, 2.0f, OP_DOOR, 1); if (useDoor < 0) useDoor = facingOpening(pl.pos, aim, 2.0f, OP_DOOR, 0);
     Vector3 ledge; bool hasLedge = findLedge(pl.pos, Vector3Normalize(V3(aim.x, 0, aim.z)), &ledge);
     int nearTV = -1;
     for (int i = 0; i < nTV; i++) { Vector3 d = V3(tvs[i].pos.x - pl.pos.x, 0, tvs[i].pos.z - pl.pos.z); float L = Vector3Length(d);
@@ -550,10 +553,11 @@ static void updatePlayer(float dt) {
         else if (door >= 0) snprintf(prompt, sizeof prompt, builds[door].open ? "[E] Close door" : "[E] Open door");
         else if (bed >= 0) snprintf(prompt, sizeof prompt, "[Z] Sleep in bed");
         else if (vaultOp >= 0) snprintf(prompt, sizeof prompt, "[SPACE] Vault through window%s", barrOp >= 0 ? "   [G] Barricade (2 planks)" : "");
-        else if (barrOp >= 0) snprintf(prompt, sizeof prompt, "[G] Barricade (%d planks)", ops[barrOp].type == OP_WINDOW ? 2 : 3);
+        else if (barrOp >= 0) snprintf(prompt, sizeof prompt, "%s[G] Barricade (%d planks)", useDoor >= 0 && useDoor == barrOp ? "[E] Close door   " : "", ops[barrOp].type == OP_WINDOW ? 2 : 3);
         else if (myWall >= 0 && builds[myWall].hp < builds[myWall].maxhp) snprintf(prompt, sizeof prompt, "[G] Repair (1 plank)  -  %d%%", (int)(100 * builds[myWall].hp / builds[myWall].maxhp));
         else if (myWall >= 0 && invHas(IT_SCRAP)) snprintf(prompt, sizeof prompt, "[G] Reinforce with scrap metal");
         else if (hasLedge && pl.ground) snprintf(prompt, sizeof prompt, "[SPACE] Climb");
+        else if (useDoor >= 0) snprintf(prompt, sizeof prompt, "%s", ops[useDoor].state == 0 ? "[E] Close door" : ops[useDoor].locked ? "Locked - strike it to force it open" : "[E] Open door");
         else { int w = facingOpening(pl.pos, aim, 1.6f, OP_WINDOW, 0); if (w >= 0) snprintf(prompt, sizeof prompt, "Glass window - strike to break"); }
     }
     if (actP(A_USE) && !pl.invOpen && pl.searchC < 0) {
@@ -561,6 +565,9 @@ static void updatePlayer(float dt) {
         else if (survPrompt(eye, aim, true)) {}
         else if (nearTV >= 0) { if (invTake(IT_VHS, 1)) { pl.watchKind = 1; pl.watchT = 8; play(sTape, 0.6f); play(sTV, 0.35f); } else { pl.watchKind = 0; pl.watchT = 4; play(sTV, 0.3f); play(sJingle, 0.45f); } }
         else if (door >= 0) { animPlay(ANIM_DOOR); Build *b = &builds[door]; b->open = !b->open; sol[b->sid].off = b->open; play(sWood, 0.5f); }
+        else if (useDoor >= 0) { Open *o = &ops[useDoor];   // a building's door: open or shut it (a locked one has to be forced)
+            if (o->state == 1 && o->locked) { play(sClick, 0.5f); say("Locked."); }
+            else { o->state = o->state == 1 ? 0 : 1; if (o->sid >= 0) sol[o->sid].off = o->state == 0; animPlay(ANIM_DOOR); play(sWood, 0.45f); alertAll(opCenter(o), 6); } }
     }
     if (actP(A_MAP) && !pl.invOpen) { pl.mapOpen = !pl.mapOpen; play(sPaper, 0.45f); if (pl.mapOpen) EnableCursor(); else DisableCursor(); }
     if (pl.mapOpen) goto survival_ui;

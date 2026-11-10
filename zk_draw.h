@@ -6,9 +6,138 @@ static void glowEyes(Matrix H, Vector3 a, Vector3 b, float s, Color c) {   // tw
     ADRAW("creatures/common/eye_r", MatrixMultiply(MatrixTranslate(b.x, b.y, b.z), H), c, BX(T_PLAIN, 0, 0, 0, 0.035f, 0.025f, 0.02f, CWH));
     setEmis(0); (void)s;
 }
+// ---- creatures 10..17 (0.9.0)
+#define CRC(r, g, b) ((Color){r, g, b, 255})
+static void drawCreature3(Cr *c, Matrix base, Color tn, float *w, float a, float wind) {
+    bool alive = c->state != CS_DEAD; bool chase = c->state == CS_CHASE;
+    switch (c->type) {
+    case 10: {   // kuchisake: long coat, black hair, a surgical mask that falls away from a mouth cut ear to ear
+        for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.1f * s, 0.95f, 0), sinf(a) * 0.5f * s, 0, 0);
+            ADRAW("creatures/kuchisake/leg", L, tn, BX(T_SKIN, 0, -0.45f, 0, 0.1f, 0.9f, 0.1f, CRC(205, 195, 190)), BX(T_PLAIN, 0, -0.92f, 0.04f, 0.1f, 0.06f, 0.2f, CRC(40, 20, 20))); }
+        Matrix T = frameM(base, V3(0, 0.95f, 0), 0.05f + w[2] * 0.15f, w[3] * 0.15f, w[4] * 0.1f);
+        ADRAW("creatures/kuchisake/coat", T, tn, BX(T_CLOTH, 0, 0.32f, 0, 0.42f, 0.75f, 0.24f, CRC(196, 172, 128)), BX(T_CLOTH, 0, -0.25f, 0, 0.48f, 0.55f, 0.28f, CRC(186, 162, 118)),
+              BX(T_CLOTH, 0, 0.55f, 0.125f, 0.06f, 0.3f, 0.01f, CRC(150, 125, 90)), BX(T_PLAIN, 0, 0.1f, 0.13f, 0.44f, 0.05f, 0.01f, CRC(120, 95, 70)));
+        for (int s = -1; s <= 1; s += 2) { Matrix A = frameM(T, V3(0.24f * s, 0.65f, 0), -0.1f - wind * 1.8f + w[4] * 0.2f, 0, 0.08f * s);
+            ADRAW("creatures/kuchisake/arm", A, tn, BX(T_CLOTH, 0, -0.3f, 0, 0.1f, 0.6f, 0.1f, CRC(196, 172, 128)), BX(T_SKIN, 0, -0.68f, 0.01f, 0.07f, 0.16f, 0.05f, CRC(230, 215, 210)));
+            if (s > 0) ADRAW("creatures/kuchisake/scissors", A, tn, BX(T_METAL, 0, -0.85f, 0.08f, 0.02f, 0.3f, 0.04f, CRC(210, 215, 220)), BX(T_METAL, 0.02f, -0.85f, 0.1f, 0.02f, 0.28f, 0.03f, CRC(180, 185, 190))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c)), frameM(T, V3(0, 0.72f, 0), w[0] * 0.3f, w[1] * 0.3f, w[5] * 0.2f));
+        ADRAW("creatures/kuchisake/head", H, tn, BX(T_SKIN, 0, 0.13f, 0.01f, 0.2f, 0.25f, 0.21f, CRC(238, 228, 224)), BX(T_PLAIN, 0, 0.2f, -0.03f, 0.25f, 0.32f, 0.22f, CRC(14, 12, 14)),
+              BX(T_PLAIN, 0, -0.08f, -0.08f, 0.24f, 0.5f, 0.08f, CRC(14, 12, 14)));
+        if (alive && chase) ADRAW("creatures/kuchisake/mouth", H, tn, BX(T_GORE, 0, 0.06f, 0.106f, 0.22f, 0.05f, 0.01f, CRC(170, 30, 30)), BX(T_PLAIN, 0, 0.06f, 0.108f, 0.18f, 0.02f, 0.01f, CRC(30, 5, 5)));
+        else ADRAW("creatures/kuchisake/mask", H, tn, BX(T_CLOTH, 0, 0.06f, 0.11f, 0.17f, 0.11f, 0.02f, CRC(245, 245, 245)));
+        if (alive) glowEyes(H, V3(-0.05f, 0.16f, 0.106f), V3(0.05f, 0.16f, 0.106f), 1, CRC(255, 60, 40));
+    } break;
+    case 11: {   // crawler: a body bent backwards on all fours, head upside down between the shoulders
+        Matrix B = frameM(base, V3(0, 0.55f, 0), 0, 0, w[3] * 0.2f);
+        ADRAW("creatures/crawler/torso", B, tn, BX(T_FLESH, 0, 0, 0, 0.36f, 0.16f, 0.7f, CRC(190, 170, 162)), BX(T_GORE, 0, 0.081f, 0, 0.12f, 0.01f, 0.5f, CRC(160, 60, 60)),
+              BX(T_CLOTH, 0, -0.04f, -0.3f, 0.38f, 0.14f, 0.2f, CRC(70, 66, 60)));
+        for (int k = 0; k < 4; k++) { float s = (k & 1) ? 1.0f : -1.0f, z = k < 2 ? 0.3f : -0.3f, ph = a * 1.2f + k * 1.6f;
+            Matrix L = frameM(B, V3(0.17f * s, 0, z), sinf(ph) * 0.5f, 0, 0.7f * s);
+            ADRAW("creatures/crawler/limb_a", L, tn, BX(T_FLESH, 0, -0.25f, 0, 0.07f, 0.5f, 0.07f, CRC(180, 160, 152)));
+            Matrix L2 = frameM(L, V3(0, -0.5f, 0), 0, 0, -1.25f * s + w[k] * 0.3f);
+            ADRAW("creatures/crawler/limb_b", L2, tn, BX(T_FLESH, 0, -0.22f, 0, 0.06f, 0.44f, 0.06f, CRC(170, 150, 142)), BX(T_FLESH, 0, -0.46f, 0.04f, 0.09f, 0.04f, 0.14f, CRC(150, 120, 115))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c) * 0.5f), frameM(B, V3(0, 0.05f, 0.4f), PI + w[0] * 0.6f, 0, w[1] * 0.8f));
+        ADRAW("creatures/crawler/head", H, tn, BX(T_FLESH, 0, -0.12f, 0.05f, 0.2f, 0.24f, 0.22f, CRC(200, 182, 175)), BX(T_PLAIN, 0, -0.22f, -0.02f, 0.22f, 0.12f, 0.24f, CRC(25, 18, 15)),
+              BX(T_GORE, 0, -0.05f, 0.161f, 0.12f, 0.07f, 0.01f, CRC(120, 20, 20)));
+        if (alive) glowEyes(H, V3(-0.05f, -0.13f, 0.161f), V3(0.05f, -0.13f, 0.161f), 1, CRC(240, 240, 200));
+    } break;
+    case 12: {   // bloated: a drowned body swollen to a sack, heaving
+        float sw = 1 + 0.04f * sinf(c->t * 3);
+        for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.22f * s, 0.62f, 0), sinf(a * 0.6f) * 0.25f * s, 0, 0.1f * s);
+            ADRAW("creatures/bloated/leg", L, tn, BX(T_FLESH, 0, -0.31f, 0, 0.2f, 0.62f, 0.22f, CRC(150, 165, 140))); }
+        Matrix T = MatrixMultiply(MatrixScale(sw, sw, sw), frameM(base, V3(0, 0.62f, 0), w[2] * 0.1f, w[3] * 0.1f, sinf(a * 0.6f) * 0.08f));
+        ADRAW("creatures/bloated/body", T, tn, BX(T_FLESH, 0, 0.55f, 0, 1.0f, 1.0f, 0.9f, CRC(150, 168, 140)), BX(T_FLESH, 0, 0.45f, 0.2f, 0.85f, 0.75f, 0.72f, CRC(160, 175, 148)),
+              BX(T_GORE, 0.18f, 0.7f, 0.46f, 0.26f, 0.2f, 0.01f, CRC(150, 60, 70)), BX(T_GORE, -0.3f, 0.35f, 0.42f, 0.16f, 0.14f, 0.01f, CRC(140, 70, 80)),
+              BX(T_CLOTH, 0, 0.05f, 0, 1.02f, 0.18f, 0.92f, CRC(60, 70, 90)));
+        for (int s = -1; s <= 1; s += 2) { Matrix A = frameM(T, V3(0.52f * s, 0.85f, 0), -0.2f - wind * 1.2f + w[4] * 0.2f, 0, 0.35f * s);
+            ADRAW("creatures/bloated/arm", A, tn, BX(T_FLESH, 0, -0.3f, 0, 0.16f, 0.6f, 0.16f, CRC(145, 160, 135))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c)), frameM(T, V3(0, 1.06f, 0.08f), w[0] * 0.2f, w[1] * 0.2f, w[5] * 0.3f));
+        ADRAW("creatures/bloated/head", H, tn, BX(T_FLESH, 0, 0.1f, 0, 0.26f, 0.24f, 0.26f, CRC(140, 158, 130)), BX(T_PLAIN, 0, 0.04f, 0.131f, 0.1f, 0.05f, 0.01f, CRC(30, 20, 15)));
+    } break;
+    case 13: {   // tsuchigumo: a spider the size of a car with a woman's body rising from its head
+        Matrix B = frameM(base, V3(0, 0.75f, 0), w[2] * 0.05f, 0, w[3] * 0.05f);
+        ADRAW("creatures/tsuchigumo/body", B, tn, BX(T_CHITIN, 0, 0, 0.25f, 0.7f, 0.4f, 0.7f, CRC(80, 70, 60)), BX(T_CHITIN, 0, 0.1f, -0.55f, 1.0f, 0.75f, 1.0f, CRC(70, 60, 52)),
+              BX(T_PLAIN, 0, 0.48f, -0.55f, 0.5f, 0.02f, 0.6f, CRC(170, 40, 30)));
+        for (int k = 0; k < 8; k++) { float s = (k & 1) ? 1.0f : -1.0f, z = 0.5f - (k / 2) * 0.28f, ph = a * 1.6f + k * 0.9f;
+            Matrix L = frameM(B, V3(0.3f * s, 0.05f, z), sinf(ph) * 0.35f, sinf(ph) * 0.2f * s, 1.0f * s);
+            ADRAW("creatures/tsuchigumo/leg_a", L, tn, BX(T_CHITIN, 0, -0.45f, 0, 0.08f, 0.9f, 0.08f, CRC(60, 52, 45)));
+            Matrix L2 = frameM(L, V3(0, -0.9f, 0), 0, 0, -2.0f * s + w[k % 6] * 0.3f);
+            ADRAW("creatures/tsuchigumo/leg_b", L2, tn, BX(T_CHITIN, 0, -0.5f, 0, 0.06f, 1.0f, 0.06f, CRC(50, 44, 38)), BX(T_PLAIN, 0, -1.02f, 0, 0.03f, 0.08f, 0.03f, CRC(20, 18, 16))); }
+        Matrix T = frameM(B, V3(0, 0.2f, 0.45f), -0.15f + wind * 0.4f, 0, w[4] * 0.2f);
+        ADRAW("creatures/tsuchigumo/torso", T, tn, BX(T_FLESH, 0, 0.3f, 0, 0.36f, 0.6f, 0.2f, CRC(215, 200, 195)), BX(T_PLAIN, 0, 0.42f, -0.02f, 0.4f, 0.3f, 0.22f, CRC(40, 30, 60)));
+        for (int s = -1; s <= 1; s += 2) { Matrix A = frameM(T, V3(0.21f * s, 0.55f, 0), -0.5f - wind * 1.6f + w[4] * 0.3f, 0, 0.25f * s);
+            ADRAW("creatures/tsuchigumo/arm", A, tn, BX(T_FLESH, 0, -0.3f, 0, 0.07f, 0.6f, 0.07f, CRC(210, 195, 190)), BX(T_PLAIN, 0, -0.66f, 0.02f, 0.05f, 0.14f, 0.03f, CRC(20, 15, 15))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c)), frameM(T, V3(0, 0.62f, 0), w[0] * 0.3f, w[1] * 0.3f, 0));
+        ADRAW("creatures/tsuchigumo/head", H, tn, BX(T_FLESH, 0, 0.12f, 0, 0.19f, 0.24f, 0.2f, CRC(225, 212, 208)), BX(T_PLAIN, 0, 0.12f, -0.04f, 0.26f, 0.38f, 0.22f, CRC(10, 8, 10)));
+        if (alive) for (int e = 0; e < 3; e++) glowEyes(H, V3(-0.04f - e * 0.02f, 0.18f - e * 0.04f, 0.101f), V3(0.04f + e * 0.02f, 0.18f - e * 0.04f, 0.101f), 1, CRC(255, 40, 30));
+    } break;
+    case 14: {   // nurse: stiff white uniform, cap, a face wrapped in bloody gauze, the head twitching on its own
+        for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.09f * s, 0.88f, 0), sinf(a) * 0.4f * s, 0, 0);
+            ADRAW("creatures/nurse/leg", L, tn, BX(T_SKIN, 0, -0.44f, 0, 0.09f, 0.88f, 0.09f, CRC(215, 205, 200)), BX(T_PLAIN, 0, -0.86f, 0.03f, 0.1f, 0.05f, 0.18f, CRC(235, 235, 235))); }
+        Matrix T = frameM(base, V3(0, 0.88f, 0), w[2] * 0.2f, w[3] * 0.2f, w[4] * 0.2f);
+        ADRAW("creatures/nurse/dress", T, tn, BX(T_CLOTH, 0, 0.35f, 0, 0.38f, 0.7f, 0.22f, CRC(238, 236, 240)), BX(T_CLOTH, 0, -0.08f, 0, 0.44f, 0.3f, 0.26f, CRC(232, 230, 235)),
+              BX(T_GORE, 0.05f, 0.25f, 0.111f, 0.18f, 0.3f, 0.01f, CRC(140, 30, 30)));
+        for (int s = -1; s <= 1; s += 2) { Matrix A = frameM(T, V3(0.22f * s, 0.62f, 0), -0.2f - wind * 2.0f + w[5] * 0.4f, 0, 0.05f * s);
+            ADRAW("creatures/nurse/arm", A, tn, BX(T_CLOTH, 0, -0.12f, 0, 0.09f, 0.24f, 0.09f, CRC(238, 236, 240)), BX(T_SKIN, 0, -0.42f, 0, 0.07f, 0.4f, 0.07f, CRC(215, 205, 200)));
+            if (s > 0) ADRAW("creatures/nurse/scalpel", A, tn, BX(T_METAL, 0, -0.68f, 0.05f, 0.015f, 0.14f, 0.03f, CRC(220, 225, 230))); }
+        float tw = alive ? (fr(0, 1) < 0.08f ? fr(-0.6f, 0.6f) : 0) : 0;
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c) + tw), frameM(T, V3(0, 0.72f, 0), w[0] * 0.5f, w[1] * 0.5f, w[5] * 0.6f + tw));
+        ADRAW("creatures/nurse/head", H, tn, BX(T_CLOTH, 0, 0.13f, 0, 0.2f, 0.25f, 0.21f, CRC(230, 222, 210)), BX(T_GORE, 0, 0.13f, 0.106f, 0.12f, 0.04f, 0.01f, CRC(150, 30, 30)),
+              BX(T_CLOTH, 0, 0.28f, 0.0f, 0.2f, 0.07f, 0.16f, CRC(245, 245, 248)), BX(T_PLAIN, 0, 0.3f, 0.081f, 0.04f, 0.04f, 0.01f, CRC(200, 30, 30)));
+    } break;
+    case 15: {   // riot police: dark armour, helmet and visor, a shield on the left arm, a baton in the right
+        for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.12f * s, 0.92f, 0), sinf(a * 0.8f) * 0.4f * s, 0, 0);
+            ADRAW("creatures/riot/leg", L, tn, BX(T_CLOTH, 0, -0.45f, 0, 0.16f, 0.9f, 0.16f, CRC(40, 46, 60)), BX(T_PLAIN, 0, -0.4f, 0.085f, 0.14f, 0.16f, 0.02f, CRC(30, 32, 36)),
+                  BX(T_PLAIN, 0, -0.9f, 0.04f, 0.15f, 0.08f, 0.26f, CRC(20, 20, 22))); }
+        Matrix T = frameM(base, V3(0, 0.92f, 0), w[2] * 0.08f, w[3] * 0.08f, w[4] * 0.06f);
+        ADRAW("creatures/riot/torso", T, tn, BX(T_CLOTH, 0, 0.36f, 0, 0.5f, 0.72f, 0.3f, CRC(36, 42, 56)), BX(T_PLAIN, 0, 0.45f, 0.155f, 0.4f, 0.4f, 0.02f, CRC(25, 28, 34)),
+              BX(T_PLAIN, 0, 0.52f, 0.166f, 0.2f, 0.06f, 0.01f, CRC(220, 220, 230)));
+        { Matrix A = frameM(T, V3(-0.3f, 0.62f, 0.05f), -0.9f + w[4] * 0.1f, 0.3f, -0.1f);   // the shield arm, held across the body
+          ADRAW("creatures/riot/shield_arm", A, tn, BX(T_CLOTH, 0, -0.25f, 0, 0.13f, 0.5f, 0.13f, CRC(36, 42, 56)), BX(T_GLASS, 0.18f, -0.45f, 0.1f, 0.6f, 1.0f, 0.04f, CRC(150, 170, 190)),
+                BX(T_PLAIN, 0.18f, -0.2f, 0.125f, 0.5f, 0.08f, 0.01f, CRC(230, 230, 235))); }
+        { Matrix A = frameM(T, V3(0.3f, 0.62f, 0), -0.2f - wind * 2.2f + w[5] * 0.2f, 0, 0.1f);
+          ADRAW("creatures/riot/baton_arm", A, tn, BX(T_CLOTH, 0, -0.3f, 0, 0.13f, 0.6f, 0.13f, CRC(36, 42, 56)), BX(T_METAL, 0, -0.75f, 0.2f, 0.04f, 0.04f, 0.6f, CRC(40, 42, 46))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c)), frameM(T, V3(0, 0.74f, 0), w[0] * 0.2f, w[1] * 0.2f, 0));
+        ADRAW("creatures/riot/helmet", H, tn, BX(T_PLAIN, 0, 0.15f, 0, 0.3f, 0.3f, 0.3f, CRC(30, 34, 42)), BX(T_GLASS, 0, 0.1f, 0.155f, 0.26f, 0.18f, 0.02f, CRC(80, 100, 110)),
+              BX(T_PLAIN, 0, 0.32f, 0, 0.1f, 0.03f, 0.2f, CRC(200, 200, 205)));
+        if (alive) glowEyes(H, V3(-0.05f, 0.1f, 0.14f), V3(0.05f, 0.1f, 0.14f), 1, CRC(255, 200, 120));
+    } break;
+    case 16: {   // gaki: a hungry ghost, bones and a swollen belly, a mouth too wide
+        for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.08f * s, 0.55f, 0), sinf(a * 1.4f) * 0.6f * s, 0, 0.1f * s);
+            ADRAW("creatures/gaki/leg", L, tn, BX(T_FLESH, 0, -0.27f, 0, 0.05f, 0.55f, 0.05f, CRC(150, 160, 140))); }
+        Matrix T = frameM(base, V3(0, 0.55f, 0), 0.35f + w[2] * 0.2f, w[3] * 0.2f, w[4] * 0.2f);
+        ADRAW("creatures/gaki/body", T, tn, BX(T_FLESH, 0, 0.3f, 0, 0.24f, 0.4f, 0.16f, CRC(145, 158, 135)), BX(T_FLESH, 0, 0.1f, 0.05f, 0.34f, 0.3f, 0.34f, CRC(160, 170, 145)),
+              BX(T_PLAIN, 0, 0.36f, 0.082f, 0.2f, 0.02f, 0.01f, CRC(110, 120, 100)), BX(T_PLAIN, 0, 0.42f, 0.082f, 0.2f, 0.02f, 0.01f, CRC(110, 120, 100)));
+        for (int s = -1; s <= 1; s += 2) { Matrix A = frameM(T, V3(0.14f * s, 0.46f, 0.02f), -0.7f - wind * 1.4f + w[5] * 0.6f, 0, 0.3f * s);
+            ADRAW("creatures/gaki/arm", A, tn, BX(T_FLESH, 0, -0.35f, 0, 0.04f, 0.7f, 0.04f, CRC(140, 152, 130)), BX(T_FLESH, 0, -0.74f, 0.03f, 0.08f, 0.1f, 0.03f, CRC(120, 130, 110))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c)), frameM(T, V3(0, 0.52f, 0.04f), -0.35f + w[0] * 0.4f, w[1] * 0.4f, 0));
+        ADRAW("creatures/gaki/head", H, tn, BX(T_FLESH, 0, 0.1f, 0, 0.2f, 0.2f, 0.2f, CRC(150, 162, 140)), BX(T_PLAIN, 0, 0.03f, 0.101f, 0.17f, 0.08f, 0.01f, CRC(25, 5, 5)),
+              BX(T_PLAIN, 0, 0.03f, 0.103f, 0.15f, 0.015f, 0.01f, CRC(220, 210, 180)));
+        if (alive) glowEyes(H, V3(-0.05f, 0.13f, 0.101f), V3(0.05f, 0.13f, 0.101f), 1, CRC(200, 255, 120));
+    } break;
+    case 17: {   // burned: charred black, cracks still glowing like coals
+        for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.1f * s, 0.9f, 0), sinf(a * 0.8f) * 0.45f * s, 0, 0);
+            ADRAW("creatures/burned/leg", L, tn, BX(T_FLESH, 0, -0.45f, 0, 0.12f, 0.9f, 0.12f, CRC(45, 38, 34))); }
+        Matrix T = frameM(base, V3(0, 0.9f, 0), 0.1f + w[2] * 0.2f, w[3] * 0.2f, w[4] * 0.2f);
+        ADRAW("creatures/burned/torso", T, tn, BX(T_FLESH, 0, 0.35f, 0, 0.4f, 0.7f, 0.24f, CRC(42, 36, 32)), BX(T_GORE, 0.08f, 0.2f, 0.121f, 0.12f, 0.2f, 0.01f, CRC(120, 40, 30)));
+        for (int s = -1; s <= 1; s += 2) { Matrix A = frameM(T, V3(0.23f * s, 0.62f, 0), -0.3f - wind * 1.8f + w[4] * 0.3f, 0, 0.12f * s);
+            ADRAW("creatures/burned/arm", A, tn, BX(T_FLESH, 0, -0.32f, 0, 0.09f, 0.64f, 0.09f, CRC(40, 34, 30))); }
+        Matrix H = MatrixMultiply(MatrixRotateY(crLook(c)), frameM(T, V3(0, 0.72f, 0), w[0] * 0.3f, w[1] * 0.3f, 0));
+        ADRAW("creatures/burned/head", H, tn, BX(T_FLESH, 0, 0.13f, 0, 0.21f, 0.25f, 0.22f, CRC(38, 32, 28)), BX(T_PLAIN, 0, 0.06f, 0.111f, 0.12f, 0.05f, 0.01f, CRC(10, 6, 5)));
+        if (alive) { float g = 0.7f + 0.3f * sinf(c->t * 4 + c->var); setEmis(1);   // the embers
+            ADRAW("creatures/burned/embers", T, CRC((int)(255 * g), (int)(120 * g), 30), BX(T_PLAIN, -0.1f, 0.5f, 0.121f, 0.03f, 0.25f, 0.005f, CWH), BX(T_PLAIN, 0.12f, 0.35f, 0.121f, 0.02f, 0.18f, 0.005f, CWH),
+                  BX(T_PLAIN, 0.0f, 0.62f, -0.121f, 0.25f, 0.03f, 0.005f, CWH), BX(T_PLAIN, 0.17f, 0.15f, 0.0f, 0.005f, 0.3f, 0.03f, CWH));
+            setEmis(0); glowEyes(H, V3(-0.05f, 0.15f, 0.111f), V3(0.05f, 0.15f, 0.111f), 1, CRC(255, 150, 40)); }
+    } break;
+    default: break;
+    }
+    (void)wind;
+}
+#undef CRC
 // ---- creatures 5..9
 static void drawCreature2(Cr *c, Matrix base, Color tn, float *w, float a, float wind) {
     bool alive = c->state != CS_DEAD;
+    if (c->type >= 10) { drawCreature3(c, base, tn, w, a, wind); return; }
     if (c->type == 5) {   // stalker: a salaryman stretched to 2.4 m, head snapped sideways, no face
         for (int s = -1; s <= 1; s += 2) { Matrix L = frameM(base, V3(0.1f * s, 1.25f, 0), sinf(a * 0.6f) * 0.3f * s + w[s > 0 ? 0 : 1] * 0.2f, 0, 0);
             ADRAW("creatures/stalker/leg", L, tn, BX(T_CLOTH, 0, -0.62f, 0, 0.13f, 1.25f, 0.13f, ((Color){30, 30, 34, 255})), BX(T_PLAIN, 0, -1.24f, 0.06f, 0.12f, 0.06f, 0.26f, ((Color){15, 15, 15, 255}))); }
@@ -114,6 +243,34 @@ static void drawItemType(int type, Matrix F) {
                              BX(T_PLAIN, 0, 0.2f, 0, 0.03f, 0.04f, 0.03f, ((Color){60, 120, 200, 255}))); break;
     case IT_SEEDS: ADRAW("items/seeds", F, WHITE, BX(T_PAPER, 0, 0.01f, 0, 0.1f, 0.02f, 0.14f, ((Color){200, 180, 120, 255})), BX(T_PLAIN, 0, 0.021f, 0.02f, 0.06f, 0.002f, 0.06f, ((Color){90, 160, 70, 255}))); break;
     case IT_DAIKON: ADRAW("items/daikon", F, WHITE, BX(T_PLAIN, 0, 0.05f, 0, 0.07f, 0.07f, 0.3f, ((Color){240, 236, 225, 255})), BX(T_PLAIN, 0, 0.06f, -0.2f, 0.09f, 0.09f, 0.12f, ((Color){90, 160, 70, 255}))); break;
+    case IT_WAKIZASHI: ADRAW("items/wakizashi", F, WHITE, BX(T_PLAIN, 0.0f, 0.0275f, -0.24f, 0.04f, 0.035f, 0.2f, ((Color){30, 28, 28, 255})), BX(T_PLAIN, 0.0f, 0.035f, -0.13f, 0.08f, 0.05f, 0.02f, ((Color){160, 140, 60, 255})), BX(T_PLAIN, 0.0f, 0.016f, 0.11f, 0.035f, 0.012f, 0.46f, ((Color){200, 205, 212, 255}))); break;
+    case IT_NAGINATA: ADRAW("items/naginata", F, WHITE, BX(T_WOOD, 0.0f, 0.03f, -0.225f, 0.04f, 0.04f, 1.5f, ((Color){70, 40, 30, 255})), BX(T_PLAIN, 0.0f, 0.04f, 0.54f, 0.06f, 0.06f, 0.03f, ((Color){160, 140, 60, 255})), BX(T_PLAIN, 0.0f, 0.016f, 0.765f, 0.05f, 0.012f, 0.42f, ((Color){200, 205, 212, 255}))); break;
+    case IT_BOKKEN: ADRAW("items/bokken", F, WHITE, BX(T_WOOD, 0.0f, 0.0275f, -0.35f, 0.035f, 0.035f, 0.25f, ((Color){120, 85, 50, 255})), BX(T_WOOD, 0.0f, 0.025f, 0.125f, 0.04f, 0.03f, 0.7f, ((Color){175, 135, 85, 255}))); break;
+    case IT_GOLFCLUB: ADRAW("items/golf_club", F, WHITE, BX(T_CLOTH, 0.0f, 0.0275f, -0.405f, 0.035f, 0.035f, 0.25f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.0175f, 0.095f, 0.015f, 0.015f, 0.75f, ((Color){200, 205, 212, 255})), BX(T_METAL, 0.03f, 0.035f, 0.49f, 0.1f, 0.05f, 0.08f, ((Color){110, 112, 118, 255}))); break;
+    case IT_SHOVEL: ADRAW("items/shovel", F, WHITE, BX(T_WOOD, 0.0f, 0.03f, -0.18f, 0.04f, 0.04f, 1.0f, ((Color){150, 110, 70, 255})), BX(T_METAL, 0.0f, 0.035f, 0.36f, 0.08f, 0.05f, 0.08f, ((Color){110, 112, 118, 255})), BX(T_METAL, 0.0f, 0.02f, 0.54f, 0.24f, 0.02f, 0.28f, ((Color){120, 125, 130, 255}))); break;
+    case IT_MACHETE: ADRAW("items/machete", F, WHITE, BX(T_PLAIN, 0.0f, 0.0275f, -0.23f, 0.035f, 0.035f, 0.14f, ((Color){30, 28, 28, 255})), BX(T_PLAIN, 0.0f, 0.015f, 0.07f, 0.06f, 0.01f, 0.46f, ((Color){185, 190, 195, 255}))); break;
+    case IT_CLEAVER: ADRAW("items/meat_cleaver", F, WHITE, BX(T_WOOD, 0.0f, 0.025f, -0.1f, 0.03f, 0.03f, 0.12f, ((Color){90, 62, 40, 255})), BX(T_PLAIN, 0.03f, 0.016f, 0.06f, 0.11f, 0.012f, 0.2f, ((Color){200, 205, 212, 255}))); break;
+    case IT_SICKLE: ADRAW("items/kama_sickle", F, WHITE, BX(T_WOOD, 0.0f, 0.025f, -0.015f, 0.03f, 0.03f, 0.3f, ((Color){150, 110, 70, 255})), BX(T_PLAIN, 0.0f, 0.016f, 0.135f, 0.03f, 0.012f, 0.04f, ((Color){200, 205, 212, 255})), BX(T_PLAIN, 0.1f, 0.016f, 0.15f, 0.2f, 0.012f, 0.03f, ((Color){200, 205, 212, 255}))); break;
+    case IT_WRENCH: ADRAW("items/pipe_wrench", F, WHITE, BX(T_METAL, 0.0f, 0.0225f, -0.05f, 0.04f, 0.025f, 0.36f, ((Color){190, 40, 35, 255})), BX(T_METAL, 0.0f, 0.035f, 0.18f, 0.09f, 0.05f, 0.1f, ((Color){110, 112, 118, 255}))); break;
+    case IT_BATON: ADRAW("items/police_baton", F, WHITE, BX(T_CLOTH, 0.0f, 0.025f, -0.185f, 0.03f, 0.03f, 0.18f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.019f, 0.09f, 0.018f, 0.018f, 0.37f, ((Color){60, 62, 66, 255}))); break;
+    case IT_TETSUBO: ADRAW("items/tetsubo", F, WHITE, BX(T_WOOD, 0.0f, 0.03f, -0.4f, 0.04f, 0.04f, 0.4f, ((Color){90, 62, 40, 255})), BX(T_METAL, 0.0f, 0.055f, 0.2f, 0.09f, 0.09f, 0.8f, ((Color){55, 55, 58, 255})), BX(T_METAL, 0.0f, 0.07f, -0.04f, 0.12f, 0.12f, 0.02f, ((Color){110, 112, 118, 255})), BX(T_METAL, 0.0f, 0.07f, 0.21f, 0.12f, 0.12f, 0.02f, ((Color){110, 112, 118, 255})), BX(T_METAL, 0.0f, 0.07f, 0.46f, 0.12f, 0.12f, 0.02f, ((Color){110, 112, 118, 255}))); break;
+    case IT_PICKAXE: ADRAW("items/pickaxe", F, WHITE, BX(T_WOOD, 0.0f, 0.0325f, -0.025f, 0.045f, 0.045f, 0.85f, ((Color){150, 110, 70, 255})), BX(T_METAL, 0.0f, 0.03f, 0.41f, 0.5f, 0.04f, 0.08f, ((Color){110, 112, 118, 255}))); break;
+    case IT_SCALPEL: ADRAW("items/scalpel", F, WHITE, BX(T_METAL, 0.0f, 0.016f, -0.02f, 0.012f, 0.012f, 0.1f, ((Color){170, 175, 180, 255})), BX(T_PLAIN, 0.0f, 0.012f, 0.05f, 0.012f, 0.004f, 0.04f, ((Color){200, 205, 212, 255}))); break;
+    case IT_FIREEXT: ADRAW("items/fire_extinguisher", F, WHITE, BX(T_PLAIN, 0.0f, 0.03f, -0.25f, 0.04f, 0.04f, 0.12f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.09f, 0.025f, 0.16f, 0.16f, 0.43f, ((Color){200, 30, 30, 255})), BX(T_PLAIN, 0.0f, 0.035f, 0.275f, 0.05f, 0.05f, 0.07f, ((Color){30, 28, 28, 255}))); break;
+    case IT_UMBRELLA: ADRAW("items/umbrella", F, WHITE, BX(T_PLAIN, 0.0f, 0.025f, -0.34f, 0.03f, 0.03f, 0.12f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.016f, 0.06f, 0.012f, 0.012f, 0.68f, ((Color){110, 112, 118, 255})), BX(T_GLASS, 0.0f, 0.05f, 0.15f, 0.08f, 0.08f, 0.5f, ((Color){210, 225, 230, 255}))); break;
+    case IT_STOPSIGN: ADRAW("items/stop_sign", F, WHITE, BX(T_METAL, 0.0f, 0.03f, -0.3f, 0.04f, 0.04f, 1.3f, ((Color){110, 112, 118, 255})), BX(T_PLAIN, 0.0f, 0.02f, 0.65f, 0.55f, 0.02f, 0.6f, ((Color){200, 30, 35, 255}))); break;
+    case IT_HARDHAT: ADRAW("items/hard_hat", F, WHITE, BX(T_PLAIN, 0.0f, 0.07f, 0.0f, 0.26f, 0.14f, 0.3f, ((Color){235, 200, 40, 255})), BX(T_PLAIN, 0.0f, 0.01f, 0.02f, 0.32f, 0.02f, 0.36f, ((Color){235, 200, 40, 255}))); break;
+    case IT_RIOTHELM: ADRAW("items/riot_helmet", F, WHITE, BX(T_PLAIN, 0.0f, 0.1f, 0.0f, 0.28f, 0.2f, 0.3f, ((Color){30, 34, 40, 255})), BX(T_GLASS, 0.0f, 0.08f, 0.16f, 0.26f, 0.12f, 0.02f, ((Color){150, 170, 190, 255}))); break;
+    case IT_BEANIE: ADRAW("items/wool_beanie", F, WHITE, BX(T_CLOTH, 0.0f, 0.05f, 0.0f, 0.22f, 0.1f, 0.22f, ((Color){120, 40, 45, 255})), BX(T_CLOTH, 0.0f, 0.11f, 0.0f, 0.06f, 0.04f, 0.06f, ((Color){220, 215, 205, 255}))); break;
+    case IT_COAT: ADRAW("items/winter_coat", F, WHITE, BX(T_CLOTH, 0.0f, 0.05f, 0.0f, 0.5f, 0.1f, 0.42f, ((Color){50, 70, 60, 255})), BX(T_CLOTH, 0.0f, 0.11f, -0.15f, 0.5f, 0.04f, 0.1f, ((Color){170, 150, 120, 255}))); break;
+    case IT_LEATHER: ADRAW("items/leather_jacket", F, WHITE, BX(T_CLOTH, 0.0f, 0.04f, 0.0f, 0.46f, 0.08f, 0.4f, ((Color){35, 30, 28, 255})), BX(T_METAL, 0.05f, 0.085f, 0.0f, 0.01f, 0.005f, 0.36f, ((Color){190, 190, 190, 255}))); break;
+    case IT_STABVEST: ADRAW("items/stab_vest", F, WHITE, BX(T_CLOTH, 0.0f, 0.05f, 0.0f, 0.44f, 0.1f, 0.42f, ((Color){40, 45, 55, 255})), BX(T_PLAIN, 0.0f, 0.101f, 0.08f, 0.2f, 0.005f, 0.06f, ((Color){230, 230, 235, 255}))); break;
+    case IT_GAKURAN: ADRAW("items/gakuran", F, WHITE, BX(T_CLOTH, 0.0f, 0.04f, 0.0f, 0.44f, 0.08f, 0.4f, ((Color){20, 20, 26, 255})), BX(T_METAL, 0.0f, 0.081f, 0.06f, 0.02f, 0.005f, 0.02f, ((Color){200, 170, 60, 255})), BX(T_METAL, 0.0f, 0.081f, -0.06f, 0.02f, 0.005f, 0.02f, ((Color){200, 170, 60, 255}))); break;
+    case IT_HANTEN: ADRAW("items/hanten", F, WHITE, BX(T_CLOTH, 0.0f, 0.05f, 0.0f, 0.46f, 0.1f, 0.4f, ((Color){60, 70, 120, 255})), BX(T_CLOTH, 0.0f, 0.101f, 0.0f, 0.08f, 0.005f, 0.4f, ((Color){30, 30, 40, 255}))); break;
+    case IT_WORKPANTS: ADRAW("items/work_trousers", F, WHITE, BX(T_CLOTH, 0.0f, 0.04f, 0.0f, 0.36f, 0.08f, 0.46f, ((Color){90, 85, 60, 255}))); break;
+    case IT_BIKEPANTS: ADRAW("items/motorcycle_pants", F, WHITE, BX(T_CLOTH, 0.0f, 0.04f, 0.0f, 0.36f, 0.08f, 0.46f, ((Color){30, 30, 34, 255})), BX(T_PLAIN, 0.0f, 0.081f, 0.05f, 0.3f, 0.01f, 0.08f, ((Color){80, 80, 85, 255}))); break;
+    case IT_BOOTS: ADRAW("items/work_boots", F, WHITE, BX(T_CLOTH, -0.07f, 0.07f, 0.0f, 0.1f, 0.14f, 0.26f, ((Color){70, 50, 35, 255})), BX(T_CLOTH, 0.07f, 0.07f, 0.0f, 0.1f, 0.14f, 0.26f, ((Color){70, 50, 35, 255}))); break;
+    case IT_RUBBERBOOTS: ADRAW("items/rubber_boots", F, WHITE, BX(T_PLAIN, -0.07f, 0.1f, 0.0f, 0.1f, 0.2f, 0.2f, ((Color){30, 60, 40, 255})), BX(T_PLAIN, 0.07f, 0.1f, 0.0f, 0.1f, 0.2f, 0.2f, ((Color){30, 60, 40, 255}))); break;
     default: break;
     }
 }
@@ -135,6 +292,22 @@ static void drawHeld(Matrix H, int t) {
     case IT_KNIFE: ADRAW("viewmodels/kitchen_knife", H, WHITE, BX(T_PLAIN, 0, 0.05f, 0, 0.035f, 0.12f, 0.035f, ((Color){30, 25, 25, 255})), BX(T_PLAIN, 0, 0.2f, 0, 0.01f, 0.2f, 0.04f, ((Color){215, 220, 225, 255}))); break;
     case IT_SLEDGE: ADRAW("viewmodels/sledgehammer", H, WHITE, BX(T_WOOD, 0, 0.32f, 0, 0.05f, 0.75f, 0.05f, CWH), BX(T_METAL, 0, 0.7f, 0, 0.14f, 0.14f, 0.26f, ((Color){90, 90, 95, 255}))); break;
     case IT_HAMMER: ADRAW("viewmodels/claw_hammer", H, WHITE, BX(T_WOOD, 0, 0.14f, 0, 0.035f, 0.3f, 0.035f, CWH), BX(T_METAL, 0, 0.3f, -0.02f, 0.04f, 0.05f, 0.14f, ((Color){100, 100, 105, 255}))); break;
+    case IT_WAKIZASHI: ADRAW("viewmodels/wakizashi", H, WHITE, BX(T_PLAIN, 0.0f, 0.1f, 0.0f, 0.035f, 0.2f, 0.04f, ((Color){30, 28, 28, 255})), BX(T_PLAIN, 0.0f, 0.21f, 0.0f, 0.05f, 0.02f, 0.08f, ((Color){160, 140, 60, 255})), BX(T_PLAIN, 0.0f, 0.45f, 0.0f, 0.012f, 0.46f, 0.035f, ((Color){200, 205, 212, 255}))); break;
+    case IT_NAGINATA: ADRAW("viewmodels/naginata", H, WHITE, BX(T_WOOD, 0.0f, 0.75f, 0.0f, 0.04f, 1.5f, 0.04f, ((Color){70, 40, 30, 255})), BX(T_PLAIN, 0.0f, 1.515f, 0.0f, 0.06f, 0.03f, 0.06f, ((Color){160, 140, 60, 255})), BX(T_PLAIN, 0.0f, 1.74f, 0.0f, 0.012f, 0.42f, 0.05f, ((Color){200, 205, 212, 255}))); break;
+    case IT_BOKKEN: ADRAW("viewmodels/bokken", H, WHITE, BX(T_WOOD, 0.0f, 0.125f, 0.0f, 0.035f, 0.25f, 0.035f, ((Color){120, 85, 50, 255})), BX(T_WOOD, 0.0f, 0.6f, 0.0f, 0.03f, 0.7f, 0.04f, ((Color){175, 135, 85, 255}))); break;
+    case IT_GOLFCLUB: ADRAW("viewmodels/golf_club", H, WHITE, BX(T_CLOTH, 0.0f, 0.125f, 0.0f, 0.035f, 0.25f, 0.035f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.625f, 0.0f, 0.015f, 0.75f, 0.015f, ((Color){200, 205, 212, 255})), BX(T_METAL, 0.0f, 1.02f, -0.03f, 0.05f, 0.08f, 0.1f, ((Color){110, 112, 118, 255}))); break;
+    case IT_SHOVEL: ADRAW("viewmodels/shovel", H, WHITE, BX(T_WOOD, 0.0f, 0.5f, 0.0f, 0.04f, 1.0f, 0.04f, ((Color){150, 110, 70, 255})), BX(T_METAL, 0.0f, 1.04f, 0.0f, 0.05f, 0.08f, 0.08f, ((Color){110, 112, 118, 255})), BX(T_METAL, 0.0f, 1.22f, 0.0f, 0.02f, 0.28f, 0.24f, ((Color){120, 125, 130, 255}))); break;
+    case IT_MACHETE: ADRAW("viewmodels/machete", H, WHITE, BX(T_PLAIN, 0.0f, 0.07f, 0.0f, 0.035f, 0.14f, 0.035f, ((Color){30, 28, 28, 255})), BX(T_PLAIN, 0.0f, 0.37f, 0.0f, 0.01f, 0.46f, 0.06f, ((Color){185, 190, 195, 255}))); break;
+    case IT_CLEAVER: ADRAW("viewmodels/meat_cleaver", H, WHITE, BX(T_WOOD, 0.0f, 0.06f, 0.0f, 0.03f, 0.12f, 0.03f, ((Color){90, 62, 40, 255})), BX(T_PLAIN, 0.0f, 0.22f, -0.03f, 0.012f, 0.2f, 0.11f, ((Color){200, 205, 212, 255}))); break;
+    case IT_SICKLE: ADRAW("viewmodels/kama_sickle", H, WHITE, BX(T_WOOD, 0.0f, 0.15f, 0.0f, 0.03f, 0.3f, 0.03f, ((Color){150, 110, 70, 255})), BX(T_PLAIN, 0.0f, 0.3f, 0.0f, 0.012f, 0.04f, 0.03f, ((Color){200, 205, 212, 255})), BX(T_PLAIN, 0.0f, 0.315f, -0.1f, 0.012f, 0.03f, 0.2f, ((Color){200, 205, 212, 255}))); break;
+    case IT_WRENCH: ADRAW("viewmodels/pipe_wrench", H, WHITE, BX(T_METAL, 0.0f, 0.18f, 0.0f, 0.025f, 0.36f, 0.04f, ((Color){190, 40, 35, 255})), BX(T_METAL, 0.0f, 0.41f, 0.0f, 0.05f, 0.1f, 0.09f, ((Color){110, 112, 118, 255}))); break;
+    case IT_BATON: ADRAW("viewmodels/police_baton", H, WHITE, BX(T_CLOTH, 0.0f, 0.09f, 0.0f, 0.03f, 0.18f, 0.03f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.365f, 0.0f, 0.018f, 0.37f, 0.018f, ((Color){60, 62, 66, 255}))); break;
+    case IT_TETSUBO: ADRAW("viewmodels/tetsubo", H, WHITE, BX(T_WOOD, 0.0f, 0.2f, 0.0f, 0.04f, 0.4f, 0.04f, ((Color){90, 62, 40, 255})), BX(T_METAL, 0.0f, 0.8f, 0.0f, 0.09f, 0.8f, 0.09f, ((Color){55, 55, 58, 255})), BX(T_METAL, 0.0f, 0.56f, 0.0f, 0.12f, 0.02f, 0.12f, ((Color){110, 112, 118, 255})), BX(T_METAL, 0.0f, 0.81f, 0.0f, 0.12f, 0.02f, 0.12f, ((Color){110, 112, 118, 255})), BX(T_METAL, 0.0f, 1.06f, 0.0f, 0.12f, 0.02f, 0.12f, ((Color){110, 112, 118, 255}))); break;
+    case IT_PICKAXE: ADRAW("viewmodels/pickaxe", H, WHITE, BX(T_WOOD, 0.0f, 0.425f, 0.0f, 0.045f, 0.85f, 0.045f, ((Color){150, 110, 70, 255})), BX(T_METAL, 0.0f, 0.86f, 0.0f, 0.04f, 0.08f, 0.5f, ((Color){110, 112, 118, 255}))); break;
+    case IT_SCALPEL: ADRAW("viewmodels/scalpel", H, WHITE, BX(T_METAL, 0.0f, 0.05f, 0.0f, 0.012f, 0.1f, 0.012f, ((Color){170, 175, 180, 255})), BX(T_PLAIN, 0.0f, 0.12f, 0.0f, 0.004f, 0.04f, 0.012f, ((Color){200, 205, 212, 255}))); break;
+    case IT_FIREEXT: ADRAW("viewmodels/fire_extinguisher", H, WHITE, BX(T_PLAIN, 0.0f, 0.06f, 0.0f, 0.04f, 0.12f, 0.04f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.335f, 0.0f, 0.16f, 0.43f, 0.16f, ((Color){200, 30, 30, 255})), BX(T_PLAIN, 0.0f, 0.585f, 0.0f, 0.05f, 0.07f, 0.05f, ((Color){30, 28, 28, 255}))); break;
+    case IT_UMBRELLA: ADRAW("viewmodels/umbrella", H, WHITE, BX(T_PLAIN, 0.0f, 0.06f, 0.0f, 0.03f, 0.12f, 0.03f, ((Color){30, 28, 28, 255})), BX(T_METAL, 0.0f, 0.46f, 0.0f, 0.012f, 0.68f, 0.012f, ((Color){110, 112, 118, 255})), BX(T_GLASS, 0.0f, 0.55f, 0.0f, 0.08f, 0.5f, 0.08f, ((Color){210, 225, 230, 255}))); break;
+    case IT_STOPSIGN: ADRAW("viewmodels/stop_sign", H, WHITE, BX(T_METAL, 0.0f, 0.65f, 0.0f, 0.04f, 1.3f, 0.04f, ((Color){110, 112, 118, 255})), BX(T_PLAIN, 0.0f, 1.6f, 0.0f, 0.02f, 0.6f, 0.55f, ((Color){200, 30, 35, 255}))); break;
     default: break;
     }
 }

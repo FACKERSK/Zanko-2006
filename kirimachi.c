@@ -21,25 +21,25 @@
 #define MAX_SOLID 240000
 #define MAX_OPEN 20000
 #define MAX_VEND 500
-#define MAX_LIGHT 3000
-#define MAX_SIGN 900
+#define MAX_LIGHT 6000
+#define MAX_SIGN 2000
 #define MAX_LAMP 900
 #define MAX_ITEM 2600
-#define MAX_CR 110
+#define MAX_CR 160
 #define MAX_PART 420
 #define MAX_BUILD 220
 #define MAX_CRATE 140
 #define MAX_ASH 220
 #define GCELL 8.0f
-#define GN 112   // broadphase grid: 8 m cells from -170 m, covering the whole map
+#define GN 152   // broadphase grid: 8 m cells from -460 m, covering the whole map
 
 enum { T_ASPHALT, T_SIDEWALK, T_CONCRETE, T_FACADE, T_FACADE2, T_TILEWALL, T_BLOCKWALL, T_SHUTTER, T_ROOF, T_GLASS,
-       T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_BRICK, T_COUNT };
+       T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_BRICK, T_GORE, T_CHITIN, T_COUNT };
 static const char *texNames[T_COUNT] = {"asphalt.png", "sidewalk.png", "concrete.png", "facade_a.png", "facade_b.png", "tilewall.png",
-    "blockwall.png", "shutter.png", "roof.png", "glass.png", "plaster.png", "tatami.png", "wood.png", "flesh.png", "cloth.png",
-    "metal.png", "vending.png", "sign_v.png", "sign_h.png", "plain.png", "rust.png", "ecoglass.png", "hedge.png", "ofuda.png", "grass.png", "skin.png", "brick.png"};
-static float texSU[T_COUNT] = {4, 1.5f, 3, 3, 3, 1.5f, 0.8f, 2, 4, 1.5f, 2, 0.9f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 1, 3, 1, 1.4f};
-static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2, 1.8f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3.2f, 2, 1, 3, 1, 0.7f};
+    "blockwall.png", "shutter.png", "roof.png", "glass.png", "plaster.png", "tatami.png", "wood.png", "flesh_v2.png", "cloth_v2.png",
+    "metal.png", "vending.png", "sign_v.png", "sign_h.png", "plain.png", "rust.png", "ecoglass.png", "hedge.png", "ofuda.png", "grass.png", "skin.png", "brick.png", "gore.png", "chitin.png"};   // _v2: the 0.9.0 detailed creature textures replace the old cached ones
+static float texSU[T_COUNT] = {4, 1.5f, 3, 3, 3, 1.5f, 0.8f, 2, 4, 1.5f, 2, 0.9f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 1, 3, 1, 1.4f, 1, 1};
+static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2, 1.8f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3.2f, 2, 1, 3, 1, 0.7f, 1, 1};
 
 #include "zk_items.h"
 #include "zk_jp.h"
@@ -80,6 +80,7 @@ static Image genImage(int k) {
     if (k == T_TATAMI) { W = 32; H = 64; }
     if (k == T_ECO) { W = 64; H = 64; }
     if (k == T_PAPER) { W = 16; H = 48; }
+    if (k == T_FLESH || k == T_CLOTH || k == T_GORE || k == T_CHITIN) { W = 64; H = 64; }   // creature skins: more detail
     Image img = GenImageColor(W, H, BLACK);
     for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
         float n = hash2(x, y, k * 131 + 3), m = vnoise(x * 0.2f, y * 0.2f, k * 7 + 1), m2 = vnoise(x * 0.07f, y * 0.07f, k * 5 + 11);
@@ -111,8 +112,35 @@ static Image genImage(int k) {
         case T_PLASTER: { float v = 170 + 20 * m + 8 * n - 40 * m2; c = rgb(v, v * 0.96f, v * 0.88f); } break;
         case T_TATAMI: { bool border = (x < 3 || x >= 29); float v = (y % 2 == 0) ? 150 : 130; v += 10 * n; c = border ? rgb(25, 45, 30) : rgb(v * 0.85f, v * 0.9f, v * 0.5f); } break;
         case T_WOOD: { int pl = x / 8; bool g = (x % 8 == 0); float v = (g ? 40 : 90) + 25 * vnoise(pl * 3.0f, y * 0.1f, 2) + 10 * n; c = rgb(v * 1.1f, v * 0.8f, v * 0.55f); } break;
-        case T_FLESH: { float v = 0.7f + 0.3f * m; c = rgb(165 * v, 135 * v, 125 * v); if (m2 > 0.6f) c = rgb(110 * v, 40 * v, 40 * v); if (n > 0.95f) c = rgb(40, 15, 15); } break;
-        case T_CLOTH: { float v = 0.65f + 0.25f * m + 0.1f * n; c = rgb(175 * v, 165 * v, 140 * v); if (y % 12 < 2) c = rgb(90 * v, 80 * v, 65 * v); if (m2 > 0.65f) c = rgb(95, 35, 30); } break;
+        case T_FLESH: {   // grey-pink dead skin: mottling, blue veins, purple bruises, wet open wounds with dark rims, a stitched seam
+            float mm = vnoise(x * 0.11f, y * 0.11f, 21), fine = vnoise(x * 0.45f, y * 0.45f, 22), v = 0.72f + 0.2f * mm + 0.08f * fine;
+            c = rgb(172 * v, 146 * v, 138 * v);
+            float vein = fabsf(vnoise(x * 0.09f + 3, y * 0.06f, 23) - 0.5f); if (vein < 0.018f) c = rgb(95 * v, 100 * v, 128 * v); else if (vein < 0.03f) c = rgb(130 * v, 120 * v, 140 * v);
+            float br = vnoise(x * 0.07f, y * 0.07f, 24); if (br > 0.66f) { float k2 = clampf((br - 0.66f) / 0.12f, 0, 1); c = rgb(Lerp(172 * v, 105, k2), Lerp(146 * v, 70, k2), Lerp(138 * v, 110, k2)); }
+            float wd = vnoise(x * 0.12f + 9, y * 0.12f + 4, 25);
+            if (wd > 0.74f) { c = rgb(120 + 40 * fine, 22, 24); if (n > 0.9f) c = rgb(235, 160, 160); }   // raw, glistening
+            else if (wd > 0.7f) c = rgb(58, 22, 22);                                                       // its dark rim
+            if (x >= 40 && x <= 42 && y > 6 && y < 58) c = rgb(110 * v, 60 * v, 60 * v);                // a seam
+            if (x >= 37 && x <= 45 && y % 7 == 0 && y > 6 && y < 58) c = rgb(40, 30, 30);                 // its stitches
+            if (n > 0.985f) c = rgb(40, 15, 15); } break;
+        case T_CLOTH: {   // woven fabric: warp and weft threads, grime, a torn hole, old blood
+            bool warp = (x % 2 == 0) != (y % 2 == 0); float v = (warp ? 0.72f : 0.62f) + 0.18f * m + 0.08f * n;
+            c = rgb(175 * v, 165 * v, 142 * v);
+            if (y % 16 < 2) c = rgb(95 * v, 86 * v, 70 * v);                                               // a seam band
+            float st = vnoise(x * 0.08f, y * 0.08f, 31); if (st > 0.62f) c = rgb(150 * v * 0.7f, 135 * v * 0.7f, 110 * v * 0.7f);   // grime
+            float bl = vnoise(x * 0.1f + 5, y * 0.1f, 32); if (bl > 0.7f) c = rgb(110 * v, 28 * v, 24 * v);   // blood soaked in
+            float tr = vnoise(x * 0.15f, y * 0.15f + 7, 33); if (tr > 0.8f) c = rgb(25, 18, 16); else if (tr > 0.77f) c = rgb(200 * v, 190 * v, 165 * v);   // a tear, frayed edge
+        } break;
+        case T_GORE: {   // exposed muscle: red fibres running one way, pale fascia, fat, wet highlights
+            float fib = 0.5f + 0.5f * sinf(x * 1.3f + vnoise(x * 0.1f, y * 0.1f, 41) * 6); float v = 0.6f + 0.3f * fib + 0.1f * n;
+            c = rgb(150 * v, 30 * v, 32 * v);
+            if (vnoise(x * 0.08f, y * 0.08f, 42) > 0.68f) c = rgb(215, 200 * (0.8f + 0.2f * n), 170);       // fascia / fat
+            if (n > 0.93f) c = rgb(240, 150, 150); } break;
+        case T_CHITIN: {   // insect plate: dark glossy segments, pale sutures, a sheen
+            int seg = y / 10; bool sut = y % 10 == 0 || (x + seg * 7) % 21 == 0; float sh = 0.5f + 0.5f * sinf((x + y) * 0.25f);
+            float v = 0.55f + 0.25f * m + 0.2f * sh;
+            c = sut ? rgb(150, 140, 110) : rgb(48 * v, 40 * v, 32 * v);
+            if (!sut && sh > 0.9f) c = rgb(110, 100, 90); } break;
         case T_METAL: { float v = 190 + 15 * m + 6 * n; if (m2 > 0.7f) v -= 60; c = rgb(v, v, v); } break;
         case T_VEND: {
             c = rgb(225, 228, 232);
@@ -276,8 +304,18 @@ static void setEmis(float e) { if (e != curEmis) { SetShaderValue(sh, locEmis, &
 
 // ============================================================ static mesh builder
 typedef struct { float *v, *t, *n; unsigned char *c; int cnt, cap; } MB;
-static MB mb[T_COUNT];
-static Model stat[T_COUNT]; static bool statOk[T_COUNT];
+// the static world in 64 m chunks (0.9.0 LOD): each chunk keeps one mesh per texture and its bounds; far chunks draw a block model instead
+#define NCH 20
+#define CH_SZ 64.0f
+#define CH_X0 (-460.0f)
+#define CH_Z0 (-200.0f)
+static MB mb[NCH * NCH][T_COUNT];
+static Model stat[NCH * NCH][T_COUNT]; static bool statOk[NCH * NCH][T_COUNT];
+static Vector3 chMn[NCH * NCH], chMx[NCH * NCH]; static bool chAny[NCH * NCH];
+static Model chLod[NCH * NCH]; static bool chLodOk[NCH * NCH];
+static float gFogD = 0;   // the fog density in use: sets how far full detail and the block models reach
+static int chunkOf(float x, float z) { int i = (int)floorf((x - CH_X0) / CH_SZ), j = (int)floorf((z - CH_Z0) / CH_SZ); i = i < 0 ? 0 : i >= NCH ? NCH - 1 : i; j = j < 0 ? 0 : j >= NCH ? NCH - 1 : j; return j * NCH + i; }
+static void statSetTex(int t, Texture2D tx) { for (int c = 0; c < NCH * NCH; c++) if (statOk[c][t]) stat[c][t].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tx; }
 static void mbPush(MB *b, Vector3 p, Vector2 uv, Vector3 n, Color c) {
     if (b->cnt >= b->cap) {
         b->cap = b->cap ? b->cap * 2 : 1024;
@@ -302,6 +340,7 @@ static Vector2 uvOf(int t, Vector3 p, Vector3 n) {
 typedef struct { float cx, cz, c, s; } Xf;
 static Xf xfs[MAX_XF] = {{0, 0, 1, 0}}; static int nXf = 1, curXf = 0;
 static int newXf(float cx, float cz, float phi) { if (fabsf(phi) < 1e-4f || nXf >= MAX_XF) return 0; xfs[nXf] = (Xf){cx, cz, cosf(phi), sinf(phi)}; return nXf++; }
+static Vector3 xfInv(int f, Vector3 p) { if (!f) return p; Xf *x = &xfs[f]; float dx = p.x - x->cx, dz = p.z - x->cz; return (Vector3){x->cx + dx * x->c - dz * x->s, p.y, x->cz + dx * x->s + dz * x->c}; }
 static Vector3 xfP(int f, Vector3 p) { if (!f) return p; Xf *x = &xfs[f]; float dx = p.x - x->cx, dz = p.z - x->cz; return (Vector3){x->cx + dx * x->c + dz * x->s, p.y, x->cz - dx * x->s + dz * x->c}; }
 static Vector3 xfI(int f, Vector3 p) { if (!f) return p; Xf *x = &xfs[f]; float dx = p.x - x->cx, dz = p.z - x->cz; return (Vector3){x->cx + dx * x->c - dz * x->s, p.y, x->cz + dx * x->s + dz * x->c}; }
 static Vector3 xfD(int f, Vector3 d) { if (!f) return d; Xf *x = &xfs[f]; return (Vector3){d.x * x->c + d.z * x->s, d.y, -d.x * x->s + d.z * x->c}; }
@@ -324,8 +363,12 @@ static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, C
         float y0 = fminf(fminf(a.y, b.y), fminf(c.y, d.y)), y1 = fmaxf(fmaxf(a.y, b.y), fmaxf(c.y, d.y));
         if (y1 - y0 > 0.35f && y0 < SIDEH + 0.6f && y1 > SIDEH + 0.3f) { Vector3 m = xfP(curXf, Vector3Scale(Vector3Add(Vector3Add(a, b), Vector3Add(c, d)), 0.25f));
             if (roadCentreAt(m.x, m.z)) { if (wallAuditN < 24) { wallAuditP[wallAuditN] = m; wallAuditT[wallAuditN] = t; wallAuditW[wallAuditN] = sqrtf((a.x - c.x) * (a.x - c.x) + (a.z - c.z) * (a.z - c.z)); wallAuditH[wallAuditN] = y1 - y0; } wallAuditN++; } } }
-    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[t], xfP(curXf, q[i]), uvOf(t, q[i], n), wn, col); return; }   // texture follows the walls
-    for (int i = 0; i < 6; i++) mbPush(&mb[t], q[i], uvOf(t, q[i], n), n, col);
+    Vector3 w[6]; for (int i = 0; i < 6; i++) w[i] = curXf ? xfP(curXf, q[i]) : q[i];
+    int ch = chunkOf((w[0].x + w[2].x) * 0.5f, (w[0].z + w[2].z) * 0.5f);
+    if (!chAny[ch]) { chAny[ch] = true; chMn[ch] = w[0]; chMx[ch] = w[0]; }
+    for (int i = 0; i < 6; i++) { chMn[ch] = Vector3Min(chMn[ch], w[i]); chMx[ch] = Vector3Max(chMx[ch], w[i]); }
+    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], w[i], uvOf(t, q[i], n), wn, col); return; }   // texture follows the walls
+    for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), n, col);
 }
 static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
     float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
@@ -344,7 +387,7 @@ typedef struct { Vector3 mn, mx; bool off; short f; } Solid;   // mn/mx in the f
 static Solid sol[MAX_SOLID]; static int nSol;
 static int *cellL[GN * GN]; static int cellN[GN * GN], cellCap[GN * GN];
 static int qb[16384], qn; static unsigned int qs[MAX_SOLID], qstamp;
-static int cellOf(float v) { int c = (int)floorf((v + 170) / GCELL); return c < 0 ? 0 : (c >= GN ? GN - 1 : c); }
+static int cellOf(float v) { int c = (int)floorf((v + 460) / GCELL); return c < 0 ? 0 : (c >= GN ? GN - 1 : c); }
 static int addSolidF(Vector3 mn, Vector3 mx, int f) {
     if (nSol >= MAX_SOLID) return -1;
     int id = nSol++;
@@ -376,7 +419,7 @@ static int box(int t, Vector3 mn, Vector3 mx, Color c, bool solid, int mask) {
 #define V3(a, b, c) ((Vector3){(a), (b), (c)})
 
 enum { OP_WINDOW, OP_DOOR };
-typedef struct { Vector3 mn, mx; int type, axis, sid, bsid, state; float hp, side, fy; short f; } Open;   // mn/mx in frame f
+typedef struct { Vector3 mn, mx; int type, axis, sid, bsid, state; float hp, side, fy; short f; bool locked; float swing; } Open;   // mn/mx in frame f; doors: locked ones must be forced, swing 0 shut .. 1 open
 typedef struct { Vector3 mn, mx; int sid; float hp; bool alive; int seed; short f; } Debris;   // junk piles (chairs, tables) blocking stairs and doorways
 #define MAX_DEB 1400
 static Debris debs[MAX_DEB]; static int nDeb;
@@ -436,7 +479,7 @@ typedef struct {
     Vector3 pos; float vy; bool ground;
     float yaw, pitch, tyaw, tpitch;
     float hp, stam, food, water, batt; bool flash, exhausted;
-    Slot hands, back, sl[6 + 18]; int quick[6]; int weapon; int mag;   // weapon: 0 melee/fists, 1 revolver (derived from hands)
+    Slot hands, back, wear[4], sl[6 + 18]; int quick[6]; int weapon; int mag;   // weapon: 0 melee/fists, 1 revolver (derived from hands)
     int wounds; float bleedAcc, painT, regenT; float sk[6];               // bleeding wounds, skill XP
     bool invOpen; int openC; float searchT; int searchC; int dragFrom; Slot drag;
     float swingDur, swingHitAt, hitStopT, punch, roll, hitFlash; int swingKind;
@@ -634,9 +677,10 @@ static void addOpening(int s, float u0, float u1, float y0, float y1, int type, 
     o->side = (s == 0 || s == 3) ? -1.0f : 1.0f;
     o->state = stt; o->bsid = -1; o->hp = 0; o->sid = -1; o->fy = curFY; o->f = (short)curXf;
     if (type == OP_WINDOW) { o->sid = addSolid(mn, mx); }
-    else if (stt == 1) {
+    else {   // a door: always a hinged leaf; shut ones block, a quarter of those are locked
         Vector3 dmx, dmn = sideMn(s, u0, u1, y0, y1, &dmx, 0.06f);
         o->mn = dmn; o->mx = dmx; o->sid = addSolid(dmn, dmx); o->hp = 4;
+        o->locked = stt == 1 && ri(4) == 0; o->swing = stt == 1 ? 0 : 1; if (stt != 1) sol[o->sid].off = true;
     }
     nOps++;
 }
@@ -703,19 +747,20 @@ static void addCrate(Vector3 p) {
     c->pos = xfP(curXf, p); c->s = s; c->hp = 3; c->alive = true;
     c->sid = addSolid(V3(p.x - s / 2, p.y, p.z - s / 2), V3(p.x + s / 2, p.y + s, p.z + s / 2));
 }
+static float gPropY;
 static void vending(float x, float z, int face) {
     if (nVend >= MAX_VEND || inHole(x, z) || inHole(x + 1, z) || inHole(x - 1, z)) return;
     Vend *v = &vends[nVend];
     float w = 1.0f, d = 0.8f; Vector3 mn, mx;
-    if (face == 0 || face == 2) { mn = V3(x - w / 2, SIDEH, z - d / 2); mx = V3(x + w / 2, SIDEH + 1.85f, z + d / 2); }
-    else { mn = V3(x - d / 2, SIDEH, z - w / 2); mx = V3(x + d / 2, SIDEH + 1.85f, z + w / 2); }
-    if (!pointFree(x, z, 0.6f, SIDEH + 0.05f)) return;
+    if (face == 0 || face == 2) { mn = V3(x - w / 2, (SIDEH + gPropY), z - d / 2); mx = V3(x + w / 2, (SIDEH + gPropY) + 1.85f, z + d / 2); }
+    else { mn = V3(x - d / 2, (SIDEH + gPropY), z - w / 2); mx = V3(x + d / 2, (SIDEH + gPropY) + 1.85f, z + w / 2); }
+    if (!pointFree(x, z, 0.6f, (SIDEH + gPropY) + 0.05f)) return;
     v->mn = mn; v->mx = mx; v->face = face; v->hp = 3; v->broken = false; v->f = (short)curXf;
     Color bodies[4] = {{230, 230, 235, 255}, {200, 40, 40, 255}, {40, 90, 190, 255}, {235, 235, 120, 255}};
     v->body = bodies[ri(4)];
     v->sid = addSolid(mn, mx);
     Vector3 out = face == 0 ? V3(0, 0, -1) : face == 2 ? V3(0, 0, 1) : face == 1 ? V3(1, 0, 0) : V3(-1, 0, 0);
-    v->light = addLight(Vector3Add(V3(x, SIDEH + 1.2f, z), Vector3Scale(out, 0.9f)), V3(0.75f, 0.85f, 1.0f), 6.5f, fr(0, 1) < 0.15f ? 1 : 0);
+    v->light = addLight(Vector3Add(V3(x, (SIDEH + gPropY) + 1.2f, z), Vector3Scale(out, 0.9f)), V3(0.75f, 0.85f, 1.0f), 6.5f, fr(0, 1) < 0.15f ? 1 : 0);
     nVend++;
 }
 #define MAX_CAR 64
@@ -918,30 +963,44 @@ static void genStation(float x0, float z0) {
     for (int k = 0; k < 6; k++) addCrate(V3(fr(x0 + 16, x0 + 31), SIDEH, fr(z0 + 3, z0 + 15)));
 }
 
+static unsigned int worldGenCount = 0;   // bumped each time a world is built (the map rebuilds its mesh)
 static void freeWorld(void) {
-    for (int t = 0; t < T_COUNT; t++) {
-        if (statOk[t]) { UnloadModel(stat[t]); statOk[t] = false; }
-        free(mb[t].v); free(mb[t].t); free(mb[t].n); free(mb[t].c);
-        memset(&mb[t], 0, sizeof(MB));
-    }
+    worldGenCount++;
+    for (int c = 0; c < NCH * NCH; c++) { for (int t = 0; t < T_COUNT; t++) {
+        if (statOk[c][t]) { UnloadModel(stat[c][t]); statOk[c][t] = false; }
+        free(mb[c][t].v); free(mb[c][t].t); free(mb[c][t].n); free(mb[c][t].c);
+        memset(&mb[c][t], 0, sizeof(MB)); }
+        if (chLodOk[c]) { UnloadModel(chLod[c]); chLodOk[c] = false; } chAny[c] = false; }
     for (int c = 0; c < GN * GN; c++) cellN[c] = 0;
     nSol = nOps = nVend = nLight = nSign = nLamp = nCrate = nBuild = nItem = nCr = nWard = nScreen = nFire = nTV = nCar = 0;
-    nCont = nDeb = nStair = nHole = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
+    nCont = nDeb = nStair = nHole = 0; nPit = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
     memset(parts, 0, sizeof parts);
 }
+static Model mbModel(MB *b, int t) {
+    Mesh m = {0}; m.vertexCount = b->cnt; m.triangleCount = b->cnt / 3;
+    m.vertices = b->v; m.texcoords = b->t; m.normals = b->n; m.colors = b->c;
+    UploadMesh(&m, false); Model md = LoadModelFromMesh(m); md.materials[0].shader = sh; md.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tex[t];
+    memset(b, 0, sizeof(MB)); return md;   // ownership moved to the model
+}
+static void lodBlock(MB *b, Vector3 P[8], Color top, Color side) {   // a building as one box (corners: bit 0 x, bit 1 y, bit 2 z)
+    static const int F[5][4] = {{2, 6, 7, 3}, {0, 2, 3, 1}, {4, 5, 7, 6}, {0, 4, 6, 2}, {1, 3, 7, 5}};
+    for (int f = 0; f < 5; f++) { Vector3 a = P[F[f][0]], bb = P[F[f][1]], c = P[F[f][2]], d = P[F[f][3]]; Vector3 n = Vector3Normalize(Vector3CrossProduct(Vector3Subtract(bb, a), Vector3Subtract(d, a)));
+        Color cc = f == 0 ? top : aMul(side, 0.8f + 0.2f * fabsf(n.x)); Vector3 q[6] = {a, bb, c, a, c, d};
+        for (int i = 0; i < 6; i++) mbPush(b, q[i], (Vector2){0.5f, 0.5f}, n, cc);
+        for (int i = 5; i >= 0; i--) mbPush(b, q[i], (Vector2){0.5f, 0.5f}, Vector3Negate(n), cc); }
+}
 static void finalizeMeshes(void) {
-    for (int t = 0; t < T_COUNT; t++) {
-        if (mb[t].cnt == 0) continue;
-        Mesh m = {0};
-        m.vertexCount = mb[t].cnt; m.triangleCount = mb[t].cnt / 3;
-        m.vertices = mb[t].v; m.texcoords = mb[t].t; m.normals = mb[t].n; m.colors = mb[t].c;
-        UploadMesh(&m, false);
-        stat[t] = LoadModelFromMesh(m);
-        stat[t].materials[0].shader = sh;
-        stat[t].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tex[t];
-        statOk[t] = true;
-        memset(&mb[t], 0, sizeof(MB));   // ownership moved to the model
-    }
+    int nm = 0;
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) { if (mb[c][t].cnt == 0) continue; stat[c][t] = mbModel(&mb[c][t], t); statOk[c][t] = true; nm++; }
+    static MB lod[NCH * NCH]; memset(lod, 0, sizeof lod);   // far LOD: every building footprint as one block
+    for (int i = 0; i < nMapFoot; i++) { Rectangle r = mapFoot[i]; float y0 = mapFootY[i], y1 = y0 + mapFootH[i] + 0.6f; Vector3 P[8];
+        for (int k = 0; k < 8; k++) P[k] = xfP(mapFootF[i], V3((k & 1) ? r.x + r.width : r.x, (k & 2) ? y1 : y0, (k & 4) ? r.y + r.height : r.y));
+        int ch = chunkOf((P[0].x + P[7].x) / 2, (P[0].z + P[7].z) / 2); if (!chAny[ch]) { chAny[ch] = true; chMn[ch] = P[0]; chMx[ch] = P[0]; }
+        for (int k = 0; k < 8; k++) { chMn[ch] = Vector3Min(chMn[ch], P[k]); chMx[ch] = Vector3Max(chMx[ch], P[k]); }
+        int hsh = (int)(r.x * 7 + r.y * 13) & 3; Color wc = (Color[]){{196, 192, 184, 255}, {176, 172, 166, 255}, {206, 200, 186, 255}, {160, 162, 166, 255}}[hsh];
+        lodBlock(&lod[ch], P, rgb(90, 90, 92), wc); }
+    for (int c = 0; c < NCH * NCH; c++) if (lod[c].cnt) { chLod[c] = mbModel(&lod[c], T_PLAIN); chLodOk[c] = true; }
+    TraceLog(LOG_INFO, "WORLD: %d chunk meshes", nm);
 }
 #include "zk_layout.h"
 #include "zk_objs.h"
@@ -956,28 +1015,30 @@ static void spawnCreatureT(Vector3 nearP, float minD, float maxD, bool alerted, 
         float x, z;
         if (maxD > 0) { float a = fr(0, 2 * PI), d = fr(minD, maxD); x = nearP.x + cosf(a) * d; z = nearP.z + sinf(a) * d; }
         else { x = fr(2, CITY - 2); z = fr(2, CITY - 2); if (Vector3Distance(V3(x, 0, z), pl.pos) < minD) continue; }
-        if (x < 1 || z < 1 || x > CITY - 1 || z > CITY - 1) continue;
+        if (x < -WEST + 6 || z < -WILD + 6 || x > CITY + WILD - 6 || z > CITY + WILD - 6) continue;   // anywhere in the world on town ground (the district too)
         if (forceType != 4 && (!pointFree(x, z, 0.5f, 0.2f) || !cityLand(x, z))) continue;
         if (forceType == 4) { bool warded = false; for (int w = 0; w < nWard; w++) if (wards[w].on && Vector3Distance(V3(x, 0, z), V3(wards[w].pos.x, 0, wards[w].pos.z)) < wards[w].r + 6) warded = true; if (warded) continue; }
         Cr *c = &crs[slot]; memset(c, 0, sizeof *c);
         float r = fr(0, 1);
-        c->type = forceType >= 0 ? forceType : (r < 0.3f ? 0 : r < 0.45f ? 1 : r < 0.6f ? 2 : r < 0.72f ? 3 : r < 0.84f ? 6 : r < 0.94f ? 7 : 0);
+        if (forceType >= 0) c->type = forceType;
+        else if (inDistrict(x, z)) c->type = r < 0.2f ? 15 : r < 0.34f ? 14 : r < 0.46f ? 13 : r < 0.58f ? 10 : r < 0.7f ? 16 : r < 0.8f ? 17 : r < 0.9f ? 1 : 0;   // the high-rise district has its own
+        else c->type = r < 0.24f ? 0 : r < 0.36f ? 1 : r < 0.47f ? 2 : r < 0.56f ? 3 : r < 0.65f ? 6 : r < 0.73f ? 7 : r < 0.79f ? 10 : r < 0.85f ? 12 : r < 0.9f ? 16 : r < 0.95f ? 17 : r < 0.98f ? 13 : 0;
         crStats(c);
         c->pos = V3(x, SIDEH, z); c->yaw = fr(-PI, PI); c->on = true;
         c->state = alerted ? CS_CHASE : CS_WANDER; c->tgt = c->pos; c->groanT = fr(2, 10); c->t = fr(0, 100); c->lastKnown = c->pos;
-        if (forceType < 0 && c->type == 3) { Vector3 p = c->pos; for (int k2 = 0; k2 < 1 + ri(2); k2++) spawnAt(Vector3Add(p, V3(fr(-2, 2), 0, fr(-2, 2))), 3, alerted); }   // dogs hunt in packs
+        if (forceType < 0 && (c->type == 3 || c->type == 16)) { Vector3 p = c->pos; int ty = c->type; for (int k2 = 0; k2 < 1 + ri(2); k2++) spawnAt(Vector3Add(p, V3(fr(-2, 2), 0, fr(-2, 2))), ty, alerted); }   // dogs and gaki come in packs
         return;
     }
 }
 static int streetOfKind(int k, float minW) {   // shot tests: the longest street of a kind (0 street, 1 avenue, 2 stairs, 3 bridge)
-    int best = 0, bn = -1; for (int i = 0; i < nStreet; i++) if (dStreets[i][3] == k && dStreets[i][2] / 10.0f >= minW && dStreets[i][1] > bn) { bn = dStreets[i][1]; best = i; } return best; }
+    int best = 0, bn = -1; for (int i = 0; i < nStreet; i++) if (stKind[i] == k && stW10[i] / 10.0f >= minW && ST_N(i) > bn) { bn = ST_N(i); best = i; } return best; }
 static Vector3 seaSidePt(int i, float d) {   // shot tests: a point d metres off the coast road, on the side towards the sea
     Vector2 nn = pnorm(coastP, nCoast, i); Vector3 a = V3(coastP[i].x + nn.x * d, 0, coastP[i].z + nn.y * d), b = V3(coastP[i].x - nn.x * d, 0, coastP[i].z - nn.y * d);
     return terrainH(a.x, a.z) < terrainH(b.x, b.z) ? a : b; }
 static Vector3 opCenter(Open *o); static Vector3 opNormal(Open *o);
 static bool roadCentreAt(float x, float z) {   // inside the driven part of a street or the coast road (1 m in from the edges)
     if (nCoast > 1 && pathDist(coastP, nCoast, x, z, NULL) < 2.7f) return true;
-    for (int s2 = 0; s2 < nStreet; s2++) { float w = dStreets[s2][2] / 10.0f; if (w < 3) continue; if (pathDist(stPts + dStreets[s2][0], dStreets[s2][1], x, z, NULL) < w / 2 - 1.0f) return true; }
+    for (int s2 = 0; s2 < nStreet; s2++) { float w = stW10[s2] / 10.0f; if (w < 3) continue; if (pathDist(ST_P(s2), ST_N(s2), x, z, NULL) < w / 2 - 1.0f) return true; }
     return false; }
 static void genWorld(unsigned int seed) {
     freeWorld();
@@ -1052,7 +1113,8 @@ static void genWorld(unsigned int seed) {
     genWilds();
     genWater();
     worldSolids = nSol; worldLights = nLight;
-    TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot);
+    TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings, %d basements, %d lights, %d signs, %d frames", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot, nPit, nLight, nSign, nXf);
+    for (int i = 0; i < nPit && i < 3; i++) { Vector3 c = xfP(pits[i].f, V3(pits[i].r.x + pits[i].r.width / 2, 0, pits[i].r.y + pits[i].r.height / 2)); TraceLog(LOG_INFO, "PIT %d at %.1f %.1f", i, c.x, c.z); }
     finalizeMeshes();
     genTerrain();
     rs = seed ? seed : 1;   // runs differ from here on: creatures, weather, events
@@ -1082,7 +1144,7 @@ static void resolve(Vector3 *p, float r, float h, float step) {
         for (int it = 0; it < 16 && seaDepth(p->x, p->z) > 0.05f; it++) {
             float gx = terrainH(p->x + 1, p->z) - terrainH(p->x - 1, p->z), gz = terrainH(p->x, p->z + 1) - terrainH(p->x, p->z - 1), L = sqrtf(gx * gx + gz * gz);
             if (L < 1e-4f) break; p->x += gx / L * 0.25f; p->z += gz / L * 0.25f; } }
-    p->x = clampf(p->x, -WILD + 4, CITY + WILD - 4); p->z = clampf(p->z, -WILD + 4, CITY + WILD - 4);
+    p->x = clampf(p->x, -WEST + 4, CITY + WILD - 4); p->z = clampf(p->z, -WILD + 4, CITY + WILD - 4);
 }
 static float groundAt(Vector3 p, float r, float step) {
     float b = baseGroundY(p.x, p.z, p.y);
@@ -1212,7 +1274,7 @@ static void updateSanity(float dt, Vector3 aim) {
         if (fires[i].life <= 0) { fires[i].on = false; if (fires[i].light >= 0) lights[fires[i].light].mode = 2; continue; }
         if (Vector3Distance(fires[i].pos, pl.pos) < 4.5f) pl.nearFire = true;
     }
-    float target = pl.nearFire ? 95 : pl.roof ? 55 : 22;
+    float target = pl.nearFire ? 95 : fminf(90, (pl.roof ? 55 : 22) + wearWarm() * (pl.roof ? 0.6f : 1.0f));   // clothes keep you warm, most of all outdoors
     pl.warmth += (target - pl.warmth) * dt * (pl.nearFire ? 0.08f : 0.02f);
     if (!pl.sleeping) pl.rest = fmaxf(0, pl.rest - dt * 100.0f / 900.0f * trMul(7));
     if (!pl.sleeping && pl.watchT <= 0) pl.boredom = fminf(100, pl.boredom + dt * 100.0f / 300.0f);
@@ -1564,7 +1626,15 @@ static void drawRemotePlayers(float dt);
 static void drawWorld(Vector3 eye, float t) {
     curEmis = -1; setEmis(0);
     if (terrainOk) { terrain.transform = MatrixIdentity(); DrawModel(terrain, V3(0, 0, 0), 1, WHITE); }
-    for (int i = 0; i < T_COUNT; i++) if (statOk[i]) { stat[i].transform = MatrixIdentity(); DrawModel(stat[i], V3(0, 0, 0), 1, WHITE); }
+    {   // the static world by chunk: full detail near, a block model in the fog, nothing beyond it or behind you
+        float fd = gFogD > 1e-4f ? gFogD : 0, lodN = fd > 0 ? clampf(1.35f / fd, 70, 3000) : 1e9f, lodF = fd > 0 ? clampf(2.5f / fd, 110, 4000) : 1e9f;
+        Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool behindCull = fd > 0 && Vector3Length(fw) > 0.25f; if (behindCull) fw = Vector3Normalize(fw);
+        for (int c = 0; c < NCH * NCH; c++) { if (!chAny[c]) continue;
+            float dx = fmaxf(fmaxf(chMn[c].x - eye.x, eye.x - chMx[c].x), 0), dz = fmaxf(fmaxf(chMn[c].z - eye.z, eye.z - chMx[c].z), 0), d = sqrtf(dx * dx + dz * dz);
+            if (d > lodF) continue;
+            if (behindCull && d > 24) { bool ahead = false; for (int k = 0; k < 4 && !ahead; k++) { float cx = (k & 1) ? chMx[c].x : chMn[c].x, cz = (k & 2) ? chMx[c].z : chMn[c].z; if ((cx - eye.x) * fw.x + (cz - eye.z) * fw.z > -12) ahead = true; } if (!ahead) continue; }
+            if (d <= lodN) { for (int i = 0; i < T_COUNT; i++) if (statOk[c][i]) { stat[c][i].transform = MatrixIdentity(); DrawModel(stat[c][i], V3(0, 0, 0), 1, WHITE); } }
+            else if (chLodOk[c]) { chLod[c].transform = MatrixIdentity(); DrawModel(chLod[c], V3(0, 0, 0), 1, WHITE); } } }
     float R2 = 62 * 62;
     for (int i = 0; i < nOps; i++) {
         Open *o = &ops[i];
@@ -1572,7 +1642,14 @@ static void drawWorld(Vector3 eye, float t) {
         if (o->f) xfPush(o->f);
         if (o->type == OP_WINDOW && o->state == 0) drawBox(T_GLASS, o->mn, o->mx, rgb(150, 165, 185));
         else if (o->state == 2) drawPlanks(o->mn, o->mx, o->axis);
-        else if (o->type == OP_DOOR && o->state == 1) drawBox(T_WOOD, o->mn, o->mx, rgb(170, 140, 120));
+        else if (o->type == OP_DOOR) {   // the leaf, turned on its hinge
+            float want = o->state == 0 ? 1.0f : 0.0f; o->swing += (want - o->swing) * fminf(1, GetFrameTime() * 7);
+            bool ax = o->axis == 1; Vector3 h = ax ? V3(o->mn.x, 0, (o->mn.z + o->mx.z) / 2) : V3((o->mn.x + o->mx.x) / 2, 0, o->mn.z);
+            rlDrawRenderBatchActive(); rlPushMatrix(); rlTranslatef(h.x, 0, h.z); rlRotatef(o->swing * 82.0f * (o->side > 0 ? -1 : 1) * (ax ? 1 : -1), 0, 1, 0);
+            drawBox(T_WOOD, Vector3Subtract(o->mn, h), Vector3Subtract(o->mx, h), o->locked ? rgb(150, 120, 100) : rgb(170, 140, 120));
+            float L = ax ? o->mx.x - o->mn.x : o->mx.z - o->mn.z, ky = o->mn.y + 1.0f;   // the handle
+            Vector3 k0 = ax ? V3(L - 0.15f, ky, -0.1f) : V3(-0.1f, ky, L - 0.15f), k1 = ax ? V3(L - 0.08f, ky + 0.06f, 0.1f) : V3(0.1f, ky + 0.06f, L - 0.08f);
+            drawBox(T_METAL, k0, k1, rgb(200, 190, 150)); rlDrawRenderBatchActive(); rlPopMatrix(); }
         if (o->f) xfPop();
     }
     for (int i = 0; i < nCrate; i++) if (crates[i].alive && Vector3DistanceSqr(crates[i].pos, eye) < R2) {
@@ -2140,6 +2217,37 @@ int main(int argc, char **argv) {
 #endif
         if (aBlipOk) SetSoundVolume(aBlip, gs.ui); if (aErrOk) SetSoundVolume(aErr, gs.ui);
         float dt = fminf(GetFrameTime(), 0.05f), t = (float)GetTime();
+        {   // door test: KIRI_DOORTEST=1 walks up to a shut, unlocked door, presses use, checks it opens and stops blocking, presses again
+            static int dt0 = -1, df = 0, di = -1;
+            if (dt0 < 0) dt0 = getenv("KIRI_DOORTEST") ? 1 : 0;
+            if (dt0 == 1) { df++;
+                if (df == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; DisableCursor();
+                    int nShut = 0, nLock = 0, nOpen = 0; for (int i = 0; i < nOps; i++) if (ops[i].type == OP_DOOR) { if (ops[i].state == 1) { nShut++; if (ops[i].locked) nLock++; } else if (ops[i].state == 0) nOpen++; }
+                    TraceLog(LOG_INFO, "DOORTEST doors: %d shut (%d locked), %d open", nShut, nLock, nOpen);
+                    for (int i = 0; i < nOps; i++) if (ops[i].type == OP_DOOR && ops[i].state == 1 && !ops[i].locked && ops[i].mn.y < 1) { di = i; break; }
+                    if (di >= 0) { Open *o = &ops[di]; Vector3 c = opCenter(o), n = opNormal(o); pl.pos = Vector3Add(V3(c.x, o->fy, c.z), Vector3Scale(n, 1.2f)); pl.pos.y = groundAt(V3(pl.pos.x, o->fy + 1, pl.pos.z), 0.3f, 2); pl.vy = 0;
+                        pl.tyaw = pl.yaw = atan2f(-n.x, -n.z); pl.tpitch = pl.pitch = -0.1f; vin.on = true; memset(vin.down, 0, sizeof vin.down); memset(vin.pressed, 0, sizeof vin.pressed); } }
+                if (df == 12 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST before: state %d solid off %d prompt '%s'", ops[di].state, sol[ops[di].sid].off, prompt); vin.pressed[KEY_E] = 1; }
+                if (df == 13) memset(vin.pressed, 0, sizeof vin.pressed);
+                if (df == 30 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST after use: state %d solid off %d swing %.2f", ops[di].state, sol[ops[di].sid].off, ops[di].swing); TakeScreenshot("door_open.png"); vin.pressed[KEY_E] = 1; }
+                if (df == 31) memset(vin.pressed, 0, sizeof vin.pressed);
+                if (df == 50 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST after second use: state %d solid off %d swing %.2f", ops[di].state, sol[ops[di].sid].off, ops[di].swing); TakeScreenshot("door_shut.png"); }
+                if (df == 51) { vin.on = false; break; } } }
+        {   // basement test: KIRI_BASETEST=1 walks down a basement flight and back up with simulated input, then quits
+            static int bt = -1, bf = 0, bp = -1; static Vector3 bdir;
+            if (bt < 0) bt = getenv("KIRI_BASETEST") ? 1 : 0;
+            if (bt == 1) { bf++;
+                if (bf == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; DisableCursor();
+                    for (int i = 0; i < nCr; i++) crs[i].on = false;
+                    bp = nPit > 5 ? 5 : nPit - 1;
+                    if (bp >= 0) { Pit *q = &pits[bp]; bool rx = q->r.width > q->r.height; Vector3 L0 = rx ? V3(q->r.x + 0.25f, 0, q->r.y + q->r.height / 2) : V3(q->r.x + q->r.width / 2, 0, q->r.y + 0.25f);
+                        Vector3 L1 = Vector3Add(L0, rx ? V3(1, 0, 0) : V3(0, 0, 1)); Vector3 a = xfP(q->f, L0), b = xfP(q->f, L1); bdir = Vector3Subtract(b, a);
+                        pl.pos = V3(a.x, SIDEH + 0.02f, a.z); pl.vy = 0; pl.tyaw = pl.yaw = atan2f(bdir.x, bdir.z); pl.tpitch = pl.pitch = -0.3f; pl.flash = true; pl.batt = 100;
+                        vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_W] = 1; TraceLog(LOG_INFO, "BASETEST pit %d of %d at %.1f %.1f", bp, nPit, a.x, a.z); } }
+                if (bf > 5 && bf < 100 && bf % 10 == 0) TraceLog(LOG_INFO, "BASEDBG f%d y %.2f", bf, pl.pos.y);
+                if (bf == 100) { TraceLog(LOG_INFO, "BASETEST down: reached y %.2f (basement floor %.2f)", pl.pos.y, SIDEH - FH); TakeScreenshot("base_bottom.png"); pl.tyaw = pl.yaw = atan2f(-bdir.x, -bdir.z); pl.tpitch = pl.pitch = 0.2f; }
+                if (bf == 104) TakeScreenshot("base_look_up.png");
+                if (bf == 180) { TraceLog(LOG_INFO, "BASETEST up: reached y %.2f", pl.pos.y); vin.on = false; break; } } }
         {   // look test: KIRI_LOOK="x y z yaw pitch name;..." stands there at noon (y < -500: on the ground), waits, takes name.png, quits
             static const char *lk = NULL; static int li = 0, lf = 0; static char spec[2048]; if (frame == 1) { lk = getenv("KIRI_LOOK"); if (lk) snprintf(spec, sizeof spec, "%s", lk); }
             if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; if (getenv("KIRI_FLY")) cht.on[CH_NOCLIP] = true; pl.tod = 12; cht.frozenTod = 12; DisableCursor();
@@ -2148,13 +2256,18 @@ int main(int argc, char **argv) {
                 { Vector3 w_ = seaSidePt(nCoast / 2, 30); Vector3 c_ = coastP[nCoast / 2 + 3]; Vector3 d_ = Vector3Normalize(V3(w_.x - coastP[nCoast / 2].x, 0, w_.z - coastP[nCoast / 2].z));
                   TraceLog(LOG_INFO, "LOOK sw c %.1f %.1f d %.3f %.3f", c_.x, c_.z, d_.x, d_.z);
                   for (float o = 0; o <= 30; o += 2) { float x = c_.x + d_.x * o, z = c_.z + d_.z * o; TraceLog(LOG_INFO, "LOOK sw o %.0f guard %d mr %d h %.2f cd %.1f cs %.1f seaw %d sea %d city %d town %d", o, ribbonGuard(coastP, x, z, 5.2f), mainRoadAt(x, z, 0.3f), terrainH(x, z), coast_d(x, z), coastSigned(x, z), coastSeaward(x, z), seaSide(x, z), cityLand(x, z), inTownRaw(x, z)); } }
+                if (getenv("KIRI_CRSHOT")) { cht.on[CH_PEACE] = false; for (int i = 0; i < nCr; i++) crs[i].on = false; float bx, bz; if (sscanf(getenv("KIRI_CRSHOT"), "%f %f", &bx, &bz) == 2)
+                    for (int t = 10; t < 18; t++) { int s2 = spawnAt(V3(bx + (t - 13.5f) * 2.2f, SIDEH, bz), t, false); if (s2 >= 0) { crs[s2].yaw = PI; crs[s2].t = 0; } } }
+                if (getenv("KIRI_MAPSHOT")) { pl.mapOpen = true; EnableCursor(); float zx, tx, tz; if (sscanf(getenv("KIRI_MAPSHOT"), "%f %f %f", &zx, &tx, &tz) == 3) { mapZoom = zx; mapTgt = (Vector2){tx, tz}; } }
+                if (getenv("KIRI_INVSHOT")) { invAdd(IT_COAT, 1); invAdd(IT_HARDHAT, 1); invAdd(IT_BOOTS, 1); invAdd(IT_WORKPANTS, 1); invAdd(IT_STABVEST, 1); invAdd(IT_NAGINATA, 1); invAdd(IT_TETSUBO, 1); invAdd(IT_BEANIE, 1);
+                    pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
                 if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
-                    TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z)); } }
+                    TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d terrain %.2f", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z), terrainH(x, z)); } }
                 TraceLog(LOG_INFO, "LOOK touge end %.1f %.1f %.1f, before %.1f %.1f", tougeP[nTouge - 1].x, tougeP[nTouge - 1].y, tougeP[nTouge - 1].z, tougeP[nTouge - 4].x, tougeP[nTouge - 4].z); }
             if (lk && frame > 10) { char *p = spec; for (int k = 0; k < li && p; k++) { p = strchr(p, ';'); if (p) p++; }
                 if (!p || !*p) { TraceLog(LOG_INFO, "LOOK done"); break; }
                 float x, y, z, yw, pt; char nm[64]; if (sscanf(p, "%f %f %f %f %f %63[^;]", &x, &y, &z, &yw, &pt, nm) == 6) {
-                    if (lf == 0) { if (y < -500) y = groundAt(V3(x, 200, z), 0.3f, 400) + 0.05f; pl.pos = V3(x, y, z); pl.vy = 0; pl.tyaw = pl.yaw = yw; pl.tpitch = pl.pitch = pt; for (int i = 0; i < nCr; i++) crs[i].on = false; }
+                    if (lf == 0) { if (y < -500) y = groundAt(V3(x, 200, z), 0.3f, 400) + 0.05f; pl.pos = V3(x, y, z); pl.vy = 0; pl.tyaw = pl.yaw = yw; pl.tpitch = pl.pitch = pt; if (!getenv("KIRI_CRSHOT")) for (int i = 0; i < nCr; i++) crs[i].on = false; }
                     pl.vy = 0; pl.pos.y = pl.pos.y;
                     if (++lf == 24) { TakeScreenshot(TextFormat("%s.png", nm)); lf = 0; li++; } }
                 else { li++; lf = 0; } }
@@ -2174,7 +2287,8 @@ int main(int argc, char **argv) {
                 {IT_KNIFE, ANIM_INSPECT, 0.26f, -1, 0, false, "vm_knife_inspect_face1"}, {IT_KNIFE, ANIM_INSPECT, 0.5f, -1, 0, false, "vm_knife_inspect_face2"}, {IT_KNIFE, ANIM_INSPECT, 0.73f, -1, 0, false, "vm_knife_inspect_flip"}, {IT_KNIFE, -1, 0, -1, 0, false, "vm_knife_idle"}, {IT_FOOD, -1, 0, -1, 0, false, "vm_food_hold"}, {IT_WATER, -1, 0, -1, 0, false, "vm_water_hold"}, {IT_BANDAGE, -1, 0, -1, 0, true, "vm_bandage_hold"},
                 {IT_AXE, ANIM_INSPECT, 0.3f, -1, 0, false, "vm_axe_inspect"}, {IT_AXE, ANIM_INSPECT, 0.66f, -1, 0, false, "vm_axe_inspect_thumb"},
                 {IT_KATANA, ANIM_INSPECT, 0.53f, -1, 0, false, "vm_katana_inspect_edge"}, {IT_REVOLVER, -1, 0, 0.05f, 4, false, "vm_hitmarker"},
-                {IT_REVOLVER, ANIM_TURNGUN, 0.25f, -1, 6, false, "vm_turn1"}, {IT_REVOLVER, ANIM_TURNGUN, 0.6f, -1, 6, false, "vm_turn2"}, {IT_REVOLVER, ANIM_TURNGUN, 0.93f, -1, 6, false, "vm_turn3"}};
+                {IT_REVOLVER, ANIM_TURNGUN, 0.25f, -1, 6, false, "vm_turn1"}, {IT_REVOLVER, ANIM_TURNGUN, 0.6f, -1, 6, false, "vm_turn2"}, {IT_REVOLVER, ANIM_TURNGUN, 0.93f, -1, 6, false, "vm_turn3"},
+                {IT_WAKIZASHI, -1, 0, -1, 0, false, "vm_new_wakizashi"}, {IT_NAGINATA, -1, 0, -1, 0, false, "vm_new_naginata"}, {IT_BOKKEN, -1, 0, -1, 0, false, "vm_new_bokken"}, {IT_GOLFCLUB, -1, 0, -1, 0, false, "vm_new_golfclub"}, {IT_SHOVEL, -1, 0, -1, 0, false, "vm_new_shovel"}, {IT_MACHETE, -1, 0, -1, 0, false, "vm_new_machete"}, {IT_CLEAVER, -1, 0, -1, 0, false, "vm_new_cleaver"}, {IT_SICKLE, -1, 0, -1, 0, false, "vm_new_sickle"}, {IT_WRENCH, -1, 0, -1, 0, false, "vm_new_wrench"}, {IT_BATON, -1, 0, -1, 0, false, "vm_new_baton"}, {IT_TETSUBO, -1, 0, -1, 0, false, "vm_new_tetsubo"}, {IT_PICKAXE, -1, 0, -1, 0, false, "vm_new_pickaxe"}, {IT_SCALPEL, -1, 0, -1, 0, false, "vm_new_scalpel"}, {IT_FIREEXT, -1, 0, -1, 0, false, "vm_new_fireext"}, {IT_UMBRELLA, -1, 0, -1, 0, false, "vm_new_umbrella"}, {IT_STOPSIGN, -1, 0, -1, 0, false, "vm_new_stopsign"}};
             int NV = (int)(sizeof V / sizeof V[0]);
             if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;
                 invAdd(IT_AMMO, 24); pl.pos = V3(SPAWN_X, 0, SPAWN_Z); pl.pos.y = groundAt(V3(SPAWN_X, 30, SPAWN_Z), 0.3f, 40) + 0.05f; pl.tyaw = pl.yaw = 0.6f; pl.tpitch = pl.pitch = 0.05f; }
@@ -2231,7 +2345,7 @@ int main(int argc, char **argv) {
                 gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_STAM] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; cht.on[CH_TIME] = true; cht.frozenTod = 12;
                 #define WADD(P, N, REV) do { seg[nSeg++] = nR; for (int q_ = 0; q_ < (N) && nR < 20000; q_++) route[nR++] = (P)[(REV) ? (N) - 1 - q_ : q_]; } while (0)
                 WADD(tougeP, nTouge, 1); WADD(coastP, nCoast, 0);
-                for (int s2 = 0; s2 < nStreet; s2++) if (dStreets[s2][3] == 1 || dStreets[s2][3] == 2) WADD(stPts + dStreets[s2][0], dStreets[s2][1], 0);
+                for (int s2 = 0; s2 < nStreet; s2++) if (stKind[s2] == 1 || stKind[s2] == 2) WADD(ST_P(s2), ST_N(s2), 0);
                 seg[nSeg] = nR; ri0 = 1; walkTun = 0; pl.pos = route[0]; pl.pos.y = baseGroundY(route[0].x, route[0].z, 99) + 0.2f; pl.vy = 0; lastP = pl.pos; vin.on = true;
                 TraceLog(LOG_INFO, "WALK route: %d points in %d stretches (touge %d, coast %d)", nR, nSeg, nTouge, nCoast); }
             if (wk == 1 && walkTun >= 0 && walkTun < 4 && frame > 5) {   // pictures of both railway tunnel mouths, from the track and from the side
@@ -2340,7 +2454,7 @@ int main(int argc, char **argv) {
         Vector3 eye, aim;
         if (state == ST_PLAY) {
 #if !defined(PLATFORM_WEB)
-            static int autoTest = -1; if (autoTest < 0) autoTest = getenv("KIRI_SHOT") || getenv("KIRI_WALK") || getenv("KIRI_VM") || getenv("KIRI_MPHOST") || getenv("KIRI_MPJOIN") ? 1 : 0;
+            static int autoTest = -1; if (autoTest < 0) autoTest = getenv("KIRI_SHOT") || getenv("KIRI_BASETEST") || getenv("KIRI_DOORTEST") || getenv("KIRI_WALK") || getenv("KIRI_VM") || getenv("KIRI_MPHOST") || getenv("KIRI_MPJOIN") ? 1 : 0;
             if (gs.pauseUnfocus && !autoTest && !IsWindowFocused() && netMode == NM_OFF && !vin.on) { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; }
 #endif
             if (cht.avail && KP(cht.key) && !pl.invOpen && !pl.mapOpen) { cht.menu = !cht.menu; if (cht.menu) EnableCursor(); else DisableCursor(); }
@@ -2415,8 +2529,9 @@ int main(int argc, char **argv) {
         SetShaderValue(sh, locFlashDir, &aim, SHADER_UNIFORM_VEC3);
         SetShaderValue(sh, locFlashOn, &flash, SHADER_UNIFORM_FLOAT);
         SetShaderValue(sh, locMuzzle, &muzzle, SHADER_UNIFORM_FLOAT);
+        { static int clr = -1; if (clr < 0) clr = getenv("KIRI_CLEAR") != NULL; if (clr) { amb = 1.0f; fogD = 0.002f; } }   // test shots: clear daylight
         SetShaderValue(sh, locAmb, &amb, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT); gFogD = fogD;
         if (!gs.wobble) { snap[0] = snap[1] = 16384; }
         SetShaderValue(sh, locSnap, snap, SHADER_UNIFORM_VEC2);
         float desat = (state == ST_PLAY || gameActive) ? (pl.stage == 1 ? 0.35f : pl.stage >= 2 ? 0.65f : 0) + (pl.sanity < 30 ? (30 - pl.sanity) / 60.0f : 0) : 0;
@@ -2661,12 +2776,12 @@ int main(int argc, char **argv) {
             SHOTAT(881, tougeP[40].x, tougeP[40].y + 0.1f, tougeP[40].z, atan2f(tougeP[46].x - tougeP[40].x, tougeP[46].z - tougeP[40].z), 0.05f, "shot_touge.png")
             SHOTAT(888, HAMLET_X, pads[0].y + 0.1f, HAMLET_Z + 14, PI, -0.05f, "shot_hamlet.png")
             SHOTAT(895, bores[3].px - 9, bores[3].fy, bores[3].pz, PI / 2, 0.0f, "shot_oldtunnel.png")
-            { int b_ = streetOfKind(3, 0); const Vector3 *q_ = stPts + dStreets[b_][0]; int n_ = dStreets[b_][1];
+            { int b_ = streetOfKind(3, 0); const Vector3 *q_ = ST_P(b_); int n_ = ST_N(b_);
               SHOTAT(902, q_[0].x, SIDEH + 0.1f, q_[0].z, atan2f(q_[n_ - 1].x - q_[0].x, q_[n_ - 1].z - q_[0].z), -0.05f, "shot_bridge.png") }
             SHOTAT(909, bores[1].px - 24, 0.2f, bores[1].pz, PI / 2, 0.02f, "shot_portal_se.png")
-            { int a_ = streetOfKind(1, 0); const Vector3 *q_ = stPts + dStreets[a_][0]; int m_ = dStreets[a_][1] / 3;
+            { int a_ = streetOfKind(1, 0); const Vector3 *q_ = ST_P(a_); int m_ = ST_N(a_) / 3;
               SHOTAT(1032, q_[m_].x, SIDEH + 0.1f, q_[m_].z, atan2f(q_[m_ + 2].x - q_[m_].x, q_[m_ + 2].z - q_[m_].z), -0.03f, "shot_avenue.png") }
-            { int t_ = streetOfKind(2, 0); const Vector3 *q_ = stPts + dStreets[t_][0]; int n_ = dStreets[t_][1];
+            { int t_ = streetOfKind(2, 0); const Vector3 *q_ = ST_P(t_); int n_ = ST_N(t_);
               SHOTAT(1040, q_[0].x, SIDEH + 0.1f, q_[0].z, atan2f(q_[n_ - 1].x - q_[0].x, q_[n_ - 1].z - q_[0].z), -0.05f, "shot_stairs.png") }
             { Vector3 w_ = seaSidePt(nCoast / 2, 30); Vector3 c_ = coastP[nCoast / 2 + 3]; Vector3 e_ = V3(c_.x + (w_.x - coastP[nCoast / 2].x) * 0.1f, SIDEH + 0.1f, c_.z + (w_.z - coastP[nCoast / 2].z) * 0.1f);
               SHOTAT(1056, e_.x, e_.y, e_.z, atan2f(w_.x - c_.x, w_.z - c_.z) - 0.6f, -0.35f, "shot_seawall.png") if (frame > 1056 && frame < 1062) pl.flash = false; }
@@ -2745,15 +2860,15 @@ int main(int argc, char **argv) {
             if (frame > 1204 && frame < 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
             if (frame == 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
                 TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
-            if (frame == 6) { char wb2[2000] = ""; for (int i = 0; i < wallAuditN && i < 24; i++) { char t2[64]; snprintf(t2, 64, " (%.0f,%.0f t%d w%.1f h%.1f)", wallAuditP[i].x, wallAuditP[i].z, wallAuditT[i], wallAuditW[i], wallAuditH[i]); strcat(wb2, t2); } TraceLog(LOG_INFO, "WALLAUDIT %d upright faces stand on a road:%s", wallAuditN, wb2); if (wallAuditN) { Vector3 q = wallAuditP[0]; int st = -1; for (int s2 = 0; s2 < nStreet; s2++) if (pathDist(stPts + dStreets[s2][0], dStreets[s2][1], q.x, q.z, NULL) < dStreets[s2][2] / 20.0f) st = s2; TraceLog(LOG_INFO, "WALLAUDIT first: coast_d %.1f street %d kind %d touge %.1f north %.1f bores %d", coast_d(q.x, q.z), st, st >= 0 ? dStreets[st][3] : -1, pathDist(tougeP, nTouge, q.x, q.z, NULL), pathDist(northP, nNorth, q.x, q.z, NULL), inBore(q.x, q.z, SIDEH)); } }
+            if (frame == 6) { char wb2[2000] = ""; for (int i = 0; i < wallAuditN && i < 24; i++) { char t2[64]; snprintf(t2, 64, " (%.0f,%.0f t%d w%.1f h%.1f)", wallAuditP[i].x, wallAuditP[i].z, wallAuditT[i], wallAuditW[i], wallAuditH[i]); strcat(wb2, t2); } TraceLog(LOG_INFO, "WALLAUDIT %d upright faces stand on a road:%s", wallAuditN, wb2); if (wallAuditN) { Vector3 q = wallAuditP[0]; int st = -1; for (int s2 = 0; s2 < nStreet; s2++) if (pathDist(ST_P(s2), ST_N(s2), q.x, q.z, NULL) < stW10[s2] / 20.0f) st = s2; TraceLog(LOG_INFO, "WALLAUDIT first: coast_d %.1f street %d kind %d touge %.1f north %.1f bores %d", coast_d(q.x, q.z), st, st >= 0 ? stKind[st] : -1, pathDist(tougeP, nTouge, q.x, q.z, NULL), pathDist(northP, nNorth, q.x, q.z, NULL), inBore(q.x, q.z, SIDEH)); } }
             if (frame == 6) {   // walkability audit: every street and the coast road, centre and edges: solid ground at the drawn height, nothing in the way
                 int holes = 0, blocked = 0, total = 0; char hb[400] = "", bb[400] = "";
-                for (int s2 = -1; s2 < nStreet; s2++) { const Vector3 *p = s2 < 0 ? coastP : stPts + dStreets[s2][0]; int n = s2 < 0 ? nCoast : dStreets[s2][1]; float w = s2 < 0 ? 9.0f : dStreets[s2][2] / 10.0f;
-                    if (s2 >= 0 && dStreets[s2][3] == 3) continue;
+                for (int s2 = -1; s2 < nStreet; s2++) { const Vector3 *p = s2 < 0 ? coastP : ST_P(s2); int n = s2 < 0 ? nCoast : ST_N(s2); float w = s2 < 0 ? 9.0f : stW10[s2] / 10.0f;
+                    if (s2 >= 0 && stKind[s2] == 3) continue;
                     for (int i = 0; i < n; i++) { Vector2 nn = pnorm(p, n, i); for (int e = -1; e <= 1; e++) { float o2 = e * (w / 2 - 0.5f); float x = p[i].x + nn.x * o2, z = p[i].z + nn.y * o2; total++;
                         float g = groundAt(V3(x, SIDEH + 0.4f, z), 0.25f, 0.42f);
-                        if (g < SIDEH - 0.3f) { holes++; if (holes <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f g%.1f)", x, z, g); strcat(hb, t2); } if (holes <= 4) TraceLog(LOG_INFO, "HOLEDBG street %d kind %d at %.1f %.1f: land %d terrain %.2f coast_d %.1f cs %.1f river %d sea %d bore %d", s2, s2 >= 0 ? dStreets[s2][3] : -1, x, z, cityLand(x, z), terrainH(x, z), coast_d(x, z), coastSigned(x, z), inRiverRaw(x, z), seaSide(x, z), inBore(x, z, SIDEH)); }
-                        else if (!pointFree(x, z, 0.3f, SIDEH + 0.25f) && e == 0) { if (blocked < 12) { query(x - 0.3f, z - 0.3f, x + 0.3f, z + 0.3f); for (int q = 0; q < qn; q++) { Solid *so = &sol[qb[q]]; Vector3 L_ = solL(so, V3(x, 0, z)); if (so->mx.y > SIDEH + 0.25f && so->mn.y < SIDEH + 1.8f && L_.x + 0.3f > so->mn.x && L_.x - 0.3f < so->mx.x && L_.z + 0.3f > so->mn.z && L_.z - 0.3f < so->mx.z) TraceLog(LOG_INFO, "BLOCKDBG at %.1f %.1f solid %d f%d mn %.1f %.1f %.1f mx %.1f %.1f %.1f street %d kind %d", x, z, qb[q], so->f, so->mn.x, so->mn.y, so->mn.z, so->mx.x, so->mx.y, so->mx.z, s2, s2 >= 0 ? dStreets[s2][3] : -1); } } blocked++; if (blocked <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f)", x, z); strcat(bb, t2); } } } } }
+                        if (g < SIDEH - 0.3f) { holes++; if (holes <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f g%.1f)", x, z, g); strcat(hb, t2); } if (holes <= 4) TraceLog(LOG_INFO, "HOLEDBG street %d kind %d at %.1f %.1f: land %d terrain %.2f coast_d %.1f cs %.1f river %d sea %d bore %d", s2, s2 >= 0 ? stKind[s2] : -1, x, z, cityLand(x, z), terrainH(x, z), coast_d(x, z), coastSigned(x, z), inRiverRaw(x, z), seaSide(x, z), inBore(x, z, SIDEH)); }
+                        else if (!pointFree(x, z, 0.3f, SIDEH + 0.25f) && e == 0) { if (blocked < 12) { query(x - 0.3f, z - 0.3f, x + 0.3f, z + 0.3f); for (int q = 0; q < qn; q++) { Solid *so = &sol[qb[q]]; Vector3 L_ = solL(so, V3(x, 0, z)); if (so->mx.y > SIDEH + 0.25f && so->mn.y < SIDEH + 1.8f && L_.x + 0.3f > so->mn.x && L_.x - 0.3f < so->mx.x && L_.z + 0.3f > so->mn.z && L_.z - 0.3f < so->mx.z) TraceLog(LOG_INFO, "BLOCKDBG at %.1f %.1f solid %d f%d mn %.1f %.1f %.1f mx %.1f %.1f %.1f street %d kind %d", x, z, qb[q], so->f, so->mn.x, so->mn.y, so->mn.z, so->mx.x, so->mx.y, so->mx.z, s2, s2 >= 0 ? stKind[s2] : -1); } } blocked++; if (blocked <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f)", x, z); strcat(bb, t2); } } } } }
                 TraceLog(LOG_INFO, "WALKAUDIT %d points: %d with no ground under the road%s | %d blocked on a centre line%s", total, holes, hb, blocked, bb); }
             if (frame == 1149) TraceLog(LOG_INFO, "FEAT parks %d at %.1f %.1f mirror %.1f %.1f", nFeatPark, featPark.x, featPark.z, featMirror.x, featMirror.z);
             if (frame == 1191 || frame == 1197) { state = ST_PLAY; pl.hp = 100; cht.menu = false; pl.invOpen = pl.mapOpen = false; gameActive = true; }

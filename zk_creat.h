@@ -31,9 +31,9 @@ static bool lineOfSight(Vector3 a, Vector3 b) {
 }
 static float stingCd = 0;
 static void sting(Vector3 p) { if (stingCd <= 0 && audioOk) { SetSoundVolume(sStinger, 0.75f * gs.sfx); SetSoundPitch(sStinger, fr(0.9f, 1.1f)); PlaySound(sStinger); stingCd = 9; } (void)p; }
-static int crDamageOf(int type) { switch (type) { case 1: return 18; case 2: return 7; case 3: return 9; case 5: return 22; case 6: return 14; case 7: return 15; case 8: return 12; case 9: return 26; default: return 11; } }
-static float crBleedOf(int type) { switch (type) { case 2: return 0.6f; case 3: return 0.7f; case 5: return 0.6f; case 8: return 0.7f; case 6: return 0.3f; default: return 0.45f; } }
-static float crSightOf(int type) { switch (type) { case 3: return 22; case 5: return 34; case 6: return 20; case 9: return 18; case 7: return 14; default: return 16; } }
+static int crDamageOf(int type) { switch (type) { case 1: return 18; case 2: return 7; case 3: return 9; case 5: return 22; case 6: return 14; case 7: return 15; case 8: return 12; case 9: return 26; case 10: return 20; case 11: return 9; case 12: return 10; case 13: return 24; case 14: return 13; case 15: return 19; case 16: return 6; case 17: return 14; default: return 11; } }
+static float crBleedOf(int type) { switch (type) { case 2: return 0.6f; case 3: return 0.7f; case 5: return 0.6f; case 8: return 0.7f; case 6: return 0.3f; case 10: return 0.85f; case 11: return 0.6f; case 13: return 0.75f; case 14: return 0.9f; case 15: return 0.15f; case 16: return 0.5f; case 17: return 0.35f; default: return 0.45f; } }
+static float crSightOf(int type) { switch (type) { case 3: return 22; case 5: return 34; case 6: return 20; case 9: return 18; case 7: return 14; case 10: return 26; case 13: return 24; case 15: return 22; case 11: return 12; default: return 16; } }
 // nearest stair waypoint that moves a creature toward the player's floor
 static Vector3 navGoal(Cr *c, Vector3 target) {
     float dy = target.y - c->pos.y;
@@ -52,7 +52,7 @@ static Vector3 navGoal(Cr *c, Vector3 target) {
     return from;
 }
 static void attackStructureNear(Cr *c) {
-    float r = 1.9f; float dmg = c->type == 1 || c->type == 9 ? 2.5f : c->type == 6 ? 2 : 1;
+    float r = 1.9f; float dmg = c->type == 1 || c->type == 9 || c->type == 13 ? 2.5f : c->type == 15 ? 2.2f : c->type == 6 || c->type == 10 ? 2 : c->type == 16 ? 0.7f : 1;
     for (int i = 0; i < nBuild; i++) {
         Build *b = &builds[i]; if (!b->alive || b->kind == BK_SHRINE || b->kind == BK_WARD || b->sid < 0 || (b->kind == BK_DOOR && b->open)) continue;
         Vector3 cc = Vector3Scale(Vector3Add(b->mn, b->mx), 0.5f);
@@ -102,7 +102,12 @@ static void updateCreatures(float dt, Vector3 aim) {
     for (int i = 0; i < nCr; i++) {
         Cr *c = &crs[i]; if (!c->on) continue;
         c->t += dt; c->hurt -= dt; c->flinch = fmaxf(0, c->flinch - dt * 3.5f);
-        if (c->state == CS_DEAD) { c->deadT += dt; if (c->deadT > (c->type == 4 ? 1.2f : 30)) c->on = false; continue; }
+        if (c->state == CS_DEAD) {
+            if (c->type == 12 && c->deadT == 0) {   // the bloated one bursts: a spray of filth that sickens and hurts anyone close
+                Vector3 cc = Vector3Add(c->pos, V3(0, 1.0f, 0)); spawnParts(cc, 30, T_GORE, (Color){150, 170, 120, 255}, 4.0f, 0.14f); playAt(sSplat, cc, 40, 1.0f);
+                if (Vector3Distance(cc, pl.pos) < 3.6f && !cht.on[CH_GOD]) { hurtPlayer(12, 0.2f); pl.sick = fminf(100, pl.sick + 30); pl.shake = fmaxf(pl.shake, 0.6f); say("It bursts over you. The stink is unbearable."); }
+                for (int j = 0; j < nCr; j++) if (j != i && crs[j].on && crs[j].state != CS_DEAD && Vector3Distance(crs[j].pos, c->pos) < 3.6f) { crs[j].hp -= 3; crs[j].hurt = 0.2f; if (crs[j].hp <= 0) { crs[j].state = CS_DEAD; crs[j].deadT = 0; } } }
+            c->deadT += dt; if (c->deadT > (c->type == 4 ? 1.2f : 30)) c->on = false; continue; }
         c->revealT -= dt;
         if (c->phantom) {   // hallucination: drifts toward you, vanishes up close
             Vector3 to = V3(pl.pos.x - c->pos.x, 0, pl.pos.z - c->pos.z); float dist = Vector3Length(to);
@@ -199,6 +204,7 @@ static void updateCreatures(float dt, Vector3 aim) {
                 if (c->type != 5 && c->type != 7) playAt(sScreech, c->pos, 35, 0.5f);
                 if (dist < 18) sting(c->pos);
                 if (c->type == 6) c->scream = 0;
+                c->chaseT = 0;   // (the kuchisake stares first)
             }
         } else {
             if (!sees) { c->losT += dt; if (c->losT > (c->type == 9 ? 14 : 8) && Vector3Distance(c->pos, c->lastKnown) < 2.5f) { c->state = CS_WANDER; c->tgt = c->pos; } }
@@ -225,6 +231,10 @@ static void updateCreatures(float dt, Vector3 aim) {
             }
             if (c->sideT > 0) { c->sideT -= dt; goal = c->tgt; }
             if (c->type == 1 && dist < 4.5f && dist > 1.6f) spd = 6.2f;                 // long-neck lunge
+            if (c->type == 10) { c->chaseT += dt; if (c->chaseT < 1.1f) spd = 0; else spd = 7.2f; }   // kuchisake: a long stare, then she runs
+            if (c->type == 11 && dist < 7) spd = 6.0f;                                   // crawler: scuttles in close
+            if (c->type == 13 && dist < 9 && dist > 2.0f) spd = 5.8f;                    // tsuchigumo: closes fast
+            if (c->type == 14 && fr(0, 1) < dt * 2.5f) c->sideT = 0.25f;                  // nurse: jerks aside
             if (c->type == 5) {                                                          // stalker: only moves when unwatched
                 if (lookedAt && c->seen) { frozen = true; }
                 else if (dist < 6) spd = 8.5f; else if (dist > 18) spd = 4.5f; else spd = 2.4f;
@@ -256,7 +266,7 @@ static void updateCreatures(float dt, Vector3 aim) {
             c->yaw += wrapA(ty - c->yaw) * fminf(1, dt * 6);
             Vector3 before = c->pos;
             c->pos.x += dir.x * spd * pulse * dt; c->pos.z += dir.z * spd * pulse * dt;
-            float h = c->type == 1 || c->type == 5 ? 2.4f : c->type == 2 || c->type == 8 ? 0.8f : 1.8f;
+            float h = c->type == 1 || c->type == 5 ? 2.4f : c->type == 2 || c->type == 8 || c->type == 11 ? 0.8f : c->type == 16 ? 1.3f : c->type == 13 ? 1.6f : 1.8f;
             resolve(&c->pos, 0.35f, h, 0.45f);
             float gg = groundAt(c->pos, 0.35f, 0.45f);
             c->pos.y = c->pos.y > gg + 0.5f ? c->pos.y - dt * 9 : Lerp(c->pos.y, gg, fminf(1, dt * 12));
@@ -271,7 +281,7 @@ static void updateCreatures(float dt, Vector3 aim) {
         }
         c->atkCd -= dt;
         if (c->state == CS_CHASE && !frozen && c->seen && dist < (c->type == 1 || c->type == 5 ? 1.9f : 1.5f) && c->atkCd <= 0 && c->wind <= 0 && fabsf(tp.y - c->pos.y) < 1.6f) {
-            c->wind = c->type == 2 || c->type == 3 ? 0.22f : c->type == 9 ? 0.6f : 0.38f; c->atkCd = 1.2f;
+            c->wind = c->type == 2 || c->type == 3 || c->type == 11 || c->type == 16 ? 0.22f : c->type == 9 || c->type == 12 || c->type == 15 ? 0.6f : 0.38f; c->atkCd = 1.2f;
         }
         // ---- sound
         c->groanT -= dt;
@@ -297,7 +307,8 @@ static void updateCreatures(float dt, Vector3 aim) {
     if (netMode == NM_HOST) { int k = ri(MP_MAX); if (k != mySlot && rps[k].on && rps[k].alive) { static float rsp = 0; rsp -= dt; if (rsp <= 0) { rsp = 3.0f; int n = 0; for (int j = 0; j < nCr; j++) if (crs[j].on && crs[j].state != CS_DEAD && Vector3Distance(crs[j].pos, rps[k].pos) < 50) n++; if (n < 14 && wildK(rps[k].pos) < 0.2f) spawnCreature(rps[k].pos, 40, 0, false); } } }   // remote players get their own share of the town's creatures
     float wk = wildK(pl.pos);
     static float spawnT = 0, spiritT = 40, ugT = 20; spawnT -= dt; spiritT -= dt; ugT -= dt;
-    if (pl.pos.y > -40 && wk < 0.2f && aliveTop < (dayK() > 0.5f ? 32 : 44) && spawnT <= 0) { if (fr(0, 1) < 0.35f) spawnIndoor(pl.pos, 35); else spawnCreature(pl.pos, 45, 0, false); spawnT = 3.0f; }
+    { bool dist = inDistrict(pl.pos.x, pl.pos.z);   // the high-rise district draws more of them, and faster
+      if (pl.pos.y > -40 && wk < 0.2f && aliveTop < (dayK() > 0.5f ? 32 : 44) * (dist ? 1.7f : 1.0f) && spawnT <= 0) { if (fr(0, 1) < (dist ? 0.5f : 0.35f)) spawnIndoor(pl.pos, 35); else spawnCreature(pl.pos, 45, 0, false); spawnT = dist ? 1.4f : 3.0f; } }
     if (stalkers < 1 && pl.time > 240 && fr(0, 1) < dt * 0.004f) spawnCreatureT(pl.pos, 40, 60, false, 5);
     int maxSpirits = wk > 0.3f ? 4 + (int)(wk * 4) : dayK() > 0.5f ? 0 : (pl.time > 300 ? 3 : 2);   // the city's spirits walk at night
     if (spiritT <= 0) { if (spirits < maxSpirits) spawnCreatureT(pl.pos, wk > 0.3f ? 14 : 30, wk > 0.3f ? 30 : 45, wk > 0.5f, 4); spiritT = wk > 0.3f ? fr(4, 8) : fr(35, 70); }
