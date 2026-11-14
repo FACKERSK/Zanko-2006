@@ -20,6 +20,13 @@ nav .brand img { width: 30px; height: 30px; }
 nav .links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
 nav .links a { color: var(--dim); text-decoration: none; }
 nav .links a:hover { color: var(--text); }
+nav .links a.acct { color: #10181f; background: #fff; border: 1px solid #cfd4d8; border-radius: 4px; padding: 5px 12px; font-weight: 700; white-space: nowrap; }
+nav .links a.acct:hover { color: #10181f; background: #e9f4fb; border-color: #3c7fb1; }
+nav .links { align-items: center; }
+@media (max-width: 480px) { nav .links a:not(.acct) { display: none; } }
+nav .brand { white-space: nowrap; }
+@media (max-width: 620px) { nav .wrap { gap: 10px; } nav .links { gap: 12px; font-size: 13px; } }
+
 main { max-width: 520px; margin: 0 auto; padding: 44px 16px 72px; }
 h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .03em; }
 h1 .jp { color: var(--amber); font-size: .6em; margin-left: 10px; font-weight: 400; }
@@ -51,7 +58,7 @@ footer { padding: 28px 0 44px; border-top: 1px solid #172022; color: var(--dim);
 
 <nav><div class="wrap">
   <a class="brand" href="./"><img src="img/icon.png" alt="">ZANKŌ 2006</a>
-  <div class="links"><a href="./#download">Download</a><a href="account.html">Account</a></div>
+  <div class="links"><a href="./#download">Download</a><a href="account.html" class="acct">Login or Register</a></div>
 </div></nav>
 
 <main>

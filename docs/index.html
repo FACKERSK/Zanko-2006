@@ -30,6 +30,11 @@ nav .brand img { width: 30px; height: 30px; }
 nav .links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
 nav .links a { color: var(--dim); text-decoration: none; }
 nav .links a:hover { color: var(--text); }
+nav .links a.acct { color: #10181f; background: #fff; border: 1px solid #cfd4d8; border-radius: 4px; padding: 5px 12px; font-weight: 700; white-space: nowrap; }
+nav .links a.acct:hover { color: #10181f; background: #e9f4fb; border-color: #3c7fb1; }
+nav .links { align-items: center; }
+@media (max-width: 480px) { nav .links a:not(.acct) { display: none; } }
+
 
 header.hero { position: relative; min-height: 78vh; display: flex; align-items: flex-end; background: #000 url(img/hero.jpg) center 30%/cover no-repeat; image-rendering: pixelated; }
 header.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,14,15,.1) 30%, rgba(10,14,15,.92) 88%, var(--bg)); }
@@ -69,14 +74,14 @@ td:first-child { white-space: nowrap; color: var(--amber); font-family: Consolas
 footer { padding: 36px 0 48px; border-top: 1px solid #172022; color: var(--dim); font-size: 14px; }
 footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 26px; }
 
-@media (max-width: 620px) { nav .links { gap: 12px; font-size: 13px; } nav .links .opt { display: none; } header.hero { min-height: 70vh; } }
+@media (max-width: 620px) { nav .links { gap: 12px; font-size: 13px; } nav .links .opt { display: none; } nav .brand { white-space: nowrap; } nav .wrap { gap: 10px; } header.hero { min-height: 70vh; } }
 </style>
 </head>
 <body>
 
 <nav><div class="wrap">
   <a class="brand" href="#"><img src="img/icon.png" alt="">ZANKŌ 2006</a>
-  <div class="links"><a href="#about" class="opt">About</a><a href="#shots">Screenshots</a><a href="#download">Download(early access)</a><a href="account.html">Account</a><a href="https://github.com/FACKERSK/Zanko-2006" class="opt">GitHub</a></div>
+  <div class="links"><a href="#about" class="opt">About</a><a href="#shots" class="opt">Screenshots</a><a href="#download">Download<span class="opt">(early access)</span></a><a href="account.html" class="acct">Login or Register</a><a href="https://github.com/FACKERSK/Zanko-2006" class="opt">GitHub</a></div>
 </div></nav>
 
 <header class="hero"><div class="wrap">
