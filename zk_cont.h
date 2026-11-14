@@ -28,6 +28,7 @@ static int addCont(int kind, Vector3 p, float yaw, int region, bool solid) {
     for (int i = 0; i < nCont; i++) if (!conts[i].on) { slot = i; break; }
     if (slot < 0) { if (nCont >= MAX_CONT) return -1; slot = nCont++; }
     Cont *c = &conts[slot]; memset(c, 0, sizeof *c);
+    if (furnDump) { Vector3 sz = ckSize[kind]; bool rot = fabsf(sinf(yaw)) > 0.5f; float hx = (rot ? sz.z : sz.x) / 2, hz = (rot ? sz.x : sz.z) / 2; furnDumpBox("C", kind, V3(p.x - hx, p.y, p.z - hz), V3(p.x + hx, p.y + sz.y, p.z + hz), yaw); }
     c->pos = xfP(curXf, p); c->yaw = yaw + xfYaw(curXf); c->kind = kind; c->region = region; c->on = true; c->sid = -1;   // stored in the world; the solid stays in the building's frame
     slotsClear(c->s, CSLOTS);
     if (kind == CK_PILE || kind == CK_CHEST) c->filled = true;

@@ -34,12 +34,14 @@
 #define GN 152   // broadphase grid: 8 m cells from -460 m, covering the whole map
 
 enum { T_ASPHALT, T_SIDEWALK, T_CONCRETE, T_FACADE, T_FACADE2, T_TILEWALL, T_BLOCKWALL, T_SHUTTER, T_ROOF, T_GLASS,
-       T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_BRICK, T_GORE, T_CHITIN, T_COUNT };
+       T_PLASTER, T_TATAMI, T_WOOD, T_FLESH, T_CLOTH, T_METAL, T_VEND, T_SIGN, T_SIGNH, T_PLAIN, T_RUST, T_ECO, T_HEDGE, T_PAPER, T_GRASS, T_SKIN, T_BRICK, T_GORE, T_CHITIN,
+       T_XTILE, T_XSTUCCO, T_XSIDING, T_XPANEL, T_XCORR, T_XBOARDS, T_COUNT };   // (0.9.4) outside walls: glazed tile, sprayed mortar, lap siding, cast concrete panels, corrugated sheet, charred cedar boards
 static const char *texNames[T_COUNT] = {"asphalt.png", "sidewalk.png", "concrete.png", "facade_a.png", "facade_b.png", "tilewall.png",
     "blockwall.png", "shutter.png", "roof.png", "glass.png", "plaster.png", "tatami.png", "wood.png", "flesh_v2.png", "cloth_v2.png",
-    "metal.png", "vending.png", "sign_v.png", "sign_h.png", "plain.png", "rust.png", "ecoglass.png", "hedge.png", "ofuda.png", "grass.png", "skin.png", "brick.png", "gore.png", "chitin.png"};   // _v2: the 0.9.0 detailed creature textures replace the old cached ones
-static float texSU[T_COUNT] = {4, 1.5f, 3, 3, 3, 1.5f, 0.8f, 2, 4, 1.5f, 2, 0.9f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 1, 3, 1, 1.4f, 1, 1};
-static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2, 1.8f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3.2f, 2, 1, 3, 1, 0.7f, 1, 1};
+    "metal.png", "vending.png", "sign_v.png", "sign_h.png", "plain.png", "rust.png", "ecoglass.png", "hedge.png", "ofuda.png", "grass.png", "skin.png", "brick.png", "gore.png", "chitin.png",
+    "ext_tile.png", "ext_stucco.png", "ext_siding.png", "ext_panel.png", "ext_corrugated.png", "ext_boards.png"};   // _v2: the 0.9.0 detailed creature textures replace the old cached ones
+static float texSU[T_COUNT] = {4, 1.5f, 3, 3, 3, 1.5f, 0.8f, 2, 4, 1.5f, 2, 0.9f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 1, 3, 1, 1.4f, 1, 1, 1.6f, 2.4f, 2.0f, 1.8f, 1.2f, 1.6f};
+static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2, 1.8f, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3.2f, 2, 1, 3, 1, 0.7f, 1, 1, 1.6f, 2.4f, 2.0f, 1.8f, 2.4f, 3.2f};
 
 #include "zk_items.h"
 #include "zk_jp.h"
@@ -66,6 +68,11 @@ static float vnoise(float x, float y, int s) {
     float a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s);
     return Lerp(Lerp(a, b, fx), Lerp(c, d, fx), fy);
 }
+static float pnoise(float x, float y, int px, int py, int s) {   // value noise that repeats every px, py cells: a texture made with it tiles without a seam
+    int xi = (int)floorf(x), yi = (int)floorf(y); float fx = x - xi, fy = y - yi; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+    int x0 = ((xi % px) + px) % px, x1 = (x0 + 1) % px, y0 = ((yi % py) + py) % py, y1 = (y0 + 1) % py;
+    return Lerp(Lerp(hash2(x0, y0, s), hash2(x1, y0, s), fx), Lerp(hash2(x0, y1, s), hash2(x1, y1, s), fx), fy);
+}
 static float wrapA(float a) { while (a > PI) a -= 2 * PI; while (a < -PI) a += 2 * PI; return a; }
 
 // ============================================================ textures
@@ -81,6 +88,7 @@ static Image genImage(int k) {
     if (k == T_ECO) { W = 64; H = 64; }
     if (k == T_PAPER) { W = 16; H = 48; }
     if (k == T_FLESH || k == T_CLOTH || k == T_GORE || k == T_CHITIN) { W = 64; H = 64; }   // creature skins: more detail
+    if (k >= T_XTILE && k <= T_XBOARDS) { W = 64; H = 64; }
     Image img = GenImageColor(W, H, BLACK);
     for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
         float n = hash2(x, y, k * 131 + 3), m = vnoise(x * 0.2f, y * 0.2f, k * 7 + 1), m2 = vnoise(x * 0.07f, y * 0.07f, k * 5 + 11);
@@ -99,6 +107,39 @@ static Image genImage(int k) {
             if (k == T_FACADE2 && y >= 44 && y < 54) c = (y == 44 || y == 53 || x % 6 == 0) ? rgb(150, 150, 150) : rgb(70, 72, 75);
             if (!win && !frame && y > 41 && x >= 12 && x < 52 && vnoise(x * 0.6f, 0, k) > 0.6f) c = rgb(v * 0.6f, v * 0.6f, v * 0.55f);
         } break;
+        case T_XTILE: {   // small glazed wall tiles in running bond (20 x 10 cm), each a slightly different shade; grey grout; rain streaks down the face
+            int row = y / 4, off = (row % 2) * 4, tx = ((x + off) % 64) / 8; bool g = (y % 4 == 0) || ((x + off) % 8 == 0);
+            float tone = 0.86f + 0.14f * hash2(tx, row, 601), bl = pnoise(x / 16.0f, y / 16.0f, 4, 4, 602), stk = pnoise(x / 3.0f, y / 40.0f, 21, 2, 603);
+            float v = (g ? 128 : 232 * tone) - 26 * bl - (stk > 0.72f ? 30 * (stk - 0.72f) / 0.28f : 0) + 5 * n; if (!g && y % 4 == 1) v += 8;   // a glint along each tile's top edge
+            if (!g && hash2(tx, row, 604) > 0.965f) v *= 0.62f;   // a chipped or replaced tile
+            c = rgb(v, v * 0.985f, v * 0.955f); } break;
+        case T_XSTUCCO: {   // sprayed mortar: a fine pebbly grain, soot streaks running down, a hairline crack
+            float bl = pnoise(x / 12.0f, y / 12.0f, 5, 5, 611), bl2 = pnoise(x / 32.0f, y / 32.0f, 2, 2, 612), stk = pnoise(x / 2.5f, y / 48.0f, 26, 2, 613), gr = hash2(x, y, 614);
+            float v = 214 - 22 * bl - 18 * bl2 + (gr > 0.78f ? 14 : gr < 0.2f ? -20 : 0) - (stk > 0.66f ? 46 * (stk - 0.66f) / 0.34f : 0);
+            float cr = fabsf(pnoise(x / 9.0f, y / 20.0f, 7, 3, 615) - 0.5f); if (cr < 0.012f) v -= 55;
+            c = rgb(v, v * 0.975f, v * 0.93f); } break;
+        case T_XSIDING: {   // lap siding: 25 cm boards, a shadow under each lap, a faint grain, butt joints staggered row to row
+            int row = y / 8, ry = y % 8; float gr = pnoise(x / 10.0f, row * 3.0f + ry / 9.0f, 6, 24, 621), bl = pnoise(x / 20.0f, y / 20.0f, 3, 3, 622);
+            float v = 218 - 14 * gr - 14 * bl + 4 * n; if (ry == 7) v = 96; else if (ry == 6) v -= 34; else if (ry == 0) v += 14;
+            int jx = (int)(hash2(row, 0, 623) * 64); if (x == jx && ry < 7) v -= 60;
+            if (ry == 2 && (x + row * 5) % 16 == 3) v -= 45;   // nail heads
+            c = rgb(v, v * 0.99f, v * 0.965f); } break;
+        case T_XPANEL: {   // cast concrete: formwork panels 1.8 x 0.9 m, the row of tie holes across each, grey water stains under the joints
+            int py2 = y % 32; float bl = pnoise(x / 14.0f, y / 14.0f, 5, 5, 631), bl2 = pnoise(x / 32.0f, y / 32.0f, 2, 2, 632), stk = pnoise(x / 3.0f, y / 32.0f, 21, 2, 633);
+            float v = 196 - 26 * bl - 16 * bl2 + 7 * n - (stk > 0.7f ? 34 * (stk - 0.7f) / 0.3f * (1 - py2 / 40.0f) : 0);
+            if (x == 0 || py2 == 0) v = 112; else if (x == 1 || py2 == 1) v += 14;
+            { int hx = x % 16, hy = py2 % 16; if ((hx == 8 || hx == 9) && (hy == 8 || hy == 9)) v = 84; else if (hx >= 7 && hx <= 10 && hy >= 7 && hy <= 10) v -= 16; else if ((hx == 8 || hx == 9) && hy > 9 && hy < 15) v -= 9; }
+            c = rgb(v, v * 0.995f, v * 0.975f); } break;
+        case T_XCORR: {   // corrugated sheet: ribs every 7.5 cm, sheets lapped every 2.4 m, rust creeping from the laps and the scratches
+            static const float rib[4] = {1.0f, 0.86f, 0.6f, 0.78f}; float v = 226 * rib[x % 4] + 5 * n;
+            float ru = pnoise(x / 10.0f, y / 10.0f, 6, 6, 641) + (y < 6 ? (6 - y) * 0.05f : 0) + (y > 58 ? (y - 58) * 0.05f : 0);
+            c = rgb(v * 0.97f, v, v * 1.02f); if (y == 0) c = rgb(70, 72, 76);
+            if (ru > 0.68f) { float k2 = clampf((ru - 0.68f) / 0.14f, 0, 1) * (0.75f + 0.25f * rib[x % 4]); c = rgb(Lerp(c.r, 168 * rib[x % 4], k2), Lerp(c.g, 92 * rib[x % 4], k2), Lerp(c.b, 52 * rib[x % 4], k2)); } } break;
+        case T_XBOARDS: {   // charred cedar boards, upright, 20 cm wide: a dark gap between them, long grain, knots, weathered grey toward the foot
+            int bd = x / 8, bx2 = x % 8; float gr = pnoise(bd * 5.0f + bx2 / 3.0f, y / 14.0f, 40, 4, 651), tone = 0.8f + 0.2f * hash2(bd, 0, 652);
+            float v = (112 + 46 * gr) * tone + 6 * n; if (bx2 == 0) v = 34; else if (bx2 == 1) v *= 0.8f; else if (bx2 == 7) v *= 1.1f;
+            { int ky = (int)(hash2(bd, 1, 653) * 64), kx = 3 + (int)(hash2(bd, 2, 654) * 3), dy = ((y - ky) % 64 + 64) % 64; if (dy < 3 && abs(bx2 - kx) < 2 && bx2 > 0) v *= 0.55f; }
+            c = rgb(v * 0.98f, v * 0.86f, v * 0.74f); } break;
         case T_BRICK: {   // old red brick in stretcher bond, dark mortar, soot and damp toward the bottom
             int row = y / 4, off = (row % 2) * 4; bool g = (y % 4 == 0) || ((x + off) % 8 == 0);
             float tone = hash2((x + off) / 8, row, 13) * 0.35f + 0.82f, damp = (float)y / 32 * 0.25f;
@@ -448,7 +489,10 @@ static void query(float x0, float z0, float x1, float z1) {
         }
     }
 }
+static FILE *furnDump;   // (KIRI_PLANDUMP: every piece set down while a room is being furnished)
+static void furnDumpBox(const char *tag, int k, Vector3 mn, Vector3 mx, float yaw);
 static int box(int t, Vector3 mn, Vector3 mx, Color c, bool solid, int mask) {
+    if (furnDump && mx.y - mn.y > 0.05f) furnDumpBox("F", t, mn, mx, 0);
     meshBox(t, mn, mx, c, mask);
     return solid ? addSolid(mn, mx) : -1;
 }
@@ -741,6 +785,8 @@ static Vector3 sideMn(int s, float u0, float u1, float y0, float y1, Vector3 *mx
 static void wallPiece(int s, float u0, float u1, float y0, float y1, int t, Color c) {
     if (u1 - u0 < 0.01f || y1 - y0 < 0.01f) return;
     Vector3 mx, mn = sideMn(s, u0, u1, y0, y1, &mx, 0);
+    if (t >= T_XTILE && t <= T_XBOARDS) { static const int inner[4] = {4, 2, 8, 1};   // an outside finish stays outside: the room side of the wall is painted plaster
+        box(t, mn, mx, c, true, ALL & ~inner[s & 3]); box(T_PLASTER, mn, mx, (Color){236, 232, 222, 255}, false, inner[s & 3]); return; }
     box(t, mn, mx, c, true, ALL);
 }
 static void addOpening(int s, float u0, float u1, float y0, float y1, int type, int stt) {
@@ -2380,6 +2426,11 @@ int main(int argc, char **argv) {
                 if (getenv("KIRI_MAPSHOT")) { pl.mapOpen = true; EnableCursor(); float zx, tx, tz; if (sscanf(getenv("KIRI_MAPSHOT"), "%f %f %f", &zx, &tx, &tz) == 3) { mapZoom = zx; mapTgt = (Vector2){tx, tz}; } }
                 if (getenv("KIRI_INVSHOT")) { invAdd(IT_COAT, 1); invAdd(IT_HARDHAT, 1); invAdd(IT_BOOTS, 1); invAdd(IT_WORKPANTS, 1); invAdd(IT_STABVEST, 1); invAdd(IT_NAGINATA, 1); invAdd(IT_TETSUBO, 1); invAdd(IT_BEANIE, 1);
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
+                if (getenv("KIRI_TOUGE")) for (int i = 0; i < nTouge; i++) TraceLog(LOG_INFO, "TOUGE %d %.2f %.2f y %.2f ground %.2f terr %.2f", i, tougeP[i].x, tougeP[i].z, tougeP[i].y, groundAt(V3(tougeP[i].x, tougeP[i].y + 1.5f, tougeP[i].z), 0.05f, 8), terrainH(tougeP[i].x, tougeP[i].z));
+                if (getenv("KIRI_SOLAT")) { float kx, ky, kz; if (sscanf(getenv("KIRI_SOLAT"), "%f %f %f", &kx, &ky, &kz) == 3) { query(kx - 0.1f, kz - 0.1f, kx + 0.1f, kz + 0.1f); for (int k = 0; k < qn; k++) { Solid *s2 = &sol[qb[k]]; Vector3 L = solL(s2, V3(kx, ky, kz));
+                    if (L.x > s2->mn.x && L.x < s2->mx.x && L.z > s2->mn.z && L.z < s2->mx.z && fabsf(s2->mx.y - ky) < 3) TraceLog(LOG_INFO, "SOLAT %.2f..%.2f x %.2f..%.2f z %.2f..%.2f", s2->mn.y, s2->mx.y, s2->mn.x, s2->mx.x, s2->mn.z, s2->mx.z); } } }
+                if (getenv("KIRI_RIVW")) { static Vector3 rv[MAX_PATH]; int nr = loadPath(dRiverLine, DRIVERLINE_N, rv); for (int i = 0; i < nr; i += 3) { Vector2 nn = pnorm(rv, nr, i); float w[2]; for (int sg = 0; sg < 2; sg++) { float o = 0; while (o < 20 && inPoly(dRiver, DRIVER_N, rv[i].x + nn.x * o * (sg ? 1 : -1), rv[i].z + nn.y * o * (sg ? 1 : -1))) o += 0.1f; w[sg] = o; }
+                    TraceLog(LOG_INFO, "RIVW %d %.1f %.1f  -:%.1f +:%.1f raw-:%d raw+:%d st-:%d st+:%d", i, rv[i].x, rv[i].z, w[0], w[1], inRiverRaw(rv[i].x - nn.x * 3.5f, rv[i].z - nn.y * 3.5f), inRiverRaw(rv[i].x + nn.x * 3.5f, rv[i].z + nn.y * 3.5f), mainRoadAt(rv[i].x - nn.x * 5.5f, rv[i].z - nn.y * 5.5f, 0), mainRoadAt(rv[i].x + nn.x * 5.5f, rv[i].z + nn.y * 5.5f, 0)); } }
                 if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
                     TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d terrain %.2f", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z), terrainH(x, z)); } }
                 if (getenv("KIRI_MANGATEST")) { pl.watchKind = 2; pl.watchT = MANGA_T; mangaStep = 0; }
@@ -2614,6 +2665,8 @@ int main(int argc, char **argv) {
                     if (frame == 430 && di < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_DOOR && ops[i].locked) { di = i; break; }
                     if (mpRole == 1 && frame == 440 && di >= 0) { ops[di].locked = false; ops[di].state = 0; if (ops[di].sid >= 0) sol[ops[di].sid].off = true; pl.wear[1] = (Slot){IT_COAT, 1, 0}; pl.hands = (Slot){IT_PISTOL, 1, 0};
                         startBlaze(Vector3Add(pl.pos, V3(3, 0, 3)), true); netFx(1, Vector3Add(pl.pos, V3(3, 0, 3))); TraceLog(LOG_INFO, "MPTEST host unlocked door %d, wears a coat, holds a pistol, lit a fire pool", di); }
+                    if (mpRole == 2 && (frame == 60 || frame == 300 || frame == 700)) TraceLog(LOG_INFO, "MPTEST client status f%d: %s (map %08x)", frame, netStatus, mapHash());
+                    if (mpRole == 1 && (frame == 6 || frame == 400)) TraceLog(LOG_INFO, "MPTEST host map %08x", mapHash());
                     if (mpRole == 2 && frame == 710) { int bz = 0; for (int i = 0; i < MAX_BLAZE; i++) bz += blazes[i].on;
                         TraceLog(LOG_INFO, "MPTEST client sees door %d locked %d state %d | host wears body item %d (coat %d), holds %d (pistol %d) | fire pools %d | rain %.2f", di, di >= 0 ? ops[di].locked : -1, di >= 0 ? ops[di].state : -1, rps[0].wear[1], IT_COAT, rps[0].held, IT_PISTOL, bz, rainK); }
                     if (mpRole == 2 && frame == 711) { Vector3 d = Vector3Subtract(rps[0].pos, pl.pos); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.08f; }
@@ -3118,7 +3171,17 @@ int main(int argc, char **argv) {
                         float g = groundAt(V3(x, SIDEH + 0.4f, z), 0.25f, 0.42f);
                         if (g < SIDEH - 0.3f) { holes++; if (holes <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f g%.1f)", x, z, g); strcat(hb, t2); } if (holes <= 4) TraceLog(LOG_INFO, "HOLEDBG street %d kind %d at %.1f %.1f: land %d terrain %.2f coast_d %.1f cs %.1f river %d sea %d bore %d", s2, s2 >= 0 ? stKind[s2] : -1, x, z, cityLand(x, z), terrainH(x, z), coast_d(x, z), coastSigned(x, z), inRiverRaw(x, z), seaSide(x, z), inBore(x, z, SIDEH)); }
                         else if (!pointFree(x, z, 0.3f, SIDEH + 0.25f) && e == 0) { if (blocked < 12) { query(x - 0.3f, z - 0.3f, x + 0.3f, z + 0.3f); for (int q = 0; q < qn; q++) { Solid *so = &sol[qb[q]]; Vector3 L_ = solL(so, V3(x, 0, z)); if (so->mx.y > SIDEH + 0.25f && so->mn.y < SIDEH + 1.8f && L_.x + 0.3f > so->mn.x && L_.x - 0.3f < so->mx.x && L_.z + 0.3f > so->mn.z && L_.z - 0.3f < so->mx.z) TraceLog(LOG_INFO, "BLOCKDBG at %.1f %.1f solid %d f%d mn %.1f %.1f %.1f mx %.1f %.1f %.1f street %d kind %d", x, z, qb[q], so->f, so->mn.x, so->mn.y, so->mn.z, so->mx.x, so->mx.y, so->mx.z, s2, s2 >= 0 ? stKind[s2] : -1); } } blocked++; if (blocked <= 8) { char t2[48]; snprintf(t2, 48, " (%.0f,%.0f)", x, z); strcat(bb, t2); } } } } }
-                TraceLog(LOG_INFO, "WALKAUDIT %d points: %d with no ground under the road%s | %d blocked on a centre line%s", total, holes, hb, blocked, bb); }
+                TraceLog(LOG_INFO, "WALKAUDIT %d points: %d with no ground under the road%s | %d blocked on a centre line%s", total, holes, hb, blocked, bb);
+                {   // steps: walking any road's centre line, the ground never jumps by more than a kerb's worth between two paces
+                    int steps = 0, pts = 0; char sb2[600] = "";
+                    for (int r = -4; r < nStreet; r++) { const Vector3 *p = r == -4 ? coastP : r == -3 ? tougeP : r == -2 ? northP : r == -1 ? avenueP : ST_P(r); int n = r == -4 ? nCoast : r == -3 ? nTouge : r == -2 ? nNorth : r == -1 ? nAvenue : ST_N(r);
+                        if (n < 2 || (r >= 0 && stKind[r] == 2)) continue; float prev = -1e9f;
+                        for (int i = 0; i + 1 < n; i++) { float L = Vector3Distance(p[i], p[i + 1]); int m = (int)ceilf(L / 0.6f); if (m < 1) m = 1;
+                            for (int k = 0; k < m; k++) { Vector3 q = Vector3Lerp(p[i], p[i + 1], (float)k / m); float from = prev > -1e8f ? prev + 1.2f : terrainH(q.x, q.z) + 3.0f; float stp = prev > -1e8f ? 0.0f : 6.0f; if (prev < -1e8f) for (int b = 0; b < nBore; b++) if (Vector2Distance((Vector2){q.x, q.z}, (Vector2){bores[b].px, bores[b].pz}) < 14) { from = bores[b].fy + 1.5f; stp = 0; } if (from < SIDEH + 1.2f && cityLand(q.x, q.z)) from = SIDEH + 1.2f;
+                                float g = groundAt(V3(q.x, from, q.z), 0.05f, stp); pts++;
+                                if (prev > -1e8f && fabsf(g - prev) > 0.2f) { steps++; if (steps <= 14) { char t2[64]; snprintf(t2, 64, " (r%d %.0f,%.0f %+.2f)", r, q.x, q.z, g - prev); strcat(sb2, t2); } }
+                                prev = g; } } }
+                    TraceLog(LOG_INFO, "STEPAUDIT %d paces along every road: %d steps over 0.2 m%s", pts, steps, sb2); } }
             if (frame == 1149) TraceLog(LOG_INFO, "FEAT parks %d at %.1f %.1f mirror %.1f %.1f", nFeatPark, featPark.x, featPark.z, featMirror.x, featMirror.z);
             if (frame == 1191 || frame == 1197) { state = ST_PLAY; pl.hp = 100; cht.menu = false; pl.invOpen = pl.mapOpen = false; gameActive = true; }
             if (frame == 1191) { Vector3 c = Vector3Add(featPark, Vector3Scale(featParkFace, 13)); pl.pos = V3(c.x, SIDEH + 0.1f, c.z); pl.vy = 0; Vector3 d = Vector3Subtract(featPark, c); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.18f; pl.tod = 13; pl.flash = false; for (int i = 0; i < nCr; i++) crs[i].on = false; }

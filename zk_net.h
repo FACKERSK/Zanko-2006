@@ -194,8 +194,8 @@ static void netRecvAll(double now) {
                     if (k < 0) { WV(&w, (unsigned char)P_REJECT); char m[64] = "The game is full (8 players)"; wb(&w, m, 64); netSend(&from, w.b, w.n); continue; }
                     memset(rq[k], 0, sizeof rq[k]); rseq[k] = 0; memset(rseen[k], 0, sizeof rseen[k]); nAck[k] = 0;
                     rps[k] = (RPlayer){0}; rps[k].on = true; rps[k].alive = true; rps[k].addr = from; rps[k].pos = rps[k].shown = V3(SPAWN_X, SIDEH, SPAWN_Z); rps[k].hp = 100; snprintf(rps[k].name, 16, "%s", name);
-                    netSendWorldTo(k); char b[96]; snprintf(b, sizeof b, "%s joined.", rps[k].name); say(b); netSay(b, k); }
-                rps[k].heard = now;
+                    netSendWorldTo(k); char b[96]; snprintf(b, sizeof b, "%s joined.", rps[k].name); say(b); netSay(b, k); rps[k].heard = now + 45; }   // (the newcomer builds the town before it can answer: on a slow machine that takes longer than the silence limit)
+                if (rps[k].heard < now) rps[k].heard = now;
                 WV(&w, (unsigned char)P_WELCOME); WV(&w, (unsigned char)k); WV(&w, netSeed); WV(&w, (unsigned char)netPvp); netSend(&from, w.b, w.n);
                 continue;
             }
@@ -208,7 +208,7 @@ static void netRecvAll(double now) {
             if (from.ip != hostAddr.ip || from.port != hostAddr.port) continue;
             rps[0].heard = now;
             if (t == P_WELCOME && netJoining) { mySlot = RV(&r, unsigned char); unsigned int seed = RV(&r, unsigned int); netPvp = RV(&r, unsigned char); if (r.bad) continue;
-                netJoining = false; snprintf(netStatus, sizeof netStatus, "Connected as player %d.", mySlot + 1); startClientWorld(seed); continue; }
+                netJoining = false; snprintf(netStatus, sizeof netStatus, "Connected as player %d.", mySlot + 1); startClientWorld(seed); rps[0].heard = GetTime() + 5; continue; }
             if (t == P_REJECT) { char m[64]; rbr(&r, m, 64); m[63] = 0; netStop(NULL); snprintf(netStatus, sizeof netStatus, "Refused: %s", m); continue; }
             if (t == P_BYE) { netStop("The host closed the game."); if (state == ST_PLAY || state == ST_PAUSE || state == ST_DEAD) { state = ST_MENU; EnableCursor(); gameActive = false; } say("The host closed the game."); continue; }
             if (netJoining) continue;

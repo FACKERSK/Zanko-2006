@@ -634,13 +634,13 @@ static void tabMods(Rectangle c) {
 static void tabServers(Rectangle c) {
     float s = aU;
     aText("Servers", c.x + 40 * s, c.y + 28 * s, 30, (Color){232, 226, 210, 255}, true);
-    aText("The server browser opens with the multiplayer update.", c.x + 42 * s, c.y + 70 * s, 13, C_BONE2, false);
+    aText("Multiplayer is in the game: main menu > Multiplayer. One player hosts, the others join with the host's IP (UDP port 27015).", c.x + 42 * s, c.y + 70 * s, 13, C_BONE2, false);
     Rectangle t = {c.x + 40 * s, c.y + 100 * s, c.width - 80 * s, c.height - 130 * s};
     card(t, NULL);
     const char *cols[5] = {"Name", "Map", "Players", "Mods", "Ping"}; float cx[5] = {0, 0.45f, 0.65f, 0.78f, 0.9f};
     for (int i = 0; i < 5; i++) aText(cols[i], t.x + 16 * s + (t.width - 32 * s) * cx[i], t.y + 9 * s, 12, C_CYAN, true);
     for (int r = 0; r < 6; r++) aRR((Rectangle){t.x + 8 * s, t.y + (44 + r * 40) * s, t.width - 16 * s, 34 * s}, 6 * s, (Color){255, 255, 255, (unsigned char)(r % 2 ? 6 : 12)});
-    aTextC("No servers  -  multiplayer is not in this build", t.x + t.width / 2, t.y + t.height / 2, 16, (Color){150, 146, 136, 230}, false);
+    aTextC("No public server list yet  -  host or join by IP from the game's Multiplayer menu", t.x + t.width / 2, t.y + t.height / 2, 16, (Color){150, 146, 136, 230}, false);
 }
 static void tabParams(Rectangle c) {
     float s = aU;

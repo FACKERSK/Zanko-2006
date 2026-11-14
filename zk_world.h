@@ -180,6 +180,7 @@ static void terrVert(Mesh *m, int *vp, float x, float z, float y, Vector3 nn) {
     *vp = v + 1;
 }
 #define TSUB 4   // cells along the town's edge and under roads are laid in 0.5 m pieces, so grass meets paving and asphalt along a fine line, not 2 m steps
+static bool rvCorridor(float x, float z);
 static void genTerrain(void) {
     if (terrainOk) { UnloadModel(terrain); terrainOk = false; }
     const float S = HF_S; int n = HF_N - 1;
@@ -209,14 +210,16 @@ static void genTerrain(void) {
         float ax = HF_X0 + i * S, az = HF_X0 + j * S;
         if (mk == 0x8000) {
             int vi[4] = {0, 0, 1, 1}, vj[4] = {0, 1, 1, 0}, ord[6] = {0, 1, 2, 0, 2, 3};
-            for (int k = 0; k < 6; k++) { int a = vi[ord[k]], b = vj[ord[k]]; terrVert(&m, &v, ax + a * S, az + b * S, a ? (b ? h11 : h10) : (b ? h01 : h00), a ? (b ? n11 : n10) : (b ? n01 : n00)); }
+            bool rivc = false; if (rvCorridor(ax + S / 2, az + S / 2)) for (int c2 = 0; c2 < 4 && !rivc; c2++) { float qx = ax + (c2 & 1) * S, qz = az + (c2 >> 1) * S; for (int e2 = 0; e2 < 9 && !rivc; e2++) { float ex = qx + (e2 % 3 - 1) * 0.6f, ez = qz + (e2 / 3 - 1) * 0.6f; rivc = cityLand(ex, ez) || (hfReady && mainRoadAt(ex, ez, 0.3f)); } }   // a river cell with a corner on the town's bank: the bed stays flat, no wedge of grass climbing the wall
+            for (int k = 0; k < 6; k++) { int a = vi[ord[k]], b = vj[ord[k]]; float yy = a ? (b ? h11 : h10) : (b ? h01 : h00); if (rivc) yy = fminf(yy, -2.3f); terrVert(&m, &v, ax + a * S, az + b * S, yy, a ? (b ? n11 : n10) : (b ? n01 : n00)); }
             continue; }
         const float q = S / TSUB;
-        for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) { if (!(mk & (1 << (b * TSUB + a)))) continue;
+        for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) { if (!(mk & (1 << (b * TSUB + a)))) continue; bool riv = rvCorridor(ax + (a + 0.5f) * q, az + (b + 0.5f) * q);   // (drawn at all, so not town: beside the river that leaves only the bed)
             float u[4] = {(float)a / TSUB, (float)a / TSUB, (float)(a + 1) / TSUB, (float)(a + 1) / TSUB}, w[4] = {(float)b / TSUB, (float)(b + 1) / TSUB, (float)(b + 1) / TSUB, (float)b / TSUB};
             int ord[6] = {0, 1, 2, 0, 2, 3};
             for (int k = 0; k < 6; k++) { float uu = u[ord[k]], ww = w[ord[k]];
                 float y = (h00 * (1 - uu) + h10 * uu) * (1 - ww) + (h01 * (1 - uu) + h11 * uu) * ww;
+                if (riv) y = fminf(y, -2.3f);     // the bed lies flat right up to the bank walls: no slope of grass climbing out of the water
                 Vector3 nn = Vector3Normalize(Vector3Add(Vector3Scale(Vector3Add(Vector3Scale(n00, 1 - uu), Vector3Scale(n10, uu)), 1 - ww), Vector3Scale(Vector3Add(Vector3Scale(n01, 1 - uu), Vector3Scale(n11, uu)), ww)));
                 terrVert(&m, &v, ax + uu * S, az + ww * S, y, nn); } (void)q; }
     }
@@ -338,11 +341,14 @@ static bool boxFree(float x0, float z0, float x1, float z1, float y) {   // no s
     return true;
 }
 // place a searchable piece of furniture against an inside wall of `in` at floor y
-static Rectangle keepClear[8]; static int nKeep;   // doorways on the floor being furnished
+#define MAX_KEEP 24
+static Rectangle keepClear[MAX_KEEP], keepTight[MAX_KEEP]; static Vector2 keepDoor[MAX_KEEP]; static int nKeep;   // doorways on the floor being furnished: the room to walk through them (and a tighter zone for small rooms)
+static bool fTight;   // set while a toilet, washroom or bath is fitted out: fixtures may stand closer to the door there
+static void keepAdd(Rectangle wide, Rectangle tight) { if (nKeep >= MAX_KEEP) return; keepClear[nKeep] = wide; keepTight[nKeep] = tight; keepDoor[nKeep] = (Vector2){wide.x + wide.width / 2, wide.y + wide.height / 2}; nKeep++; }
 static bool blocksDoor(float x0, float z0, float x1, float z1, float y) {
-    for (int k = 0; k < nKeep; k++) { Rectangle c = keepClear[k]; if (x0 < c.x + c.width && x1 > c.x && z0 < c.y + c.height && z1 > c.y) return true; }
+    for (int k = 0; k < nKeep; k++) { Rectangle c = fTight ? keepTight[k] : keepClear[k]; if (x0 < c.x + c.width && x1 > c.x && z0 < c.y + c.height && z1 > c.y) return true; }
     for (int i = 0; i < nOps; i++) { Open *o = &ops[i]; if (o->type != OP_DOOR || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue;   // keep 1.2 m clear around every door
-        if (x0 < o->mx.x + 1.2f && x1 > o->mn.x - 1.2f && z0 < o->mx.z + 1.2f && z1 > o->mn.z - 1.2f) return true; }
+        float dm = fTight ? 0.7f : 1.2f; if (x0 < o->mx.x + dm && x1 > o->mn.x - dm && z0 < o->mx.z + dm && z1 > o->mn.z - dm) return true; }
     return false;
 }
 // a body on the floor of `in`: its own random stream, so the rest of the town comes out as before
@@ -423,11 +429,19 @@ static void fixDetail(int f, float x0, float z0, float x1, float z1, float y, in
     if (f == FX_ATM) box(T_PLAIN, V3(cx - 0.22f, y + 1.0f, cz - 0.22f), V3(cx + 0.22f, y + 1.3f, cz + 0.22f), rgb(120, 200, 240), false, ALLB);
     if (f == FX_PLANT) box(T_PLAIN, V3(x0 + 0.05f, y, z0 + 0.05f), V3(x1 - 0.05f, y + 0.4f, z1 - 0.05f), rgb(150, 90, 60), false, ALLB);
 }
+static bool ppDry;   // (trying a wall out: nothing is set down)
+static bool atWindow(float x0, float z0, float x1, float z1, float y) {
+    for (int i = 0; i < nOps; i++) { Open *o = &ops[i]; if (o->type != OP_WINDOW || o->f != curXf || fabsf(o->fy - y) > 0.6f) continue;
+        if (x0 - 0.3f < o->mx.x && x1 + 0.3f > o->mn.x && z0 - 0.3f < o->mx.z && z1 + 0.3f > o->mn.z) return true; }
+    return false;
+}
 static bool putPiece(int k, Rectangle rm, int wall, float u, float y, int region) {
     float w, d, h = 0; if (k >= 0) { w = ckSize[k].x; d = ckSize[k].z; } else { w = fixTab[-k].w; d = fixTab[-k].d; h = fixTab[-k].h; }
     float x0, z0, x1, z1; wallFoot(rm, wall, u, w, d, &x0, &z0, &x1, &z1);
     if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height) return false;
-    if (!fFree(x0, z0, x1, z1, y) || !frontFree(wall, x0, z0, x1, z1, y, k == FX_BOARD || k == FX_SCREEN ? 0.3f : 0.75f)) return false;
+    if (!fFree(x0, z0, x1, z1, y) || !frontFree(wall, x0, z0, x1, z1, y, k == FX_BOARD || k == FX_SCREEN ? 0.3f : fTight ? 0.45f : 0.75f)) return false;
+    if ((k >= 0 ? ckSize[k].y : h) > 1.2f && k != FX_BOARD && k != FX_SCREEN && atWindow(x0, z0, x1, z1, y)) return false;   // nothing tall stands in front of a window
+    if (ppDry) return true;
     if (k >= 0) addCont(k, V3((x0 + x1) / 2, y, (z0 + z1) / 2), wallYaw(wall), region, true);
     else { float yb = (k == FX_BOARD || k == FX_SCREEN) ? y + 0.9f : y; box(fixTab[-k].tex, V3(x0, yb, z0), V3(x1, yb + h, z1), fixTab[-k].c, true, ALL); fixDetail(k, x0, z0, x1, z1, y, wall); }
     return true;
@@ -451,15 +465,16 @@ static void chair(float cx, float cz, float y, int face, Color c) {   // seat + 
     if (face == 0) bz1 = bz0 + 0.06f; else if (face == 2) bz0 = bz1 - 0.06f; else if (face == 1) bx0 = bx1 - 0.06f; else bx1 = bx0 + 0.06f;
     box(T_WOOD, V3(bx0, y + 0.45f, bz0), V3(bx1, y + 0.95f, bz1), c, false, ALLB);
 }
-static void tableSet(float cx, float cz, float y, bool alongX, int seats, float h, Color tc) {   // table with chairs (h 0.72) or a low chabudai with zabuton (h 0.35)
+static bool tableSet(float cx, float cz, float y, bool alongX, int seats, float h, Color tc) {   // table with chairs (h 0.72) or a low chabudai with zabuton (h 0.35)
     float w = alongX ? 1.4f : 0.8f, d = alongX ? 0.8f : 1.4f; if (h < 0.5f) { w = alongX ? 1.1f : 0.8f; d = alongX ? 0.8f : 1.1f; }
-    if (!fFree(cx - w / 2 - 0.5f, cz - d / 2 - 0.5f, cx + w / 2 + 0.5f, cz + d / 2 + 0.5f, y)) return;
+    if (!fFree(cx - w / 2 - 0.5f, cz - d / 2 - 0.5f, cx + w / 2 + 0.5f, cz + d / 2 + 0.5f, y)) return false;
     box(T_WOOD, V3(cx - w / 2, y + h - 0.05f, cz - d / 2), V3(cx + w / 2, y + h, cz + d / 2), tc, true, ALL);
     box(T_WOOD, V3(cx - 0.06f, y, cz - 0.06f), V3(cx + 0.06f, y + h - 0.05f, cz + 0.06f), aMul(tc, 0.7f), false, ALLB);
     for (int s2 = 0; s2 < seats; s2++) { float ox = alongX ? (s2 % 2 ? 0.35f : -0.35f) : (s2 < 2 ? -w / 2 - 0.35f : w / 2 + 0.35f), oz = alongX ? (s2 < 2 ? -d / 2 - 0.35f : d / 2 + 0.35f) : (s2 % 2 ? 0.35f : -0.35f);
         int face = alongX ? (s2 < 2 ? 0 : 2) : (s2 < 2 ? 3 : 1);
         if (h < 0.5f) box(T_CLOTH, V3(cx + ox - 0.27f, y, cz + oz - 0.27f), V3(cx + ox + 0.27f, y + 0.09f, cz + oz + 0.27f), rgb(150, 60, 50), false, ALLB);   // zabuton
         else chair(cx + ox, cz + oz, y, face, rgb(140, 105, 80)); }
+    return true;
 }
 static void futon(Rectangle rm, int wall, float u, float y, Color cover) {
     float x0, z0, x1, z1; bool alongX = wall == 1 || wall == 3; wallFoot(rm, wall, u, 1.0f, 2.0f, &x0, &z0, &x1, &z1);
@@ -493,21 +508,23 @@ static void sofa(Rectangle rm, int wall, float u, float y, Color c) {   // a two
     float bx0 = x0, bx1 = x1, bz0 = z0, bz1 = z1; if (wall == 0) bz1 = bz0 + 0.2f; else if (wall == 2) bz0 = bz1 - 0.2f; else if (wall == 1) bx0 = bx1 - 0.2f; else bx1 = bx0 + 0.2f;
     box(T_CLOTH, V3(bx0, y + 0.42f, bz0), V3(bx1, y + 0.85f, bz1), aMul(c, 0.85f), false, ALLB);
 }
-static void tokonoma(Rectangle rm, int wall, float y) {   // the alcove: a raised board, a hanging scroll, a vase
-    float u = wallAt(rm, wall, 0.75f), x0, z0, x1, z1; wallFoot(rm, wall, u, 1.6f, 0.75f, &x0, &z0, &x1, &z1);
+static void tokonomaU(Rectangle rm, int wall, float u, float y) {   // the alcove: a raised board, a hanging scroll, a vase
+    float x0, z0, x1, z1; wallFoot(rm, wall, u, 1.6f, 0.75f, &x0, &z0, &x1, &z1);
     if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y)) return;
     box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.14f, z1), rgb(120, 85, 55), true, ALL);
     float sx0, sz0, sx1, sz1; wallFoot(rm, wall, u, 0.5f, 0.02f, &sx0, &sz0, &sx1, &sz1); box(T_PLAIN, V3(sx0, y + 0.6f, sz0), V3(sx1, y + 1.9f, sz1), rgb(226, 218, 196), false, ALL);
     { float ix0, iz0, ix1, iz1; wallFoot(rm, wall, u, 0.06f, 0.03f, &ix0, &iz0, &ix1, &iz1); box(T_PLAIN, V3(ix0, y + 0.9f, iz0), V3(ix1, y + 1.6f, iz1), rgb(30, 28, 26), false, ALL); }   // one brush stroke
     float vx = (x0 + x1) / 2 + (wall == 0 || wall == 2 ? 0.45f : 0), vz = (z0 + z1) / 2 + (wall == 1 || wall == 3 ? 0.45f : 0); box(T_PLAIN, V3(vx - 0.08f, y + 0.14f, vz - 0.08f), V3(vx + 0.08f, y + 0.45f, vz + 0.08f), rgb(70, 90, 110), false, ALL);
 }
-static void butsudan(Rectangle rm, int wall, float y) {   // the family altar: black lacquer, gold inside, a photograph
-    float u = wallAt(rm, wall, 0.25f), x0, z0, x1, z1; wallFoot(rm, wall, u, 0.7f, 0.5f, &x0, &z0, &x1, &z1);
+static void tokonoma(Rectangle rm, int wall, float y) { tokonomaU(rm, wall, wallAt(rm, wall, 0.75f), y); }
+static void butsudanU(Rectangle rm, int wall, float u, float y) {   // the family altar: black lacquer, gold inside, a photograph
+    float x0, z0, x1, z1; wallFoot(rm, wall, u, 0.7f, 0.5f, &x0, &z0, &x1, &z1);
     if (x0 < rm.x || x1 > rm.x + rm.width || z0 < rm.y || z1 > rm.y + rm.height || !fFree(x0, z0, x1, z1, y)) return;
     box(T_WOOD, V3(x0, y, z0), V3(x1, y + 1.3f, z1), rgb(30, 22, 20), true, ALL);
     float fx0 = x0, fx1 = x1, fz0 = z0, fz1 = z1; float e = 0.01f; if (wall == 0) fz0 = fz1 - e; else if (wall == 2) fz1 = fz0 + e; else if (wall == 1) fx1 = fx0 + e; else fx0 = fx1 - e;
     box(T_PLAIN, V3(fx0 + (wall == 0 || wall == 2 ? 0.1f : -0.005f), y + 0.55f, fz0 + (wall == 1 || wall == 3 ? 0.1f : -0.005f)), V3(fx1 - (wall == 0 || wall == 2 ? 0.1f : -0.005f), y + 1.15f, fz1 - (wall == 1 || wall == 3 ? 0.1f : -0.005f)), rgb(200, 160, 60), false, ALL);
 }
+static void butsudan(Rectangle rm, int wall, float y) { butsudanU(rm, wall, wallAt(rm, wall, 0.25f), y); }
 static bool wetStrip(Rectangle rm, int wall, float y, int region) {   // bathroom, toilet and washroom behind a partition along one wall
     bool alongX = wall == 0 || wall == 2; float D = 1.7f, len = alongX ? rm.width : rm.height; if (len < 3.4f || (alongX ? rm.height : rm.width) < D + 2.0f) return false;
     Rectangle st = alongX ? (Rectangle){rm.x, wall == 0 ? rm.y : rm.y + rm.height - D, rm.width, D} : (Rectangle){wall == 3 ? rm.x : rm.x + rm.width - D, rm.y, D, rm.height};
@@ -528,6 +545,61 @@ static bool wetStrip(Rectangle rm, int wall, float y, int region) {   // bathroo
 }
 static int opp(int w) { return (w + 2) % 4; }
 
+
+// ---- placing by purpose (0.9.4): a piece goes on the wall that suits it, where there is really room for it
+static void wallIn(int wall, float *nx, float *nz) { *nx = wall == 1 ? -1 : wall == 3 ? 1 : 0; *nz = wall == 0 ? 1 : wall == 2 ? -1 : 0; }   // the way into the room from a wall
+static int roomDoors(Rectangle rm, float y, int *first, float *uFirst) {   // which walls have a doorway (bit per wall); the first one found and where along it
+    int mask = 0; *first = -1; *uFirst = 0;
+    for (int k = 0; k < nKeep + nOps; k++) { Vector2 c;
+        if (k < nKeep) c = keepDoor[k]; else { Open *o = &ops[k - nKeep]; if (o->type != OP_DOOR || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue; c = (Vector2){(o->mn.x + o->mx.x) / 2, (o->mn.z + o->mx.z) / 2}; }
+        if (c.x < rm.x - 0.45f || c.x > rm.x + rm.width + 0.45f || c.y < rm.y - 0.45f || c.y > rm.y + rm.height + 0.45f) continue;
+        float d[4] = {fabsf(c.y - rm.y), fabsf(c.x - (rm.x + rm.width)), fabsf(c.y - (rm.y + rm.height)), fabsf(c.x - rm.x)}; int wl = 0; for (int q = 1; q < 4; q++) if (d[q] < d[wl]) wl = q;
+        if (d[wl] > 0.6f) continue; mask |= 1 << wl; if (*first < 0) { *first = wl; *uFirst = (wl == 0 || wl == 2) ? c.x : c.y; } }
+    return mask;
+}
+static bool spotOn(Rectangle rm, int wall, float w, float d, float h, float y, float frac, float clr, float *uOut) {   // a free place for a w x d piece against a wall, as near frac along it as there is
+    float lo = wallLo(rm, wall) + 0.04f + w / 2, hi = wallHi(rm, wall) - 0.04f - w / 2; if (hi < lo) return false; float u0 = lo + (hi - lo) * frac;
+    for (float t = 0; t <= hi - lo + 0.01f; t += 0.1f) for (int sg = 1; sg >= -1; sg -= 2) { float u = u0 + sg * t; if (u < lo - 0.001f || u > hi + 0.001f) continue;
+        float x0, z0, x1, z1; wallFoot(rm, wall, u, w, d, &x0, &z0, &x1, &z1);
+        if (x0 < rm.x - 0.001f || x1 > rm.x + rm.width + 0.001f || z0 < rm.y - 0.001f || z1 > rm.y + rm.height + 0.001f) continue;
+        if (!fFree(x0, z0, x1, z1, y) || (clr > 0 && !frontFree(wall, x0, z0, x1, z1, y, clr)) || (h > 1.2f && atWindow(x0, z0, x1, z1, y))) continue;
+        *uOut = u; return true; }
+    return false;
+}
+static int runBest(Rectangle rm, float y, const int *ks, int n, const int *walls, int nw, int fromEnd, int region) {   // the run goes on the first wall that takes all of it, else on the one that takes most
+    int best = -1, bg = 0; ppDry = true;
+    for (int i = 0; i < nw; i++) { if (walls[i] < 0) continue; int g = runAlong(rm, walls[i], y, ks, n, fromEnd, region); if (g > bg) { bg = g; best = walls[i]; } if (g == n) break; }
+    ppDry = false; if (best >= 0) runAlong(rm, best, y, ks, n, fromEnd, region);
+    return best;
+}
+static void wallOrder(int *out, int a, int b, int c, int d, int doorMask, int skip) {   // walls in order of preference, those with a doorway last; skip: one not to use (-1: none)
+    int in[4] = {a, b, c, d}, n = 0; for (int pass = 0; pass < 2; pass++) for (int i = 0; i < 4; i++) { if (in[i] < 0 || in[i] == skip) continue; bool dr = (doorMask >> in[i]) & 1; if (dr == (pass == 1)) out[n++] = in[i]; }
+    while (n < 4) out[n++] = -1;
+}
+static bool sofaAt(float cx, float cz, int face, float y, Color c) {   // a two-seat sofa standing free, the sitters looking the way `face` says (0 +z, 1 -x, 2 -z, 3 +x)
+    bool lx = face == 0 || face == 2; float hw = lx ? 0.85f : 0.4f, hd = lx ? 0.4f : 0.85f, x0 = cx - hw, x1 = cx + hw, z0 = cz - hd, z1 = cz + hd;
+    if (!fFree(x0, z0, x1, z1, y)) return false;
+    box(T_CLOTH, V3(x0, y, z0), V3(x1, y + 0.42f, z1), c, true, ALL);
+    float bx0 = x0, bx1 = x1, bz0 = z0, bz1 = z1; if (face == 0) bz1 = bz0 + 0.2f; else if (face == 2) bz0 = bz1 - 0.2f; else if (face == 1) bx0 = bx1 - 0.2f; else bx1 = bx0 + 0.2f;
+    box(T_CLOTH, V3(bx0, y + 0.42f, bz0), V3(bx1, y + 0.85f, bz1), aMul(c, 0.85f), false, ALLB);
+    return true;
+}
+static void tvOn(Rectangle rm, int wall, float u, float y) {   // a low stand against a wall with the television on it, screen to the room
+    float x0, z0, x1, z1; wallFoot(rm, wall, u, 1.2f, 0.42f, &x0, &z0, &x1, &z1); box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.45f, z1), rgb(70, 52, 40), true, ALL);
+    float cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; bool ax = wall == 0 || wall == 2; float nx, nz; wallIn(wall, &nx, &nz);
+    box(T_PLAIN, V3(cx - (ax ? 0.42f : 0.13f), y + 0.45f, cz - (ax ? 0.13f : 0.42f)), V3(cx + (ax ? 0.42f : 0.13f), y + 0.98f, cz + (ax ? 0.13f : 0.42f)), rgb(44, 44, 48), false, ALLB);   // the set: a deep CRT
+    box(T_GLASS, V3(cx + nx * 0.135f - (ax ? 0.36f : 0.005f), y + 0.52f, cz + nz * 0.135f - (ax ? 0.005f : 0.36f)), V3(cx + nx * 0.135f + (ax ? 0.36f : 0.005f), y + 0.93f, cz + nz * 0.135f + (ax ? 0.005f : 0.36f)), rgb(70, 86, 92), false, ALL);   // its dead screen
+}
+static bool bedOn(Rectangle rm, int wall, float u, float y, bool futonStyle, Color cover) {   // a bed (or a futon) with its head to a wall
+    float x0, z0, x1, z1; wallFoot(rm, wall, u, 1.0f, 2.0f, &x0, &z0, &x1, &z1); float nx, nz; wallIn(wall, &nx, &nz);
+    if (futonStyle) { box(T_CLOTH, V3(x0, y, z0), V3(x1, y + 0.12f, z1), rgb(236, 232, 222), false, ALLB); }
+    else { box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.3f, z1), rgb(130, 95, 70), true, ALL); box(T_CLOTH, V3(x0 + 0.03f, y + 0.3f, z0 + 0.03f), V3(x1 - 0.03f, y + 0.46f, z1 - 0.03f), rgb(232, 230, 224), false, ALLB);
+        float hx0 = x0, hx1 = x1, hz0 = z0, hz1 = z1; if (wall == 0) hz1 = hz0 + 0.06f; else if (wall == 2) hz0 = hz1 - 0.06f; else if (wall == 1) hx0 = hx1 - 0.06f; else hx1 = hx0 + 0.06f; box(T_WOOD, V3(hx0, y + 0.3f, hz0), V3(hx1, y + 0.85f, hz1), rgb(118, 86, 62), false, ALLB); }   // the headboard
+    float top = y + (futonStyle ? 0.12f : 0.46f), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    { float px = cx - nx * 0.72f, pz = cz - nz * 0.72f; bool ax = wall == 0 || wall == 2; box(T_CLOTH, V3(px - (ax ? 0.28f : 0.16f), top, pz - (ax ? 0.16f : 0.28f)), V3(px + (ax ? 0.28f : 0.16f), top + 0.09f, pz + (ax ? 0.16f : 0.28f)), rgb(240, 238, 232), false, ALLB); }   // the pillow, at the wall end
+    { float qx = cx + nx * 0.28f, qz = cz + nz * 0.28f; bool ax = wall == 0 || wall == 2; box(T_CLOTH, V3(qx - (ax ? 0.49f : 0.7f), top, qz - (ax ? 0.7f : 0.49f)), V3(qx + (ax ? 0.49f : 0.7f), top + 0.07f, qz + (ax ? 0.7f : 0.49f)), cover, false, ALLB); }   // the quilt
+    return true;
+}
 // room plans
 enum { RM_LIVING, RM_KITCHEN, RM_BED, RM_SHOP, RM_STOCK, RM_KONBINI, RM_KOBAN, RM_OFFICE, RM_STUDY, RM_LDK, RM_WASHITSU, RM_WASHWET, RM_WBED, RM_TOILET, RM_SENMEN, RM_BATH, RM_HALL, RM_NANDO };
 static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int street, bool tatami) {
@@ -540,9 +612,6 @@ static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int
     case RM_LIVING: { tableSet(cx, cz, y, longX, 4, tatami ? 0.35f : 0.72f, tatami ? rgb(120, 80, 54) : rgb(170, 130, 96));
         int run[] = {FX_BOOKS, CK_CABINET, FX_PLANT}; runAlong(rm, outer, y, run, 3, 0, region);
         int r2[] = {FX_TANSU, CK_BOX}; runAlong(rm, sideA, y, r2, 2, 0, region); } break;
-    case RM_BED: { futon(rm, outer, wallLo(rm, outer) + 0.8f, y, rgb(70, 100, 150)); if (rm.width * rm.height > 14) futon(rm, outer, wallLo(rm, outer) + 2.0f, y, rgb(150, 80, 90));
-        int r1[] = {CK_WARDROBE, CK_DESK}; runAlong(rm, sideA, y, r1, 2, 0, region);
-        int r2[] = {FX_BOOKS, CK_BOX}; runAlong(rm, sideB, y, r2, 2, 1, region); } break;
     case RM_STUDY: { int r1[] = {CK_DESK, CK_DESK}; runAlong(rm, outer, y, r1, 2, 0, region); int r2[] = {FX_BOOKS, FX_BOOKS, CK_WARDROBE}; runAlong(rm, sideA, y, r2, 3, 0, region); } break;
     case RM_SHOP: { int r1[] = {CK_SHELF, CK_SHELF, CK_SHELF}; runAlong(rm, sideA, y, r1, 3, 0, region); runAlong(rm, sideB, y, r1, 2, 0, region);
         int r2[] = {CK_COUNTER, FX_REG}; runAlong(rm, outer, y, r2, 1, 1, region);
@@ -565,48 +634,85 @@ static void planRoom(Rectangle rm, float y, int plan, int outer, int region, int
         int r2[] = {FX_BOARD}; runAlong(rm, (street + 1) % 4, y, r2, 1, 0, region); int r3[] = {FX_BENCH}; runAlong(rm, (street + 3) % 4, y, r3, 1, 0, region);
         float ox = street == 1 ? 1.0f : street == 3 ? -1.0f : 0, oz = street == 2 ? 1.0f : street == 0 ? -1.0f : 0;
         if (addCont(CK_DESK, V3(cx + ox, y, cz + oz), wallYaw(opp(street)), region, true) >= 0) { chair(cx + ox * 1.6f, cz + oz * 1.6f, y, opp(street) == 0 ? 0 : opp(street) == 2 ? 2 : opp(street) == 1 ? 1 : 3, rgb(60, 60, 70)); } } break;
-    case RM_LDK: {   // living-dining-kitchen: a wood floor, the kitchen run along the outer wall, table and chairs, a sofa facing the TV
+    case RM_LDK: {   // living-dining-kitchen: the kitchen run on one wall, the table beside it, and across the room the television with the sofa facing it
         floorFinish(rm, y, T_WOOD, rgb(196, 160, 120));
-        int run[] = {CK_FRIDGE, CK_CABINET, FX_SINK, FX_STOVE, CK_CABINET}; runAlong(rm, outer, y, run, 5, 0, region);
-        float ox = outer == 1 ? -1.0f : outer == 3 ? 1.0f : 0, oz = outer == 0 ? 1.0f : outer == 2 ? -1.0f : 0; tableSet(cx + ox * 0.3f + (longX ? -rm.width * 0.18f : 0), cz + oz * 0.3f + (longX ? 0 : -rm.height * 0.18f), y, longX, 4, 0.72f, rgb(170, 130, 96));
-        sofa(rm, opp(outer), wallAt(rm, opp(outer), 0.7f), y, (Color[]){{120, 110, 100, 255}, {90, 110, 130, 255}, {140, 90, 80, 255}}[ri(3)]);
-        int r2[] = {CK_CABINET, FX_PLANT}; runAlong(rm, sideA, y, r2, 2, 1, region); } break;
-    case RM_WASHITSU: {   // tatami room: tokonoma, butsudan, oshiire (the closet), a low table; at night the futon
-        floorFinish(rm, y, T_TATAMI, WHITE); tokonoma(rm, sideA, y); butsudan(rm, sideA, y);
-        int r1[] = {CK_WARDROBE, CK_WARDROBE}; runAlong(rm, sideB, y, r1, 2, 0, region);
-        if (ri(2)) futon(rm, outer, wallLo(rm, outer) + 1.2f, y, rgb(70, 100, 150)); else tableSet(cx, cz, y, longX, 4, 0.35f, rgb(120, 80, 54)); } break;
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, outer, sideA, sideB, opp(outer), dm, -1);
+        int run[] = {CK_FRIDGE, CK_CABINET, FX_SINK, FX_STOVE, CK_CABINET}; int kw = runBest(rm, y, run, 5, ord, 4, 0, region); if (kw < 0) kw = outer;
+        float nx, nz; wallIn(kw, &nx, &nz); bool kx = kw == 0 || kw == 2; bool tabled = false;
+        for (int tr = 0; tr < 6 && !tabled; tr++) { float fr2 = tr % 3 == 0 ? 0.3f : tr % 3 == 1 ? 0.7f : 0.5f, dist = tr < 3 ? 1.85f : 2.3f, u = wallAt(rm, kw, fr2);
+            float tx = kx ? u : (kw == 3 ? rm.x : rm.x + rm.width) + nx * dist, tz = kx ? (kw == 0 ? rm.y : rm.y + rm.height) + nz * dist : u;
+            tabled = tableSet(tx, tz, y, kx, 4, 0.72f, rgb(170, 130, 96)); }
+        // the television on a wall away from the kitchen, the sofa looking at it across a low table
+        { int to[4]; wallOrder(to, opp(kw), (kw + 1) % 4, (kw + 3) % 4, -1, dm, kw); Color sc = (Color[]){{120, 110, 100, 255}, {90, 110, 130, 255}, {140, 90, 80, 255}}[ri(3)]; bool done = false;
+          for (int q = 0; q < 3 && !done; q++) { int tw = to[q]; if (tw < 0) continue; float u; float depth = (tw == 0 || tw == 2) ? rm.height : rm.width; if (depth < 2.6f) continue;
+              for (int fq = 0; fq < 3 && !done; fq++) { if (!spotOn(rm, tw, 1.2f, 0.42f, 0.6f, y, fq == 0 ? 0.75f : fq == 1 ? 0.25f : 0.5f, 0.6f, &u)) continue;
+                  float tnx, tnz; wallIn(tw, &tnx, &tnz); bool ax = tw == 0 || tw == 2; float wx = ax ? u : (tw == 3 ? rm.x : rm.x + rm.width), wz = ax ? (tw == 0 ? rm.y : rm.y + rm.height) : u;
+                  float dist = fminf(3.0f, depth - 0.45f); bool sat = false;
+                  for (float dd = dist; dd >= 2.1f && !sat; dd -= 0.3f) sat = sofaAt(wx + tnx * dd, wz + tnz * dd, opp(tw), y, sc);
+                  if (!sat) continue;
+                  tvOn(rm, tw, u, y); freeBox(wx + tnx * 1.35f, wz + tnz * 1.35f, ax ? 0.9f : 0.5f, ax ? 0.5f : 0.9f, 0.35f, y, T_WOOD, rgb(110, 80, 58), true); done = true; } } }
+        { int po[4]; wallOrder(po, opp(kw), (kw + 1) % 4, (kw + 3) % 4, -1, dm, kw); int r2[] = {FX_PLANT}; runBest(rm, y, r2, 1, po, 3, 1, region); } } break;
+    case RM_WASHITSU: {   // tatami room: the tokonoma and the altar on the wall away from the door, the closet (oshiire) on another, a low table with cushions in the middle
+        floorFinish(rm, y, T_TATAMI, WHITE);
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, dw >= 0 ? opp(dw) : sideA, sideA, sideB, outer, dm, -1); int tkw = -1;
+        for (int q = 0; q < 4 && tkw < 0; q++) { float u; if (ord[q] >= 0 && spotOn(rm, ord[q], 1.6f, 0.75f, 1.9f, y, 0.8f, 0.5f, &u)) { tkw = ord[q]; tokonomaU(rm, tkw, u, y); float u2; if (spotOn(rm, tkw, 0.7f, 0.5f, 1.3f, y, 0.1f, 0.5f, &u2)) butsudanU(rm, tkw, u2, y); } }
+        { int co[4]; wallOrder(co, sideB, sideA, opp(outer), outer, dm, tkw); int r1[] = {CK_WARDROBE, CK_WARDROBE}; runBest(rm, y, r1, 2, co, 4, 0, region); }
+        { bool ok = false; for (int tr = 0; tr < 5 && !ok; tr++) ok = tableSet(cx + (tr == 1 ? 0.5f : tr == 2 ? -0.5f : 0), cz + (tr == 3 ? 0.5f : tr == 4 ? -0.5f : 0), y, longX, 4, 0.35f, rgb(120, 80, 54)); } } break;
     case RM_WASHWET: {   // the back room: bathroom, toilet and washroom behind a partition at one end, a tatami room in the rest
         int ws = sideA; if (!wetStrip(rm, sideA, y, region)) { ws = sideB; if (!wetStrip(rm, sideB, y, region)) { ws = outer; if (!wetStrip(rm, outer, y, region)) ws = -1; } }   // whichever end is clear of the stairs and the doorway
         bool alongX = ws == 0 || ws == 2; Rectangle rest = rm; if (ws >= 0) { if (alongX) { if (ws == 0) { rest.y += 1.8f; } rest.height -= 1.8f; } else { if (ws == 3) { rest.x += 1.8f; } rest.width -= 1.8f; } }
         floorFinish(rest, y, T_TATAMI, WHITE); tokonoma(rest, ws >= 0 ? opp(ws) : sideA, y);
         int r1[] = {CK_WARDROBE}; runAlong(rest, outer, y, r1, 1, 1, region);
         tableSet(rest.x + rest.width / 2, rest.y + rest.height / 2, y, rest.width >= rest.height, 2, 0.35f, rgb(120, 80, 54)); } break;
-    case RM_TOILET: {   // the toilet room: tiled, a western bowl with its tank on the far wall, a tiny hand basin, slippers
-        floorFinish(rm, y, T_TILEWALL, rgb(214, 216, 212));
-        int fw = rm.width < rm.height ? (rm.y + rm.height / 2 > cz ? 2 : 0) : 1; fw = outer;   // against the outer wall
-        wallBox(rm, fw, wallAt(rm, fw, 0.5f), 0.42f, 0.62f, y, 0.42f, T_PLAIN, rgb(240, 240, 238), true); wallBox(rm, fw, wallAt(rm, fw, 0.5f), 0.46f, 0.2f, y + 0.42f, 0.45f, T_PLAIN, rgb(232, 232, 228), false);
-        wallBox(rm, sideA, wallAt(rm, sideA, 0.7f), 0.36f, 0.22f, y + 0.75f, 0.12f, T_PLAIN, rgb(236, 236, 234), false);
-        { float x0, z0, x1, z1; wallFoot(rm, opp(fw), wallAt(rm, opp(fw), 0.5f), 0.3f, 0.3f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y + 0.024f, z0), V3(x1, y + 0.06f, z1), rgb(90, 140, 120), false, ALL); } } break;
-    case RM_SENMEN: {   // the washroom (datsuijo): basin vanity, the washing machine, a towel rack; the bath opens off it
-        floorFinish(rm, y, T_TILEWALL, rgb(210, 214, 216));
-        int r1[] = {CK_CABINET}; runAlong(rm, outer, y, r1, 1, 0, region);
-        if (!wallBox(rm, sideA, wallAt(rm, sideA, 0.35f), 0.62f, 0.62f, y, 0.9f, T_PLAIN, rgb(238, 238, 236), true)) wallBox(rm, sideB, wallAt(rm, sideB, 0.35f), 0.62f, 0.62f, y, 0.9f, T_PLAIN, rgb(238, 238, 236), true);
-        wallBox(rm, outer, wallAt(rm, outer, 0.5f), 0.7f, 0.12f, y + 1.2f, 0.7f, T_GLASS, rgb(170, 190, 200), false); } break;   // the mirror
-    case RM_BATH: {   // the bathroom (ofuro): a deep tub against the outer wall, the washing area with a stool, a hand shower
-        floorFinish(rm, y, T_TILEWALL, rgb(196, 206, 210));
-        float x0, z0, x1, z1; bool lx = rm.width >= rm.height; int tw = lx ? (outer == 1 || outer == 3 ? outer : sideA) : (outer == 0 || outer == 2 ? outer : sideA);
-        wallFoot(rm, tw, wallAt(rm, tw, 0.5f), (tw == 0 || tw == 2) ? rm.width - 0.1f : rm.height - 0.1f, 0.8f, &x0, &z0, &x1, &z1);
-        if (fFree(x0, z0, x1, z1, y)) { box(T_PLAIN, V3(x0, y, z0), V3(x1, y + 0.58f, z1), rgb(236, 238, 238), true, ALL); box(T_PLAIN, V3(x0 + 0.08f, y + 0.581f, z0 + 0.08f), V3(x1 - 0.08f, y + 0.59f, z1 - 0.08f), rgb(110, 140, 150), false, 16); }
-        { float sx = cx - (tw == 1 ? 0.5f : tw == 3 ? -0.5f : 0), sz = cz - (tw == 2 ? 0.5f : tw == 0 ? -0.5f : 0); box(T_PLAIN, V3(sx - 0.15f, y, sz - 0.15f), V3(sx + 0.15f, y + 0.25f, sz + 0.15f), rgb(150, 190, 200), false, ALL); }
-        wallBox(rm, opp(tw), wallAt(rm, opp(tw), 0.5f), 0.08f, 0.08f, y + 0.9f, 0.6f, T_METAL, rgb(190, 192, 196), false); } break;
+    case RM_TOILET: {   // the toilet: the bowl on the wall facing the door, its tank behind it, a hand basin by the door, slippers
+        floorFinish(rm, y, T_TILEWALL, rgb(214, 216, 212)); fTight = true;
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, dw >= 0 ? opp(dw) : outer, outer, sideA, sideB, dm, -1); int bw = -1; float bu = 0;
+        for (int q = 0; q < 4 && bw < 0; q++) if (ord[q] >= 0 && spotOn(rm, ord[q], 0.46f, 0.66f, 0.5f, y, 0.5f, 0, &bu)) bw = ord[q];
+        if (bw >= 0) { float x0, z0, x1, z1, nx, nz; wallIn(bw, &nx, &nz); wallFoot(rm, bw, bu, 0.46f, 0.2f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y, z0), V3(x1, y + 0.82f, z1), rgb(232, 232, 228), true, ALL);   // the tank
+            wallFoot(rm, bw, bu, 0.4f, 0.66f, &x0, &z0, &x1, &z1); if (bw == 0) z0 += 0.2f; else if (bw == 2) z1 -= 0.2f; else if (bw == 1) x1 -= 0.2f; else x0 += 0.2f;
+            box(T_PLAIN, V3(x0, y, z0), V3(x1, y + 0.4f, z1), rgb(240, 240, 238), true, ALL); box(T_PLAIN, V3(x0 + 0.04f, y + 0.4f, z0 + 0.04f), V3(x1 - 0.04f, y + 0.43f, z1 - 0.04f), rgb(222, 222, 218), false, ALLB);   // bowl and lid
+            int sw = (bw + 1) % 4; float su; if (!spotOn(rm, sw, 0.3f, 0.12f, 0.2f, y + 0.6f, 0.5f, 0, &su)) { sw = (bw + 3) % 4; if (!spotOn(rm, sw, 0.3f, 0.12f, 0.2f, y + 0.6f, 0.5f, 0, &su)) sw = -1; }
+            if (sw >= 0) { wallFoot(rm, sw, su, 0.14f, 0.1f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y + 0.62f, z0), V3(x1, y + 0.74f, z1), rgb(244, 244, 240), false, ALLB); } }   // the paper
+        if (dw >= 0) { float nx, nz; wallIn(dw, &nx, &nz); bool ax = dw == 0 || dw == 2; float sx = ax ? du : (dw == 3 ? rm.x : rm.x + rm.width) + nx * 0.3f, sz = ax ? (dw == 0 ? rm.y : rm.y + rm.height) + nz * 0.3f : du;
+            box(T_PLAIN, V3(sx - 0.14f, y + 0.024f, sz - 0.14f), V3(sx + 0.14f, y + 0.06f, sz + 0.14f), rgb(90, 140, 120), false, ALL); }   // the slippers
+        { int bo[4]; wallOrder(bo, sideA, sideB, outer, opp(outer), dm, bw); for (int q = 0; q < 4; q++) { float u; if (bo[q] >= 0 && spotOn(rm, bo[q], 0.36f, 0.24f, 0.2f, y + 0.7f, 0.8f, 0, &u)) { wallBox(rm, bo[q], u, 0.36f, 0.22f, y + 0.72f, 0.12f, T_PLAIN, rgb(236, 236, 234), false); break; } } }   // the hand basin
+        fTight = false; } break;
+    case RM_SENMEN: {   // the washroom: the basin cabinet with its mirror, the washing machine beside it, a laundry basket
+        floorFinish(rm, y, T_TILEWALL, rgb(210, 214, 216)); fTight = true;
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, outer, sideA, sideB, opp(outer), dm, -1); int vw = -1; float vu = 0;
+        for (int q = 0; q < 4 && vw < 0; q++) if (ord[q] >= 0 && spotOn(rm, ord[q], ckSize[CK_CABINET].x, ckSize[CK_CABINET].z, 0.9f, y, 0.2f, 0.45f, &vu) && putPiece(CK_CABINET, rm, ord[q], vu, y, region)) vw = ord[q];
+        if (vw >= 0) { float x0, z0, x1, z1; wallFoot(rm, vw, vu, 0.7f, 0.05f, &x0, &z0, &x1, &z1); box(T_GLASS, V3(x0, y + 1.15f, z0), V3(x1, y + 1.8f, z1), rgb(170, 190, 200), false, ALL);   // the mirror
+            wallFoot(rm, vw, vu, 0.5f, 0.4f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y + ckSize[CK_CABINET].y, z0), V3(x1, y + ckSize[CK_CABINET].y + 0.04f, z1), rgb(240, 240, 238), false, ALLB); }   // the basin
+        { bool wm = false; for (int q = 0; q < 4 && !wm; q++) { int ww = q == 0 && vw >= 0 ? vw : ord[q]; float u; if (ww >= 0 && spotOn(rm, ww, 0.62f, 0.62f, 0.9f, y, 0.9f, 0.4f, &u)) { wm = wallBox(rm, ww, u, 0.62f, 0.62f, y, 0.9f, T_PLAIN, rgb(238, 238, 236), true);
+              if (wm) { float x0, z0, x1, z1; wallFoot(rm, ww, u, 0.4f, 0.5f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y + 0.9f, z0), V3(x1, y + 0.92f, z1), rgb(150, 160, 170), false, ALLB); } } } }   // the washing machine and its lid
+        fTight = false; } break;
+    case RM_BATH: {   // the bathroom: a deep tub across the wall away from the door, the washing place in front of it with a stool and a bowl, a shower on the side wall
+        floorFinish(rm, y, T_TILEWALL, rgb(196, 206, 210)); fTight = true;
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, dw >= 0 ? opp(dw) : outer, outer, sideA, sideB, dm, -1); int tw = -1; float tu = 0, tl = 0;
+        for (int q = 0; q < 4 && tw < 0; q++) { if (ord[q] < 0) continue; float len = fminf(wallHi(rm, ord[q]) - wallLo(rm, ord[q]) - 0.1f, 1.6f); for (float l2 = len; l2 >= 1.0f && tw < 0; l2 -= 0.2f) if (spotOn(rm, ord[q], l2, 0.75f, 0.6f, y, 0.0f, 0, &tu)) { tw = ord[q]; tl = l2; } }
+        if (tw >= 0) { float x0, z0, x1, z1; wallFoot(rm, tw, tu, tl, 0.75f, &x0, &z0, &x1, &z1); box(T_PLAIN, V3(x0, y, z0), V3(x1, y + 0.58f, z1), rgb(236, 238, 238), true, ALL); box(T_PLAIN, V3(x0 + 0.08f, y + 0.581f, z0 + 0.08f), V3(x1 - 0.08f, y + 0.59f, z1 - 0.08f), rgb(110, 140, 150), false, 16);
+            float nx, nz; wallIn(tw, &nx, &nz); float sx = (x0 + x1) / 2 + nx * 0.85f, sz = (z0 + z1) / 2 + nz * 0.85f;
+            if (sx > rm.x + 0.2f && sx < rm.x + rm.width - 0.2f && sz > rm.y + 0.2f && sz < rm.y + rm.height - 0.2f) { box(T_PLAIN, V3(sx - 0.15f, y, sz - 0.15f), V3(sx + 0.15f, y + 0.25f, sz + 0.15f), rgb(150, 190, 200), false, ALL);   // the stool
+                box(T_PLAIN, V3(sx + (nz != 0 ? 0.3f : 0) - 0.12f, y, sz + (nx != 0 ? 0.3f : 0) - 0.12f), V3(sx + (nz != 0 ? 0.3f : 0) + 0.12f, y + 0.12f, sz + (nx != 0 ? 0.3f : 0) + 0.12f), rgb(226, 214, 150), false, ALL); }   // the wash bowl
+            for (int q = 1; q <= 3; q += 2) { int sw = (tw + q) % 4; float u; if (spotOn(rm, sw, 0.1f, 0.1f, 0.2f, y + 0.9f, 0.5f, 0, &u)) { wallBox(rm, sw, u, 0.08f, 0.08f, y + 0.9f, 0.7f, T_METAL, rgb(190, 192, 196), false); break; } } }   // the shower
+        fTight = false; } break;
     case RM_HALL: floorFinish(rm, y, T_WOOD, rgb(170, 130, 92)); break;   // the corridor (rouka): polished boards
-    case RM_NANDO: { floorFinish(rm, y, T_WOOD, rgb(160, 124, 90)); int r1[] = {CK_BOX, FX_CRATES, CK_BOX}; runAlong(rm, outer, y, r1, 3, 0, region); int r2[] = {CK_WARDROBE}; runAlong(rm, sideA, y, r2, 1, 0, region); } break;   // the store room
-    case RM_WBED: {   // a western bedroom upstairs: wood floor, a bed, desk, wardrobe
-        floorFinish(rm, y, T_WOOD, rgb(186, 150, 112));
-        { float x0, z0, x1, z1; wallFoot(rm, sideA, wallAt(rm, sideA, 0.3f), 1.0f, 2.0f, &x0, &z0, &x1, &z1);
-          if (x0 >= rm.x && x1 <= rm.x + rm.width && z0 >= rm.y && z1 <= rm.y + rm.height && fFree(x0, z0, x1, z1, y)) { box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.3f, z1), rgb(130, 95, 70), true, ALL);
-              box(T_CLOTH, V3(x0 + 0.03f, y + 0.3f, z0 + 0.03f), V3(x1 - 0.03f, y + 0.48f, z1 - 0.03f), (Color[]){{200, 200, 210, 255}, {140, 160, 190, 255}, {200, 170, 170, 255}}[ri(3)], false, ALLB); } }
-        int r1[] = {CK_DESK, FX_BOOKS}; runAlong(rm, outer, y, r1, 2, 0, region); int r2[] = {CK_WARDROBE, CK_BOX}; runAlong(rm, sideB, y, r2, 2, 0, region); } break;
+    case RM_WBED: case RM_BED: {   // a bedroom: the bed (a futon in a tatami room) with its head to a wall, in the corner away from the door; the desk at the window with its chair; wardrobe and shelves on a blank wall
+        bool fut = plan == RM_BED; if (!fut) floorFinish(rm, y, T_WOOD, rgb(186, 150, 112));
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, dw >= 0 ? opp(dw) : sideA, sideA, sideB, outer, dm, -1); int hw = -1; float hu = 0;
+        Color cov = (Color[]){{96, 116, 160, 255}, {150, 84, 92, 255}, {110, 140, 110, 255}, {180, 160, 120, 255}}[ri(4)];
+        for (int q = 0; q < 4 && hw < 0; q++) { if (ord[q] < 0) continue; float far = 0; if (dw >= 0 && dw != ord[q] && dw != opp(ord[q])) far = dw == 0 || dw == 3 ? 1.0f : 0.0f; else if (dw >= 0) far = du > (wallLo(rm, ord[q]) + wallHi(rm, ord[q])) / 2 ? 0.0f : 1.0f;
+            if (spotOn(rm, ord[q], 1.0f, 2.0f, 0.5f, y, far, 0, &hu)) hw = ord[q]; }
+        if (hw >= 0) bedOn(rm, hw, hu, y, fut, cov);
+        if (fut && rm.width * rm.height > 14 && hw >= 0) { float u2; if (spotOn(rm, hw, 1.0f, 2.0f, 0.5f, y, hu > (wallLo(rm, hw) + wallHi(rm, hw)) / 2 ? 1.0f : 0.0f, 0, &u2) && fabsf(u2 - hu) < 1.6f) bedOn(rm, hw, u2, y, true, rgb(150, 80, 90)); }
+        { int dk[4]; wallOrder(dk, outer, sideA, sideB, opp(outer), dm, -1); for (int q = 0; q < 4; q++) { float u; if (dk[q] < 0 || !spotOn(rm, dk[q], ckSize[CK_DESK].x, ckSize[CK_DESK].z, 0.75f, y, 0.5f, 0.75f, &u)) continue;   // the desk, at the window if it can be
+              if (!putPiece(CK_DESK, rm, dk[q], u, y, region)) continue; float nx, nz; wallIn(dk[q], &nx, &nz); bool ax = dk[q] == 0 || dk[q] == 2; float bx = ax ? u : (dk[q] == 3 ? rm.x : rm.x + rm.width), bz = ax ? (dk[q] == 0 ? rm.y : rm.y + rm.height) : u;
+              chair(bx + nx * (ckSize[CK_DESK].z + 0.36f), bz + nz * (ckSize[CK_DESK].z + 0.36f), y, opp(dk[q]), rgb(70, 70, 80)); break; } }
+        { int wo[4]; wallOrder(wo, opp(outer), sideB, sideA, outer, dm, -1); int r1[] = {CK_WARDROBE, FX_BOOKS}; int ww = runBest(rm, y, r1, 2, wo, 4, 0, region); int r2[] = {CK_BOX}; int bo[4]; wallOrder(bo, sideB, sideA, opp(outer), outer, dm, ww); runBest(rm, y, r2, 1, bo, 4, 1, region); } } break;
+    case RM_NANDO: {   // the store room: boxes and crates along the walls, a shelf, what the family put away
+        floorFinish(rm, y, T_WOOD, rgb(160, 124, 90));
+        int dw; float du; int dm = roomDoors(rm, y, &dw, &du); int ord[4]; wallOrder(ord, outer, sideA, sideB, opp(outer), dm, -1);
+        int r1[] = {CK_BOX, FX_CRATES, CK_BOX}; int a = runBest(rm, y, r1, 3, ord, 4, 0, region); int o2[4]; wallOrder(o2, sideA, sideB, opp(outer), outer, dm, a); int r2[] = {CK_WARDROBE}; if (runBest(rm, y, r2, 1, o2, 4, 0, region) < 0) { int r3[] = {CK_BOX}; runBest(rm, y, r3, 1, o2, 4, 1, region); } } break;
     case RM_OFFICE: { int r1[] = {CK_LOCKER, CK_LOCKER, CK_CABINET, FX_COOLER}; runAlong(rm, outer, y, r1, 4, 0, region);
         int r2[] = {FX_BOARD}; runAlong(rm, sideA, y, r2, 1, 0, region);
         for (int isl = -1; isl <= 1; isl += 2) { float ix = longX ? cx + isl * 1.7f : cx, iz = longX ? cz : cz + isl * 1.7f;   // a desk island: two desks face to face, screens, chairs
@@ -746,6 +852,10 @@ static float jpY0, jpYT; static int jpPT = T_PLASTER; static Color jpPC;
 static FILE *jpDump; static int jpDumpN = -1;   // KIRI_PLANDUMP=file: the plans of the first houses, for drawing
 static void jpDumpRect(const char *tag, Rectangle q) { if (!jpDump) return; Vector3 c[4] = {xfP(curXf, V3(q.x, 0, q.y)), xfP(curXf, V3(q.x + q.width, 0, q.y)), xfP(curXf, V3(q.x + q.width, 0, q.y + q.height)), xfP(curXf, V3(q.x, 0, q.y + q.height))};
     fprintf(jpDump, "%s %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", tag, c[0].x, c[0].z, c[1].x, c[1].z, c[2].x, c[2].z, c[3].x, c[3].z); }
+static float furnDumpY;
+static void furnDumpBox(const char *tag, int k, Vector3 mn, Vector3 mx, float yaw) { if (!furnDump) return; Vector3 c[4] = {xfP(curXf, V3(mn.x, 0, mn.z)), xfP(curXf, V3(mx.x, 0, mn.z)), xfP(curXf, V3(mx.x, 0, mx.z)), xfP(curXf, V3(mn.x, 0, mx.z))};
+    Vector3 f0 = xfP(curXf, V3((mn.x + mx.x) / 2, 0, (mn.z + mx.z) / 2)), f1 = xfP(curXf, V3((mn.x + mx.x) / 2 + sinf(yaw) * 0.4f, 0, (mn.z + mx.z) / 2 + cosf(yaw) * 0.4f));
+    fprintf(furnDump, "%s %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %d %.2f %.2f %.2f %.2f\n", tag, c[0].x, c[0].z, c[1].x, c[1].z, c[2].x, c[2].z, c[3].x, c[3].z, k, mn.y - furnDumpY, mx.y - furnDumpY, f1.x - f0.x, f1.z - f0.z); }
 static void jpWallU(const JpF *J, float u, float d0, float d1, float door) {   // a partition at constant u from d0 to d1, a doorway centred at d = door (<0: none)
     if (d1 - d0 < 0.05f) return;
     if (jpDump) { if (door >= 0) { jpDumpRect("W", jpRect(J, u - 0.05f, d0, u + 0.05f, door - 0.4f)); jpDumpRect("W", jpRect(J, u - 0.05f, door + 0.4f, u + 0.05f, d1)); jpDumpRect("D", jpRect(J, u - 0.05f, door - 0.4f, u + 0.05f, door + 0.4f)); } else jpDumpRect("W", jpRect(J, u - 0.05f, d0, u + 0.05f, d1)); }
@@ -753,7 +863,7 @@ static void jpWallU(const JpF *J, float u, float d0, float d1, float door) {   /
     if (b - a > 0.02f) { Rectangle q = jpRect(J, u - 0.05f, a, u + 0.05f, b); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
     if (door >= 0) { Rectangle l = jpRect(J, u - 0.05f, door - 0.4f, u + 0.05f, door + 0.4f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB);
         a = door + 0.4f; if (d1 - a > 0.02f) { Rectangle q = jpRect(J, u - 0.05f, a, u + 0.05f, d1); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
-        if (nKeep < 8) { Rectangle k = jpRect(J, u - 0.7f, door - 0.55f, u + 0.7f, door + 0.55f); keepClear[nKeep++] = k; } }
+        keepAdd(jpRect(J, u - 0.7f, door - 0.55f, u + 0.7f, door + 0.55f), jpRect(J, u - 0.42f, door - 0.4f, u + 0.42f, door + 0.4f)); }
 }
 static void jpWallD(const JpF *J, float d, float u0, float u1, float door) {   // a partition at constant d from u0 to u1
     if (u1 - u0 < 0.05f) return;
@@ -762,7 +872,7 @@ static void jpWallD(const JpF *J, float d, float u0, float u1, float door) {   /
     if (b - a > 0.02f) { Rectangle q = jpRect(J, a, d - 0.05f, b, d + 0.05f); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
     if (door >= 0) { Rectangle l = jpRect(J, door - 0.4f, d - 0.05f, door + 0.4f, d + 0.05f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB);
         a = door + 0.4f; if (u1 - a > 0.02f) { Rectangle q = jpRect(J, a, d - 0.05f, u1, d + 0.05f); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); }
-        if (nKeep < 8) { Rectangle k = jpRect(J, door - 0.55f, d - 0.7f, door + 0.55f, d + 0.7f); keepClear[nKeep++] = k; } }
+        keepAdd(jpRect(J, door - 0.55f, d - 0.7f, door + 0.55f, d + 0.7f), jpRect(J, door - 0.4f, d - 0.42f, door + 0.4f, d + 0.42f)); }
 }
 static int jpRooms; static Rectangle jpRoomR[12]; static int jpRoomP[12], jpRoomO[12];
 static void jpRoom(const JpF *J, float u0, float d0, float u1, float d1, int plan, int outerWhich) {
@@ -942,7 +1052,9 @@ static bool jpFloor(Rectangle in, int street, Rectangle stairR, bool hasStairs, 
         }
     }
     jpDoneRooms:
+    furnDump = jpDump; furnDumpY = y0;
     for (int i = 0; i < jpRooms; i++) { planRoom(jpRoomR[i], y0, jpRoomP[i], jpRoomO[i], region, street, kind == 0); if (jpDump) { char t[8]; snprintf(t, 8, "R%d", jpRoomP[i]); jpDumpRect(t, jpRoomR[i]); } }
+    furnDump = NULL;
     if (!jpDump) jpDump = keepDump;
     return true;
 }
@@ -959,6 +1071,14 @@ static void building(Rectangle r, int kind, int floors, int street) {
     if (nFoot < MAX_FOOT) { footH[nFoot] = floors * FH + 0.6f; foots[nFoot++] = (Rectangle){r.x + curT, r.y + curT, r.width - 2 * curT, r.height - 2 * curT}; }
     int extTex = kind == 0 ? T_PLASTER : kind == 1 ? T_CONCRETE : kind == 2 ? T_TILEWALL : kind == 3 ? T_PLAIN : kind == 4 ? T_PLASTER : T_CONCRETE;
     Color ec = kind == 3 ? rgb(215, 220, 225) : kind == 4 ? rgb(200, 200, 205) : kind == 6 ? rgb(235, 242, 242) : rgb(fr(200, 255), fr(195, 245), fr(185, 235));
+    {   // the outside finish: each kind of building draws from the finishes such buildings really have (picked by where it stands, so a given building never changes)
+        float pk = hash2((int)floorf(r.x * 2), (int)floorf(r.y * 2), 9041 + kind), tn = hash2((int)floorf(r.x * 2), (int)floorf(r.y * 2), 9077);
+        if (kind == 0) { extTex = pk < 0.22f ? T_PLASTER : pk < 0.5f ? T_XSTUCCO : pk < 0.8f ? T_XSIDING : T_XBOARDS; if (extTex == T_XBOARDS) ec = rgb(205 + 40 * tn, 200 + 40 * tn, 195 + 40 * tn); }
+        else if (kind == 1) { extTex = pk < 0.2f ? T_CONCRETE : pk < 0.55f ? T_XTILE : pk < 0.8f ? T_XPANEL : T_XSTUCCO; if (extTex == T_XTILE) { static const Color tc[5] = {{226, 216, 198, 255}, {196, 150, 120, 255}, {214, 222, 226, 255}, {176, 190, 178, 255}, {236, 232, 224, 255}}; ec = tc[(int)(tn * 4.99f)]; } }
+        else if (kind == 2) { extTex = pk < 0.2f ? T_TILEWALL : pk < 0.5f ? T_XTILE : pk < 0.78f ? T_XSTUCCO : pk < 0.9f ? T_XSIDING : T_XCORR; if (extTex == T_XCORR) ec = tn < 0.5f ? rgb(170, 196, 200) : rgb(214, 208, 196); }
+        else if (kind == 3) extTex = T_XPANEL;
+        else if (kind == 4) extTex = T_XTILE;
+        else if (kind == 5) extTex = T_XPANEL; }
     if (bP && bP->tex >= 0) extTex = bP->tex;
     if (bP && bP->wall.a) ec = bP->wall;
     Rectangle in = {r.x + curT, r.y + curT, r.width - 2 * curT, r.height - 2 * curT};
@@ -1091,7 +1211,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
             Color pc = kind == 0 ? rgb(225, 215, 195) : rgb(200, 200, 196);
             int pt = kind == 0 ? T_PLASTER : T_CONCRETE;
             float mc = partC;
-            keepClear[nKeep++] = runX ? (Rectangle){gap - 0.6f, mc - 1.3f, 2.3f, 2.6f} : (Rectangle){mc - 1.3f, gap - 0.6f, 2.6f, 2.3f};
+            { Rectangle kc = runX ? (Rectangle){gap - 0.6f, mc - 1.3f, 2.3f, 2.6f} : (Rectangle){mc - 1.3f, gap - 0.6f, 2.6f, 2.3f}; keepAdd(kc, kc); }
             if (runX) { box(pt, V3(r.x, y0, mc - 0.06f), V3(gap, yTop, mc + 0.06f), pc, true, ALL); box(pt, V3(gap + 1.1f, y0, mc - 0.06f), V3(r.x + r.width, yTop, mc + 0.06f), pc, true, ALL);
                 box(pt, V3(gap, y0 + 2.2f, mc - 0.06f), V3(gap + 1.1f, yTop, mc + 0.06f), pc, false, ALLB); }
             else { box(pt, V3(mc - 0.06f, y0, r.y), V3(mc + 0.06f, yTop, gap), pc, true, ALL); box(pt, V3(mc - 0.06f, y0, gap + 1.1f), V3(mc + 0.06f, yTop, r.y + r.height), pc, true, ALL);
@@ -1111,7 +1231,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
                 if (!jpTry && fFree(sb.x, sb.y, sb.x + sb.width, sb.y + sb.height, y0)) { box(T_WOOD, V3(sb.x, y0, sb.y), V3(sb.x + sb.width, y0 + 0.95f, sb.y + sb.height), rgb(160, 125, 90), true, ALL);
                     box(T_PLAIN, V3(sb.x + 0.1f, y0 + 0.95f, sb.y + 0.08f), V3(sb.x + 0.3f, y0 + 1.15f, sb.y + 0.25f), rgb(90, 130, 90), false, ALL); }   // a pot plant on top
                 for (int k = 0; k < 2 + ri(3); k++) { float sx = g.x + fr(0.2f, g.width - 0.4f), sz = g.y + fr(0.2f, g.height - 0.4f); box(T_PLAIN, V3(sx, y0 + 0.026f, sz), V3(sx + 0.12f, y0 + 0.1f, sz + 0.28f), (Color[]){{40, 40, 44, 255}, {200, 200, 205, 255}, {150, 60, 50, 255}}[ri(3)], false, ALLB); }   // shoes left behind
-                keepClear[nKeep++] = (Rectangle){g.x - 0.4f, g.y - 0.4f, g.width + 0.8f, g.height + 0.8f}; } }
+                { Rectangle kc = {g.x - 0.4f, g.y - 0.4f, g.width + 0.8f, g.height + 0.8f}; keepAdd(kc, kc); } } }
         {   Rectangle rA = in, rB = in; int oA, oB; bool two = partC > 0;
             if (two) { if (runX) { rA.height = partC - in.y - 0.06f; rB.y = partC + 0.06f; rB.height = in.y + in.height - rB.y; oA = 0; oB = 2; }
                        else { rA.width = partC - in.x - 0.06f; rB.x = partC + 0.06f; rB.width = in.x + in.width - rB.x; oA = 3; oB = 1; } }

@@ -1,10 +1,39 @@
-ZANKO 2006 - Afterglow  (v0.9.3, roads, ground, interiors)
+ZANKO 2006 - Afterglow  (v0.9.4, corners, river, rooms, walls)
+
+- 0.9.4: the things 0.9.3 left out.
+  * Junction corners are rounded: the kerb turns the corner
+    on a radius, with a raised pavement slab behind it; roads
+    meeting at an angle get a paved island with a round nose.
+  * The river is a concrete channel: walls on both banks
+    with a coping and a railing, also where a street runs
+    beside the water; a headwall where a street crosses. The
+    paved-over stretch of river is open water again.
+  * Rooms are furnished by purpose: kitchen run, table,
+    television with the sofa facing it; toilet facing its
+    door; tub, basin and washing machine; bed with its head
+    to a wall, desk and chair at the window; nothing tall in
+    front of a window, nothing in a doorway.
+  * Six new outside wall finishes: glazed tile, sprayed
+    mortar, lap siding, cast concrete panels, corrugated
+    sheet, charred cedar boards. Room sides stay plaster.
+  * The pass no longer has a hump where it climbs beside the
+    old tunnel's hill; the hamlet lane starts at its edge.
+  * Multiplayer: joining no longer drops when building the
+    town takes longer than ten seconds.
+  * Katana, bat, pipe, crowbar and the naginata's second
+    blow swing down from over the head, not side to side.
+  * The mouse wheel changes weapon (not in the inventory,
+    on the map or in build mode, where it keeps its job).
+  * Launcher: the Servers tab says where multiplayer is.
 
 - 0.9.3: roads that lead somewhere, and a round of fixes.
   * Every road end now joins the network: stubs cut back,
     ends carried into the road ahead, new joining streets,
     the touge meets the town, the bridges have roads at both
     ends, the district avenues meet a top row.
+  * Streets drawn twice or side by side are single streets;
+    a bridge drawn along the river is gone. Streets run on
+    clean lines with rounded bends instead of jogs.
   * Bare town ground that was invisible is paved; pavements
     are raised from the kerb to the building fronts.
   * Grass meets roads and paving along a fine line instead of

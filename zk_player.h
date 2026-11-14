@@ -633,8 +633,9 @@ static void updatePlayer(float dt) {
     }
     // ---- quickbar, tools
     for (int q = 0; q < 6; q++) if (actP(A_Q1 + q)) quickUse(q);
-    if (actP(A_QNEXT) || actP(A_QPREV)) {   // step through the quick slots that hold something, with bare fists between the last and the first
-        int dir = actP(A_QNEXT) ? 1 : -1, cur = 6;
+    float qWheel = (pl.build || pl.invOpen || pl.mapOpen || pl.watchKind || pl.sleeping || state != ST_PLAY) ? 0 : MWheel();   // the wheel steps through the weapons, but never while a menu, the map or build mode has it
+    if (actP(A_QNEXT) || actP(A_QPREV) || qWheel != 0) {   // step through the quick slots that hold something, with bare fists between the last and the first
+        int dir = (actP(A_QNEXT) || qWheel < 0) ? 1 : -1, cur = 6;
         for (int q = 0; q < 6; q++) if (pl.quick[q] >= 0 && pl.quick[q] == pl.hands.t) { cur = q; break; }
         for (int k = 1; k <= 7; k++) { int q = ((cur + dir * k) % 7 + 7) % 7;
             if (q == 6) { if (pl.hands.t >= 0) holster(); break; }

@@ -287,21 +287,21 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     float sd = (swingN & 1) ? -1.0f : 1.0f;
     if (melee && !pl.build && pl.swingT > 0) {
         float post = st >= 1 ? 1 : 0, sw = sinf(s * PI);
-        if (style == 0) {   // katana: wind up high on one side, cut down across to the other, settle
-            R.p.x = 0.22f + sd * (wu * 0.06f - st * 0.36f + rc * 0.3f * post) + shakeHit; R.p.y = -0.25f + wu * 0.16f - st * 0.14f + rc * 0.1f * post;
-            R.p.z = -0.44f - st * 0.08f + rc * 0.08f * post;
-            R.r.x = -0.95f + wu * 1.5f - st * 2.3f + rc * 1.7f * post; R.r.z = -0.3f + sd * (-wu * 0.9f + st * 1.9f - rc * 1.0f * post); R.r.y = sd * (wu * 0.3f - st * 0.5f + rc * 0.2f * post);
+        if (style == 0) {   // katana: raised over the head, cut straight down, settle (a hair to one side or the other from one cut to the next)
+            R.p.x = 0.2f + sd * (wu * 0.03f - st * 0.03f) + shakeHit; R.p.y = -0.25f + wu * 0.3f - st * 0.38f + rc * 0.08f * post;
+            R.p.z = -0.42f + wu * 0.1f - st * 0.14f + rc * 0.04f * post;
+            R.r.x = -0.95f + wu * 1.9f - st * 2.7f + rc * 0.8f * post; R.r.z = -0.2f + sd * 0.08f * sw; R.r.y = 0;
         } else if (style == 1) {   // knife: draw back, stab, twist out
             float stab = bell(s, 0.25f, 0.6f); R.p = Vector3Add(R.p, V3(-stab * 0.07f + shakeHit, stab * 0.03f - wu * 0.03f, -stab * 0.3f + wu * 0.05f));
             R.r.x += -0.6f * stab; R.r.z += bell(s, 0.45f, 0.8f) * 0.6f;
-        } else if (style == 2) {   // bat, pipe, crowbar: cock behind the right shoulder, sweep flat across
-            R.p.x = 0.24f + wu * 0.12f - st * 0.5f + rc * 0.38f * post + shakeHit; R.p.y = -0.24f + wu * 0.1f - st * 0.04f; R.p.z = -0.42f + wu * 0.06f - st * 0.1f + rc * 0.1f * post;
-            R.r.x = -0.95f + wu * 0.4f + st * 0.25f; R.r.y = wu * 0.9f - st * 2.0f + rc * 1.1f * post; R.r.z = -0.3f - wu * 0.4f + st * 1.3f - rc * 0.9f * post;
-        } else if (style == 4) {   // naginata: a long two-handed thrust, then a low sweep the other way
+        } else if (style == 2) {   // bat, pipe, crowbar: lifted over the head, brought straight down
+            R.p.x = 0.22f + shakeHit; R.p.y = -0.24f + wu * 0.3f - st * 0.38f + rc * 0.08f * post; R.p.z = -0.42f + wu * 0.1f - st * 0.14f + rc * 0.04f * post;
+            R.r.x = -0.95f + wu * 1.8f - st * 2.6f + rc * 0.8f * post; R.r.y = 0; R.r.z = -0.25f + 0.08f * sw;
+        } else if (style == 4) {   // naginata: a long two-handed thrust, then an overhead cut
             L.vis = true;
             if (swingN & 1) { float th = bell(s, 0.2f, 0.62f); R.p = Vector3Add(R.p, V3(-0.08f * th + shakeHit, 0.06f * th - wu * 0.04f, -0.42f * th + wu * 0.1f)); R.r.x += 0.35f * th; }
-            else { R.p.x = 0.26f + wu * 0.14f - st * 0.62f + rc * 0.48f * post + shakeHit; R.p.y = -0.3f + wu * 0.05f - st * 0.06f; R.p.z = -0.36f - st * 0.12f + rc * 0.1f * post;
-                   R.r.x = -1.2f + wu * 0.2f + st * 0.15f; R.r.y = wu * 1.0f - st * 2.3f + rc * 1.3f * post; R.r.z = -0.2f - wu * 0.3f + st * 1.4f - rc * 1.1f * post; }
+            else { R.p.x = 0.18f + shakeHit; R.p.y = -0.28f + wu * 0.3f - st * 0.36f + rc * 0.06f * post; R.p.z = -0.38f + wu * 0.1f - st * 0.12f + rc * 0.02f * post;
+                   R.r.x = -1.1f + wu * 1.9f - st * 2.6f + rc * 0.7f * post; R.r.y = 0; R.r.z = -0.15f + 0.1f * sw; }
         } else if (style == 5) {   // sickle: up and out, then hooked down and back toward the body
             R.p.x = 0.24f + wu * 0.06f - st * 0.14f + rc * 0.1f * post + shakeHit; R.p.y = -0.25f + wu * 0.2f - st * 0.22f + rc * 0.1f * post; R.p.z = -0.44f - wu * 0.12f + st * 0.18f - rc * 0.06f * post;
             R.r.x = -0.95f + wu * 1.2f - st * 1.9f + rc * 0.9f * post; R.r.y = -st * 0.5f + rc * 0.4f * post; R.r.z = -0.3f + wu * 0.4f - st * 0.2f;
