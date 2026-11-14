@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account - Zankō 2006</title>
+<meta name="description" content="Register a Zankō 2006 account: username, e-mail and password. The launcher logs in with it.">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+:root { --bg: #0a0e0f; --panel: #141c1e; --panel2: #1a2427; --rim: #2c3a3d; --text: #e6e0d0; --dim: #a29c8c; --cyan: #6fd6d0; --amber: #e8b45a; --red: #e07a62; --ok: #8fd18a;
+  --glass: linear-gradient(#f4f6f7, #dfe3e6 48%, #c9cfd3 52%, #d8dde0); }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI", "Noto Sans", system-ui, sans-serif; }
+a { color: var(--cyan); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+nav { position: sticky; top: 0; z-index: 5; background: rgba(10, 14, 15, .88); backdrop-filter: blur(6px); border-bottom: 1px solid var(--rim); }
+nav .wrap { display: flex; align-items: center; gap: 18px; height: 56px; }
+nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .06em; color: var(--text); text-decoration: none; }
+nav .brand img { width: 30px; height: 30px; }
+nav .links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+nav .links a { color: var(--dim); text-decoration: none; }
+nav .links a:hover { color: var(--text); }
+main { max-width: 520px; margin: 0 auto; padding: 44px 16px 72px; }
+h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .03em; }
+h1 .jp { color: var(--amber); font-size: .6em; margin-left: 10px; font-weight: 400; }
+.lead { color: #d4cebf; margin: 0 0 24px; }
+.tabs { display: flex; gap: 6px; margin-bottom: -1px; }
+.tabs button { flex: 1; padding: 10px 8px; background: var(--panel); color: var(--dim); border: 1px solid var(--rim); border-bottom: none; border-radius: 8px 8px 0 0; font: inherit; font-size: 15px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--panel2); color: var(--text); font-weight: 700; }
+.card { background: linear-gradient(var(--panel2), var(--panel)); border: 1px solid var(--rim); border-radius: 0 0 8px 8px; padding: 22px 22px 24px; }
+label { display: block; font-size: 14px; color: var(--cyan); margin: 14px 0 4px; }
+label:first-child { margin-top: 0; }
+input { width: 100%; padding: 10px 12px; border-radius: 4px; border: 1px solid #3b4a4e; background: #0d1314; color: var(--text); font: inherit; }
+input:focus { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.hint { font-size: 13px; color: var(--dim); margin: 4px 0 0; }
+.btn { display: inline-flex; justify-content: center; width: 100%; margin-top: 20px; padding: 12px 20px; border-radius: 4px; border: 1px solid #707070; background: var(--glass); color: #10181f; font: inherit; font-weight: 700; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255,255,255,.75), 0 3px 10px rgba(0,0,0,.45); }
+.btn:hover { border-color: #3c7fb1; background: linear-gradient(#eaf6fd, #d9f0fc 48%, #bee6fd 52%, #a7d9f5); }
+.btn[disabled] { opacity: .6; cursor: default; }
+.link { background: none; border: none; color: var(--cyan); font: inherit; font-size: 14px; padding: 0; margin-top: 14px; cursor: pointer; text-decoration: underline; }
+.msg { margin: 16px 0 0; padding: 10px 12px; border-radius: 4px; font-size: 15px; border: 1px solid var(--rim); background: #0d1314; }
+.msg.err { color: var(--red); border-color: #6a3a30; }
+.msg.ok { color: var(--ok); border-color: #3a5a3a; }
+.msg:empty { display: none; }
+.who { margin: 0 0 4px; font-size: 20px; font-weight: 700; }
+.row { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+[hidden] { display: none !important; }
+footer { padding: 28px 0 44px; border-top: 1px solid #172022; color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="./"><img src="img/icon.png" alt="">ZANKŌ 2006</a>
+  <div class="links"><a href="./#download">Download</a><a href="account.html">Account</a></div>
+</div></nav>
+
+<main>
+  <h1>Account<span class="jp">市民登録</span></h1>
+  <p class="lead">One account for the launcher: a username, an e-mail and a password. The e-mail has to be confirmed by the link sent to it before the launcher lets the account in.</p>
+
+  <div id="forms">
+    <div class="tabs" role="tablist">
+      <button id="tabReg" role="tab" aria-selected="true" aria-controls="paneReg">Register</button>
+      <button id="tabLog" role="tab" aria-selected="false" aria-controls="paneLog">Log in</button>
+    </div>
+    <div class="card">
+      <form id="paneReg" role="tabpanel" aria-labelledby="tabReg" novalidate>
+        <label for="rName">Username</label>
+        <input id="rName" name="username" autocomplete="username" maxlength="16" required>
+        <p class="hint">3 to 16 characters: letters, digits, _ and -. Shown in the game.</p>
+        <label for="rMail">E-mail</label>
+        <input id="rMail" name="email" type="email" autocomplete="email" required>
+        <label for="rPass">Password</label>
+        <input id="rPass" name="password" type="password" autocomplete="new-password" minlength="8" required>
+        <p class="hint">At least 8 characters.</p>
+        <label for="rPass2">Password again</label>
+        <input id="rPass2" name="password2" type="password" autocomplete="new-password" required>
+        <button class="btn" type="submit">Create account</button>
+        <p class="msg" id="rMsg" role="status"></p>
+      </form>
+      <form id="paneLog" role="tabpanel" aria-labelledby="tabLog" hidden novalidate>
+        <label for="lMail">E-mail</label>
+        <input id="lMail" name="email" type="email" autocomplete="email" required>
+        <label for="lPass">Password</label>
+        <input id="lPass" name="password" type="password" autocomplete="current-password" required>
+        <button class="btn" type="submit">Log in</button>
+        <button class="link" type="button" id="lReset">Forgot the password: send a reset link</button>
+        <p class="msg" id="lMsg" role="status"></p>
+      </form>
+    </div>
+  </div>
+
+  <div id="me" class="card" style="border-radius:8px" hidden>
+    <p class="who" id="meName"></p>
+    <p class="hint" id="meMail"></p>
+    <p class="msg" id="meState"></p>
+    <div class="row">
+      <button class="link" type="button" id="meResend">Send the confirmation link again</button>
+      <button class="link" type="button" id="meCheck">I have confirmed it: check again</button>
+      <button class="link" type="button" id="meOut">Log out</button>
+    </div>
+    <p class="msg" id="meMsg" role="status"></p>
+  </div>
+</main>
+
+<footer><div class="wrap">Accounts are kept by Google Firebase Authentication: the e-mail, the username and a hash of the password. Nothing else is stored.</div></footer>
+
+<script>
+// The Firebase project's web API key. It is public by design (it only names the project); the same key is built into the launcher.
+const FIREBASE_KEY = "AIzaSyCBCgN0SFahqYz-JveAgzYQbEcZ_-OB9Rc";
+
+const API = "https://identitytoolkit.googleapis.com/v1/accounts:";
+const $ = id => document.getElementById(id);
+const say = (el, text, kind) => { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); };
+const WORDS = {
+  EMAIL_EXISTS: "An account with this e-mail already exists. Log in instead.",
+  INVALID_EMAIL: "That is not an e-mail address.",
+  WEAK_PASSWORD: "The password is too short.",
+  INVALID_LOGIN_CREDENTIALS: "Wrong e-mail or password.", INVALID_PASSWORD: "Wrong e-mail or password.", EMAIL_NOT_FOUND: "Wrong e-mail or password.",
+  USER_DISABLED: "This account is disabled.",
+  TOO_MANY_ATTEMPTS_TRY_LATER: "Too many attempts. Try again later.",
+  OPERATION_NOT_ALLOWED: "E-mail accounts are not switched on for this site yet.",
+  TOKEN_EXPIRED: "The login has expired. Log in again."
+};
+async function call(method, body) {
+  if (!FIREBASE_KEY) throw new Error("Accounts are not set up on this site yet.");
+  let res;
+  try { res = await fetch(API + method + "?key=" + FIREBASE_KEY, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (e) { throw new Error("No connection to the account server."); }
+  const js = await res.json().catch(() => ({}));
+  if (!res.ok) { const code = ((js.error && js.error.message) || "").split(" ")[0]; throw new Error(WORDS[code] || "That did not work (" + (code || res.status) + ")."); }
+  return js;
+}
+let token = null;
+async function showMe() {
+  const u = (await call("lookup", { idToken: token })).users[0];
+  $("forms").hidden = true; $("me").hidden = false;
+  $("meName").textContent = u.displayName || "(no username)"; $("meMail").textContent = u.email;
+  if (u.emailVerified) { say($("meState"), "E-mail confirmed. The launcher will let this account in: log in there with this e-mail and password.", "ok"); $("meResend").hidden = $("meCheck").hidden = true; }
+  else { say($("meState"), "E-mail not confirmed yet. Open the link sent to " + u.email + " (look in the spam folder too). The launcher refuses the account until then.", "err"); $("meResend").hidden = $("meCheck").hidden = false; }
+}
+function pick(reg) { $("tabReg").setAttribute("aria-selected", reg); $("tabLog").setAttribute("aria-selected", !reg); $("paneReg").hidden = !reg; $("paneLog").hidden = reg; }
+$("tabReg").onclick = () => pick(true); $("tabLog").onclick = () => pick(false);
+
+$("paneReg").onsubmit = async ev => {
+  ev.preventDefault(); const m = $("rMsg"), name = $("rName").value.trim(), mail = $("rMail").value.trim(), pw = $("rPass").value;
+  if (!/^[A-Za-z0-9_-]{3,16}$/.test(name) || name === "Guest") return say(m, "Username: 3 to 16 letters, digits, _ or -.", "err");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return say(m, "Enter an e-mail address.", "err");
+  if (pw.length < 8) return say(m, "Password: at least 8 characters.", "err");
+  if (pw !== $("rPass2").value) return say(m, "The two passwords are not the same.", "err");
+  const btn = ev.target.querySelector(".btn"); btn.disabled = true; say(m, "Creating the account...");
+  try {
+    const r = await call("signUp", { email: mail, password: pw, returnSecureToken: true }); token = r.idToken;
+    await call("update", { idToken: token, displayName: name, returnSecureToken: false });
+    await call("sendOobCode", { requestType: "VERIFY_EMAIL", idToken: token });
+    await showMe();
+  } catch (e) { say(m, e.message, "err"); }
+  btn.disabled = false;
+};
+$("paneLog").onsubmit = async ev => {
+  ev.preventDefault(); const m = $("lMsg"), btn = ev.target.querySelector(".btn"); btn.disabled = true; say(m, "Logging in...");
+  try { const r = await call("signInWithPassword", { email: $("lMail").value.trim(), password: $("lPass").value, returnSecureToken: true }); token = r.idToken; say(m, ""); await showMe(); }
+  catch (e) { say(m, e.message, "err"); }
+  btn.disabled = false;
+};
+$("lReset").onclick = async () => {
+  const m = $("lMsg"), mail = $("lMail").value.trim(); if (!mail) return say(m, "Enter the account's e-mail first.", "err");
+  try { await call("sendOobCode", { requestType: "PASSWORD_RESET", email: mail }); say(m, "If that e-mail has an account, a reset link is on its way.", "ok"); } catch (e) { say(m, e.message, "err"); }
+};
+$("meResend").onclick = async () => { try { await call("sendOobCode", { requestType: "VERIFY_EMAIL", idToken: token }); say($("meMsg"), "Sent.", "ok"); } catch (e) { say($("meMsg"), e.message, "err"); } };
+$("meCheck").onclick = async () => { try { await showMe(); say($("meMsg"), ""); } catch (e) { say($("meMsg"), e.message, "err"); } };
+$("meOut").onclick = () => { token = null; $("me").hidden = true; $("forms").hidden = false; pick(false); };
+</script>
+</body>
+</html>
