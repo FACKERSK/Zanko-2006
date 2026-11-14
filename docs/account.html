@@ -85,6 +85,7 @@ footer { padding: 28px 0 44px; border-top: 1px solid #172022; color: var(--dim);
         <label for="rPass2">Password again</label>
         <input id="rPass2" name="password2" type="password" autocomplete="new-password" required>
         <label class="show"><input type="checkbox" id="rShow"> Show the passwords</label>
+        <label class="show"><input type="checkbox" id="rKeep"> Remember me on this device</label>
         <button class="btn" type="submit">Create account</button>
         <p class="msg" id="rMsg" role="status"></p>
       </form>
@@ -94,6 +95,7 @@ footer { padding: 28px 0 44px; border-top: 1px solid #172022; color: var(--dim);
         <label for="lPass">Password</label>
         <input id="lPass" name="password" type="password" autocomplete="current-password" required>
         <label class="show"><input type="checkbox" id="lShow"> Show the password</label>
+        <label class="show"><input type="checkbox" id="lKeep"> Remember me on this device</label>
         <button class="btn" type="submit">Log in</button>
         <button class="link" type="button" id="lReset">Forgot the password: send a reset link</button>
         <p class="msg" id="lMsg" role="status"></p>
@@ -143,6 +145,14 @@ async function call(method, body) {
   return js;
 }
 let token = null;
+// "Remember me": the login is kept in this browser (a refresh token in its storage) until Log out
+const keep = { get() { try { return localStorage.getItem("zankoLogin"); } catch (e) { return null; } }, set(v) { try { if (v) localStorage.setItem("zankoLogin", v); else localStorage.removeItem("zankoLogin"); } catch (e) {} } };
+async function resume() {
+  const rt = keep.get(); if (!rt || !FIREBASE_KEY) return;
+  try { const res = await fetch("https://securetoken.googleapis.com/v1/token?key=" + FIREBASE_KEY, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=refresh_token&refresh_token=" + encodeURIComponent(rt) });
+    if (!res.ok) { if (res.status === 400) keep.set(null); return; }
+    const js = await res.json(); token = js.id_token; if (js.refresh_token) keep.set(js.refresh_token); await showMe(); } catch (e) {}
+}
 async function showMe() {
   const u = (await call("lookup", { idToken: token })).users[0];
   $("forms").hidden = true; $("me").hidden = false;
@@ -163,7 +173,7 @@ $("paneReg").onsubmit = async ev => {
   if (pw !== $("rPass2").value) return say(m, "The two passwords are not the same.", "err");
   const btn = ev.target.querySelector(".btn"); btn.disabled = true; say(m, "Creating the account...");
   try {
-    const r = await call("signUp", { email: mail, password: pw, returnSecureToken: true }); token = r.idToken;
+    const r = await call("signUp", { email: mail, password: pw, returnSecureToken: true }); token = r.idToken; keep.set($("rKeep").checked ? r.refreshToken : null);
     await call("update", { idToken: token, displayName: name, returnSecureToken: false });
     await call("sendOobCode", { requestType: "VERIFY_EMAIL", idToken: token });
     await showMe();
@@ -172,7 +182,7 @@ $("paneReg").onsubmit = async ev => {
 };
 $("paneLog").onsubmit = async ev => {
   ev.preventDefault(); const m = $("lMsg"), btn = ev.target.querySelector(".btn"); btn.disabled = true; say(m, "Logging in...");
-  try { const r = await call("signInWithPassword", { email: $("lMail").value.trim(), password: $("lPass").value, returnSecureToken: true }); token = r.idToken; say(m, ""); await showMe(); }
+  try { const r = await call("signInWithPassword", { email: $("lMail").value.trim(), password: $("lPass").value, returnSecureToken: true }); token = r.idToken; keep.set($("lKeep").checked ? r.refreshToken : null); say(m, ""); await showMe(); }
   catch (e) { say(m, e.message, "err"); }
   btn.disabled = false;
 };
@@ -182,7 +192,8 @@ $("lReset").onclick = async () => {
 };
 $("meResend").onclick = async () => { try { await call("sendOobCode", { requestType: "VERIFY_EMAIL", idToken: token }); say($("meMsg"), "Sent.", "ok"); } catch (e) { say($("meMsg"), e.message, "err"); } };
 $("meCheck").onclick = async () => { try { await showMe(); say($("meMsg"), ""); } catch (e) { say($("meMsg"), e.message, "err"); } };
-$("meOut").onclick = () => { token = null; $("me").hidden = true; $("forms").hidden = false; pick(false); };
+$("meOut").onclick = () => { token = null; keep.set(null); $("me").hidden = true; $("forms").hidden = false; pick(false); };
+resume();
 </script>
 </body>
 </html>
