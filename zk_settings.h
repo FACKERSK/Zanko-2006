@@ -12,15 +12,16 @@ typedef struct {
     int invertY;
     int reduceFlash; float dmgOverlay, insanityFx;
     int autoReload, pauseUnfocus, muteUnfocus, centered;
+    float hudScale;      // size of the HUD (panels, hotbar, text)
 } GameSet;
 static GameSet gs;
 static void gsDefaults(void) {
     gs = (GameSet){.fpsCap = 144, .smooth = 0, .bright = 1, .fog = 1, .wobble = 1, .showFps = 0, .sfx = 1, .amb = 1, .ui = 1,
         .bob = 1, .sway = 1, .shake = 1, .sprintTgl = 0, .sneakTgl = 0, .hints = 1, .hitMarks = 1, .crossStyle = 0, .crossCol = 0, .disturb = 1,
-        .invertY = 0, .reduceFlash = 0, .dmgOverlay = 1, .insanityFx = 1, .autoReload = 1, .pauseUnfocus = 1, .muteUnfocus = 0, .centered = 0};
+        .invertY = 0, .reduceFlash = 0, .dmgOverlay = 1, .insanityFx = 1, .autoReload = 1, .pauseUnfocus = 1, .muteUnfocus = 0, .centered = 0, .hudScale = 1};
 }
 #define GS_INTS X(fpsCap) X(smooth) X(wobble) X(showFps) X(sprintTgl) X(sneakTgl) X(hints) X(hitMarks) X(crossStyle) X(crossCol) X(disturb) X(invertY) X(reduceFlash) X(autoReload) X(pauseUnfocus) X(muteUnfocus) X(centered)
-#define GS_FLOATS X(bright) X(fog) X(sfx) X(amb) X(ui) X(bob) X(sway) X(shake) X(dmgOverlay) X(insanityFx)
+#define GS_FLOATS X(bright) X(fog) X(sfx) X(amb) X(ui) X(bob) X(sway) X(shake) X(dmgOverlay) X(insanityFx) X(hudScale)
 static void gsSave(void) {
     ensureDir("Data"); FILE *f = fopen(P("Data/game.ini"), "w"); if (!f) return;
     fprintf(f, "# Zanko 2006 game settings (the launcher keeps config.ini)\n");

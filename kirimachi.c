@@ -356,6 +356,24 @@ static void xfBox(int f, Vector3 mn, Vector3 mx, Vector3 *wmn, Vector3 *wmx) {  
         wmn->x = fminf(wmn->x, q.x); wmn->z = fminf(wmn->z, q.z); wmx->x = fmaxf(wmx->x, q.x); wmx->z = fmaxf(wmx->z, q.z); }
 }
 static int wallAuditOn = -1, wallAuditN = 0; static Vector3 wallAuditP[24]; static int wallAuditT[24]; static float wallAuditW[24], wallAuditH[24]; static bool roadCentreAt(float x, float z);
+// ground coverage while the world is built: which half-metre cells of the town have a drawn surface at street level, so ground you
+// can stand on but that nothing was drawn over (a gap between lots, round a basement stair) gets paving afterwards
+#define CV_X0 (-480.0f)
+#define CV_Z0 (-250.0f)
+#define CV_W 2300
+#define CV_H 1560
+static unsigned char *cover; static float ceilAt(Vector3 p, float r);
+static void coverTri(Vector3 a, Vector3 b, Vector3 c) {
+    float mnx = fminf(a.x, fminf(b.x, c.x)), mxx = fmaxf(a.x, fmaxf(b.x, c.x)), mnz = fminf(a.z, fminf(b.z, c.z)), mxz = fmaxf(a.z, fmaxf(b.z, c.z));
+    int i0 = (int)floorf((mnx - CV_X0) * 2), i1 = (int)ceilf((mxx - CV_X0) * 2), j0 = (int)floorf((mnz - CV_Z0) * 2), j1 = (int)ceilf((mxz - CV_Z0) * 2);
+    if (i1 < 0 || j1 < 0 || i0 >= CV_W || j0 >= CV_H) return;
+    float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z); if (fabsf(d) < 1e-6f) return;
+    for (int j = j0 < 0 ? 0 : j0; j <= j1 && j < CV_H; j++) for (int i = i0 < 0 ? 0 : i0; i <= i1 && i < CV_W; i++) {
+        float x = CV_X0 + (i + 0.5f) * 0.5f, z = CV_Z0 + (j + 0.5f) * 0.5f;
+        float l1 = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / d, l2 = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / d, l3 = 1 - l1 - l2;
+        if (l1 < -0.02f || l2 < -0.02f || l3 < -0.02f) continue;
+        float y = l1 * a.y + l2 * b.y + l3 * c.y; if (y > SIDEH - 0.25f && y < SIDEH + 0.45f) cover[j * CV_W + i] = 1; }
+}
 #define MAX_UPS 400000
 static float (*upS)[4]; static int nUps = -1;   // audit (KIRI_UPAUDIT): sample points of upward faces big enough to stand on, to check there is ground under each
 static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color col) {
@@ -371,11 +389,15 @@ static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, C
         if (y1 - y0 > 0.35f && y0 < SIDEH + 0.6f && y1 > SIDEH + 0.3f) { Vector3 m = xfP(curXf, Vector3Scale(Vector3Add(Vector3Add(a, b), Vector3Add(c, d)), 0.25f));
             if (roadCentreAt(m.x, m.z)) { if (wallAuditN < 24) { wallAuditP[wallAuditN] = m; wallAuditT[wallAuditN] = t; wallAuditW[wallAuditN] = sqrtf((a.x - c.x) * (a.x - c.x) + (a.z - c.z) * (a.z - c.z)); wallAuditH[wallAuditN] = y1 - y0; } wallAuditN++; } } }
     Vector3 w[6]; for (int i = 0; i < 6; i++) w[i] = curXf ? xfP(curXf, q[i]) : q[i];
+    if (cover && n.y > 0.7f) { coverTri(w[0], w[1], w[2]); coverTri(w[3], w[4], w[5]); }
     int ch = chunkOf((w[0].x + w[2].x) * 0.5f, (w[0].z + w[2].z) * 0.5f);
     if (!chAny[ch]) { chAny[ch] = true; chMn[ch] = w[0]; chMx[ch] = w[0]; }
     for (int i = 0; i < 6; i++) { chMn[ch] = Vector3Min(chMn[ch], w[i]); chMx[ch] = Vector3Max(chMx[ch], w[i]); }
-    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], w[i], uvOf(t, q[i], n), wn, col); return; }   // texture follows the walls
+    bool two = t == T_ROOF && n.y > 0.05f && n.y < 0.995f;   // a pitched roof is seen from under its eaves too
+    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], w[i], uvOf(t, q[i], n), wn, col);
+        if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][t], w[i], uvOf(t, q[i], n), Vector3Negate(wn), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a}); return; }   // texture follows the walls
     for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), n, col);
+    if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), Vector3Negate(n), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a});
 }
 static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
     // every drawn box is given a hair of thickness beyond its true size: the smaller the box, the more (3 mm for a 10 cm piece,
@@ -384,6 +406,7 @@ static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
     { float dm = fmaxf(mx.x - mn.x, fmaxf(mx.y - mn.y, mx.z - mn.z)); unsigned int h = (unsigned int)(mn.x * 73.1f) * 2654435761u ^ (unsigned int)(mn.z * 37.3f + mn.y * 11.0f) * 40503u;
       float e = 0.0006f + 0.003f / (1 + dm) + 0.0004f * (float)(h & 1023) / 1023.0f;
       mn = Vector3Subtract(mn, (Vector3){e, e, e}); mx = Vector3Add(mx, (Vector3){e, e, e}); }
+    if ((mask & 16) && !(mask & 32) && mn.y > SIDEH + 0.2f && mask != 16) mask |= 32;   // anything off the ground can be seen from below: a lintel, a frame head, a shelf, an eave
     float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
     if (mask & 1) quad(t, (Vector3){x1, y0, z1}, (Vector3){x1, y0, z0}, (Vector3){x1, y1, z0}, (Vector3){x1, y1, z1}, (Vector3){1, 0, 0}, col);
     if (mask & 2) quad(t, (Vector3){x0, y0, z0}, (Vector3){x0, y0, z1}, (Vector3){x0, y1, z1}, (Vector3){x0, y1, z0}, (Vector3){-1, 0, 0}, col);
@@ -1096,6 +1119,7 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
 static void genWorld(unsigned int seed) {
     freeWorld();
     if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
+    free(cover); cover = calloc((size_t)CV_W * CV_H, 1);
     hfReady = false; layoutInit();
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
     // subway stairwells cut holes into the ground; the city opens onto the wilds (no perimeter wall)
@@ -1169,6 +1193,16 @@ static void genWorld(unsigned int seed) {
     worldSolids = nSol; worldLights = nLight;
     TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings, %d basements, %d lights, %d signs, %d frames", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot, nPit, nLight, nSign, nXf);
     for (int i = 0; i < nPit && i < 3; i++) { Vector3 c = xfP(pits[i].f, V3(pits[i].r.x + pits[i].r.width / 2, 0, pits[i].r.y + pits[i].r.height / 2)); TraceLog(LOG_INFO, "PIT %d at %.1f %.1f", i, c.x, c.z); }
+    {   // town ground that has collision but nothing drawn on it: paving, laid in strips along x, a hair under the surfaces round it
+        int filled = 0;
+        for (int j = 0; j < CV_H; j++) for (int i = 0; i < CV_W;) {
+            #define CVNEED(ii) ({ float x_ = CV_X0 + ((ii) + 0.5f) * 0.5f, z_ = CV_Z0 + (j + 0.5f) * 0.5f; !cover[j * CV_W + (ii)] && cityLand(x_, z_) && !inHole(x_, z_) && !inPit(x_, z_) && fabsf(baseGroundY(x_, z_, SIDEH + 1) - SIDEH) < 0.05f && ceilAt(V3(x_, SIDEH + 0.05f, z_), 0.01f) > SIDEH + 0.3f; })
+            if (!CVNEED(i)) { i++; continue; } int i2 = i; while (i2 + 1 < CV_W && CVNEED(i2 + 1)) i2++;
+            #undef CVNEED
+            float x0 = CV_X0 + i * 0.5f, x1 = CV_X0 + (i2 + 1) * 0.5f, z0 = CV_Z0 + j * 0.5f, z1 = z0 + 0.5f, y = SIDEH - 0.012f;
+            quad(T_SIDEWALK, V3(x0, y, z1), V3(x1, y, z1), V3(x1, y, z0), V3(x0, y, z0), V3(0, 1, 0), rgb(205, 202, 194)); filled += i2 - i + 1; i = i2 + 1; }
+        TraceLog(LOG_INFO, "GROUNDFILL %d half-metre cells of bare town ground paved", filled);
+        free(cover); cover = NULL; }
     finalizeMeshes();
     genTerrain();
     rs = seed ? seed : 1;   // runs differ from here on: creatures, weather, events
@@ -1303,6 +1337,7 @@ static float MWheel(void) { return vin.on ? vin.wheel : GetMouseWheelMove(); }
 
 // ============================================================ game reset
 #include "zk_animdef.h"
+static bool videoMode = false; static int mangaStep = 0; static bool mangaAll = true;   // reading: spreads turned so far; read to the end
 #define MANGA_T 7.0f   // seconds of reading a manga: lift, open, three page turns, close
 static void mangaRegen(int vol);
 static int vmSwingN = -1; static bool vmSpray = false;   // viewmodel stills (KIRI_VM): which way a swing goes, the extinguisher spraying
@@ -1946,6 +1981,7 @@ static void settingsPanel(void) {   // tabs as in most PC games: video, audio, g
         static const char *up[2] = {"Sharp pixels", "Smooth"}; CHOICE(x0, "Upscaling", up, 2, gs.smooth);
         TOG(x0, "PS1 vertex wobble", gs.wobble);
         TOG(x0, "Show FPS", gs.showFps);
+        SLIDE(x0, "HUD size", gs.hudScale, 0.6f, 1.6f, "%.2f");
         float rh = (float)cfg.renderH; SLIDE(x1, "Render resolution (PS1 = 240)", rh, 180, 480, "%.0fp"); cfg.renderH = ((int)rh / 30) * 30;
         SLIDE(x1, "Brightness", gs.bright, 0.5f, 1.8f, "%.2f");
         SLIDE(x1, "Fog", gs.fog, 0.3f, 1.6f, "%.2f");
@@ -2045,7 +2081,7 @@ static void lorePanel(void) {
 }
 
 // ============================================================ scripted demo recorder (KIRI_VIDEO=<dir>)
-static bool videoMode = false; static const char *vidDir = NULL;
+static const char *vidDir = NULL;
 static int vPhase = 0, vT = 0, vWin = -1, vCr = -1, vSp = -1, vItem = -1; static Vector3 vOut, vIn;
 static void vAim(Vector3 target, float rate) {
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0)), d = Vector3Subtract(target, eye);
@@ -2346,6 +2382,21 @@ int main(int argc, char **argv) {
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
                 if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
                     TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d terrain %.2f", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z), terrainH(x, z)); } }
+                if (getenv("KIRI_MANGATEST")) { pl.watchKind = 2; pl.watchT = MANGA_T; mangaStep = 0; }
+                if (getenv("KIRI_HOLES")) { int tot = 0, bad = 0, pitN = 0;   // town ground with nothing to stand on within 2 m below
+                    for (float x = -480; x < 1780; x += 1.0f) for (float z = -240; z < 1280; z += 1.0f) { if (!cityLand(x, z)) continue; tot++;
+                        float g = groundAt(V3(x, SIDEH + 1.0f, z), 0.05f, 2.5f); if (g > SIDEH - 1.6f) continue; bool ip = inPit(x, z); if (ip) { pitN++; continue; }
+                        bad++; if (bad <= 25) TraceLog(LOG_INFO, "HOLE %.0f %.0f g %.2f hole %d", x, z, g, inHole(x, z)); }
+                    TraceLog(LOG_INFO, "HOLES %d of %d town points have no ground (and %d in basement stair openings)", bad, tot, pitN); }
+                if (getenv("KIRI_NETDUMP")) { FILE *f = fopen(getenv("KIRI_NETDUMP"), "w"); if (f) {
+                    for (int s2 = 0; s2 < nStreet; s2++) { fprintf(f, "S %d %g %d", s2, stW10[s2] / 10.0, stKind[s2]); for (int i = 0; i < ST_N(s2); i++) fprintf(f, " %.2f,%.2f", ST_P(s2)[i].x, ST_P(s2)[i].z); fputc('\n', f); }
+                    fprintf(f, "C 7.4 0"); for (int i = 0; i < nCoast; i++) fprintf(f, " %.2f,%.2f", coastP[i].x, coastP[i].z); fputc('\n', f);
+                    fprintf(f, "T 6 0"); for (int i = 0; i < nTouge; i++) fprintf(f, " %.2f,%.2f", tougeP[i].x, tougeP[i].z); fputc('\n', f);
+                    fprintf(f, "A 14 0"); for (int i = 0; i < nAvenue; i++) fprintf(f, " %.2f,%.2f", avenueP[i].x, avenueP[i].z); fputc('\n', f);
+                    { static Vector3 rv3[MAX_PATH]; int nr3 = loadPath(dRiverLine, DRIVERLINE_N, rv3); fprintf(f, "R 8 0"); for (int i = 0; i < nr3; i++) fprintf(f, " %.2f,%.2f", rv3[i].x, rv3[i].z); fputc('\n', f); }
+                    fprintf(f, "L 3 0"); for (int i = 0; i < nRail; i++) fprintf(f, " %.2f,%.2f", railP[i].x, railP[i].z); fputc('\n', f);
+                    for (int b = 0; b < nBore; b++) fprintf(f, "B %d %.1f %.1f %d %d %.0f\n", b, bores[b].px, bores[b].pz, bores[b].dir, bores[b].kind, bores[b].len);
+                    fclose(f); } }
                 if (getenv("KIRI_KAT")) { float kx, kz; sscanf(getenv("KIRI_KAT"), "%f %f", &kx, &kz); for (int s2 = 0; s2 < nStreet; s2++) { float d = pathDist(ST_P(s2), ST_N(s2), kx, kz, NULL); if (d < 12) TraceLog(LOG_INFO, "KATST street %d kind %d w %.1f dist %.1f n %d", s2, stKind[s2], stW10[s2] / 10.0f, d, ST_N(s2)); }
                     TraceLog(LOG_INFO, "KATST coast %.1f avenue n %d", nCoast > 1 ? pathDist(coastP, nCoast, kx, kz, NULL) : -1.0f, nAvenue); }
                 if (getenv("KIRI_FINDS")) { TraceLog(LOG_INFO, "FIND stn %.1f %.1f t %.3f %.3f y %.2f", stnCX, stnCZ, stnTX, stnTZ, stnY);
@@ -2354,6 +2405,7 @@ int main(int argc, char **argv) {
                         if (!sk) { float gx = q.x + nn.x * 1.5f * sg, gz = q.z + nn.y * 1.5f * sg, g = groundAt(V3(gx, 30, gz), 0.05f, 60); if (g < SIDEH - 0.3f) TraceLog(LOG_INFO, "FIND lone sg %d i %d %.1f %.1f g %.2f th %.2f city %d", sg, i, q.x, q.z, g, terrainH(gx, gz), cityLand(gx, gz)); }
                         if (sk != prev) TraceLog(LOG_INFO, "FIND river sg %d i %d %.1f %.1f skip %d n %.2f %.2f th %.2f", sg, i, q.x, q.z, sk, nn.x, nn.y, terrainH(q.x, q.z)); prev = sk; } } }
                 TraceLog(LOG_INFO, "LOOK touge end %.1f %.1f %.1f, before %.1f %.1f", tougeP[nTouge - 1].x, tougeP[nTouge - 1].y, tougeP[nTouge - 1].z, tougeP[nTouge - 4].x, tougeP[nTouge - 4].z); }
+            if (lk && getenv("KIRI_MANGATEST") && (frame == 300 || frame == 400)) TraceLog(LOG_INFO, "MANGATEST frame %d: reading %d, time left %.2f, spreads turned %d", frame, pl.watchT > 0, pl.watchT, mangaStep);
             if (lk && frame > 10) { char *p = spec; for (int k = 0; k < li && p; k++) { p = strchr(p, ';'); if (p) p++; }
                 if (!p || !*p) { TraceLog(LOG_INFO, "LOOK done"); break; }
                 float x, y, z, yw, pt; char nm[64]; if (sscanf(p, "%f %f %f %f %f %63[^;]", &x, &y, &z, &yw, &pt, nm) == 6) {
@@ -2699,7 +2751,7 @@ int main(int argc, char **argv) {
         // ---- render 3D low-res
         float flash = (pl.flash && (state == ST_PLAY || gameActive)) ? (pl.batt < 15 ? (hash2((int)(t * 15), 0, 1) > 0.3f ? 1 : 0.1f) : 1) : 0;
         if (!gameActive && state != ST_PLAY) flash = 0;
-        float muzzle = pl.muzzle > 0 ? 1 : 0, amb = 0.30f, fogD = 0.040f, snap[2] = {(float)rtW, (float)rtH};
+        float muzzle = pl.muzzle > 0 ? 1 : 0, amb = 0.30f, fogD = 0.040f, snap[2] = {(float)rtW * 2, (float)rtH * 2};   // (vertices snap to whole render pixels: the PS1 look without walls swimming a pixel wider and back)
         {   // the wilds are bright, clear and wrong; the subway is darker than the street
             float wk = (state == ST_PLAY || gameActive) ? wildK(cam.position) : 0;
             Vector3 dark = {0.075f, 0.08f, 0.095f}, sky = {0.46f, 0.70f, 0.94f};
@@ -2713,6 +2765,12 @@ int main(int argc, char **argv) {
             amb = Lerp(amb, 0.95f, wk); fogD = Lerp(fogD, 0.009f, wk);
             if (cam.position.y > -5) { amb *= 1 - 0.2f * rainK; fogD *= 1 + 0.55f * rainK; fc = Vector3Lerp(fc, (Vector3){fc.x * 0.78f, fc.y * 0.84f, fc.z * 0.9f}, rainK); }   // rain: darker, closer
             amb *= gs.bright; fogD *= gs.fog;
+            {   // into or out of a tunnel, indoors or out: the light and fog ease over to the new place instead of switching
+                static float sAmb = -1, sFog; static Vector3 sFc, lastCam;
+                bool jump = sAmb < 0 || Vector3Distance(lastCam, cam.position) > 25 || !(state == ST_PLAY || gameActive); lastCam = cam.position;
+                if (jump) { sAmb = amb; sFog = fogD; sFc = fc; }
+                else { float k = 1 - expf(-dt * 1.8f); sAmb += (amb - sAmb) * k; sFog += (fogD - sFog) * k; sFc = Vector3Lerp(sFc, fc, k); }
+                amb = sAmb; fogD = sFog; fc = sFc; }
             fogc[0] = fc.x; fogc[1] = fc.y; fogc[2] = fc.z; fogC = (Color){(unsigned char)(fc.x * 255), (unsigned char)(fc.y * 255), (unsigned char)(fc.z * 255), 255};
             SetShaderValue(sh, locFog, fogc, SHADER_UNIFORM_VEC3);
         }
@@ -2761,7 +2819,7 @@ int main(int argc, char **argv) {
         if (backdrop) saBackdrop(t, 0, 0, 0, 1.0f);
         else DrawTexturePro(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
         static int noHud = -1; if (noHud < 0) noHud = getenv("KIRI_NOHUD") ? 1 : 0;   // clean captures for the website
-        if (state == ST_PLAY && !noHud) { drawHUD(cross, t); drawNameTags(); if (cht.menu) cheatMenu(t); }
+        if (state == ST_PLAY && !noHud) { { float keepU = aU; if (gs.hudScale < 0.5f || gs.hudScale > 2) gs.hudScale = 1; aU *= gs.hudScale; drawHUD(cross, t); aU = keepU; } drawNameTags(); if (cht.menu) cheatMenu(t); }
         else {
             if (!backdrop) aBackground(state == ST_PAUSE ? 0.75f : 0.85f);
             aCorrupt = gameActive ? pl.stage : 0;

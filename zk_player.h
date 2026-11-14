@@ -448,8 +448,19 @@ static void updatePlayer(float dt) {
     if (pl.sleeping || pl.watchT > 0) {
         if (pl.sleeping) { pl.rest = fminf(100, pl.rest + dt * 100.0f / 40.0f); if (pl.rest >= 100 || actP(A_SLEEP)) { pl.sleeping = false; say("You wake up."); if (pl.rest >= 100) play(sPhone, 0.35f); else play(sSigh, 0.5f); }   /* the phone alarm, or you get up yourself */ }
         else {
+            if (pl.watchKind == 2) {   // reading: it opens, then waits on each spread; a press turns the page, the last press closes it
+                static const float hold[4] = {1.45f, 2.68f, 4.03f, 5.38f}; float T = MANGA_T - pl.watchT;
+                if (T < 0.05f) { mangaStep = 0; mangaAll = true; }
+                bool auto_ = videoMode || getenv("KIRI_VM");
+                if (mangaStep < 4 && T >= hold[mangaStep] - 0.001f) {
+                    if (actP(A_ATTACK) || actP(A_USE) || auto_) { mangaStep++; play(sPaper, 0.2f); }
+                    else if (actP(A_GUARD) || actP(A_INV) || actP(A_HOLSTER)) { mangaAll = false; mangaStep = 4; pl.watchT = fminf(pl.watchT, MANGA_T - 5.75f); }   // closed early
+                    else pl.watchT = MANGA_T - hold[mangaStep] + dt;   // held open on this spread
+                }
+            }
             pl.watchT -= dt;
-            if (pl.watchT <= 0) {
+            if (pl.watchT <= 0 && pl.watchKind == 2 && !mangaAll) { pl.sanity += 4; say("You put the manga down unfinished."); pl.watchT = 0; }
+            else if (pl.watchT <= 0) {
                 if (pl.watchKind == 1) { pl.sanity += 30; pl.boredom = 0; say("For a while, the world felt normal."); }
                 else if (pl.watchKind == 2) { pl.sanity += 18; pl.boredom = fmaxf(0, pl.boredom - 60); say("You finish the manga."); }
                 else { pl.sanity += 4; pl.boredom = fmaxf(0, pl.boredom - 25); say("\"...a bright, green future.\""); }

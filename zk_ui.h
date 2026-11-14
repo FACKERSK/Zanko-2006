@@ -267,6 +267,8 @@ static void drawHUD(Vector2 cross, float t) {
     aCorrupt = pl.stage;
     drawEyelids(W, H);
     if (pl.sleeping && pl.eyeK > 0.9f) { char b2[64]; snprintf(b2, sizeof b2, "Sleeping...  rest %d%%   [Z] wake", (int)pl.rest); keySubst(b2, sizeof b2); aTextC(b2, W / 2, H * 0.47f, 22, (Color){200, 196, 186, (unsigned char)(255 * (pl.eyeK - 0.9f) * 10)}, false); }
+    if (pl.watchT > 0 && pl.watchKind == 2 && mangaStep < 4 && MANGA_T - pl.watchT > 1.2f) { char b2[128]; snprintf(b2, sizeof b2, "[%s] %s     [%s] Put it down", actKey(A_ATTACK), mangaStep < 3 ? "Turn the page" : "Close it", actKey(A_GUARD));
+        aTextC(b2, W / 2, H * 0.8f, 16, (Color){226, 220, 206, 230}, false); }
     if (pl.watchT > 0 && pl.watchKind != 2) { const char *w = pl.watchKind == 1 ? "Watching anime..." : "Watching the broadcast...";
         DrawRectangle(0, 0, (int)W, (int)H, (Color){0, 0, 0, 90}); aTextC(w, W / 2, H * 0.12f, 18, C_BONE, false); }
     // ---- blood loss shows on screen, not as a number: grey edges that close in
@@ -285,6 +287,7 @@ static void drawHUD(Vector2 cross, float t) {
     // ==== 3D HUD: every gadget is a glass slab on the panel sphere, turned to face you; the set swings with your head
     float Wr = 720.0f * W / H;   // screen width in 720p reference px
     bool hud3 = !pl.invOpen && !pl.mapOpen && !cht.menu;   // the inventory, the map and the cheat menu take the whole view
+    p3HudScale = 0.8f * gs.hudScale;   // the HUD size setting
     p3Hud = true; p3Fov = 54; p3HudLook = (Vector2){-pl.swayX * 0.5f, pl.swayY * 0.5f - pl.landK * 0.04f};
     float f = p3HudScale * tanf(22.5f * DEG2RAD) / tanf(p3Fov / 2 * DEG2RAD), mg = 30;   // slab size on screen per reference px; edge margin
     if (hud3) {
@@ -400,14 +403,14 @@ static void drawHUD(Vector2 cross, float t) {
     if (pl.roof || pl.nearFire) aText(pl.nearFire ? "Fire" : "Sheltered", sx, sy - 2 * s, 12, C_AMBER, false);
     if (wk > 0.15f) aTextC("This place should not exist.", W / 2, H * 0.17f, 15, (Color){230, 240, 255, (unsigned char)(255 * clampf(wk * 1.5f, 0, 1))}, false);
     drawHint(W, H);
-    if (msgT > 0) aTextC(msg, W / 2, H * 0.78f, 16, (Color){226, 220, 206, (unsigned char)(255 * clampf(msgT, 0, 1))}, false);
+    if (msgT > 0 && !pl.invOpen && !pl.mapOpen) aTextC(msg, W / 2, H * 0.78f, 16, (Color){226, 220, 206, (unsigned char)(255 * clampf(msgT, 0, 1))}, false);
     aLayerEnd(1);
     // ---- crosshair (GoldenEye-style: moves, view lags behind): the only signal-cyan in view
     float cs = 9 * s, gp = 4 * s + (pl.swingT > 0 ? 3 * s : 0);
     Color cc = crossCols[gs.crossCol < 0 || gs.crossCol > 4 ? 0 : gs.crossCol];
     for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state != CS_DEAD) {
         Vector3 d = Vector3Subtract(crCenter(&crs[i]), cam.position); float dist = Vector3Length(d);
-        if (dist < 30 && Vector3DotProduct(Vector3Scale(d, 1 / dist), dirOf(pl.tyaw, pl.tpitch)) > 0.995f) cc = (Color){200, 50, 40, 240};
+        if (dist < 30 && Vector3DotProduct(Vector3Scale(d, 1 / dist), dirOf(pl.tyaw, pl.tpitch)) > 0.995f && lineOfSight(cam.position, crCenter(&crs[i]))) { cc = (Color){200, 50, 40, 240}; break; }   // only what you can actually see
     }
     if (pl.hitStopT > 0) { cc = (Color){255, 240, 230, 255}; gp *= 0.5f; }
     int px = (int)fmaxf(2, roundf(2 * s));
@@ -428,4 +431,8 @@ static void drawHUD(Vector2 cross, float t) {
     if (pl.hurtT > 0) DrawRectangle(0, 0, (int)W, (int)H, (Color){120, 10, 8, (unsigned char)(130 * clampf(pl.hurtT / 0.6f, 0, 1) * gs.dmgOverlay)});
     if (pl.invOpen) drawInventory();
     if (pl.mapOpen) drawMap(W, H);
+    if (msgT > 0 && (pl.invOpen || pl.mapOpen)) {   // over the inventory or the map: on a dark strip on top of everything, so no panel cuts it off
+        float al = clampf(msgT, 0, 1), fs = 16 * s, tw = aMeasure(msg, 16, false).x + 28 * s, ty = H - 26 * s;
+        DrawRectangleRounded((Rectangle){W / 2 - tw / 2, ty - fs * 0.35f, tw, fs * 1.7f}, 0.4f, 6, (Color){12, 12, 14, (unsigned char)(220 * al)});
+        aTextC(msg, W / 2, ty, 16, (Color){226, 220, 206, (unsigned char)(255 * al)}, false); }
 }

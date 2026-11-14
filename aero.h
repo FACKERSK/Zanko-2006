@@ -8,7 +8,7 @@
 #include <math.h>
 #include "raymath.h"
 
-#define GAME_VERSION "0.9.2"
+#define GAME_VERSION "0.9.3"
 #if defined(PLATFORM_WEB)
 #define GLSL_HEAD "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #include <emscripten/emscripten.h>
@@ -247,16 +247,27 @@ static bool aPadClick = false, aPadDown = false;   // the game's gamepad A butto
 // ---- gamepad focus: in menus the D-pad / left stick step through the buttons, toggles and sliders in the order they are drawn,
 // A presses the one in focus, left / right move a slider. The game calls aNavBegin once a frame before drawing its UI.
 static bool aNavOn = false, aNavA = false; static int aNavIdx = 0, aNavN = 0, aNavCur = 0, aNavSide = 0;
+#define A_NAVMAX 256
+static Rectangle aNavR[A_NAVMAX]; static bool aNavSl[A_NAVMAX], aNavNextSl = false;   // last frame's focusable widgets: where they are, which are sliders
+static int aNavPick(int dx, int dy) {   // the nearest widget in that direction from the focused one (by position on screen, not drawing order)
+    if (aNavIdx < 0 || aNavIdx >= aNavN || aNavIdx >= A_NAVMAX) return -1;
+    Rectangle c = aNavR[aNavIdx]; float cx = c.x + c.width / 2, cy = c.y + c.height / 2, best = 1e9f; int bi = -1;
+    for (int i = 0; i < aNavN && i < A_NAVMAX; i++) { if (i == aNavIdx) continue; Rectangle r = aNavR[i]; float x = r.x + r.width / 2, y = r.y + r.height / 2, ddx = x - cx, ddy = y - cy;
+        if (dy) { if (ddy * dy < 4) continue; float sc = fabsf(ddy) + 2.5f * fabsf(ddx); if (sc < best) { best = sc; bi = i; } }
+        else { if (ddx * dx < 4 || fabsf(ddy) > c.height * 1.5f + 20) continue; float sc = fabsf(ddx) + 3 * fabsf(ddy); if (sc < best) { best = sc; bi = i; } } }
+    return bi;
+}
 static void aNavBegin(bool on, int move, int side, bool a) {
     aNavN = aNavCur; aNavCur = 0; aNavOn = on; aNavA = on && a; aNavSide = on ? side : 0;
     if (aNavN <= 0) { aNavIdx = 0; return; }
-    if (on && move) { aNavIdx += move; if (aNavIdx < 0) aNavIdx = aNavN - 1; if (aNavIdx >= aNavN) aNavIdx = 0; }
     if (aNavIdx >= aNavN) aNavIdx = aNavN - 1;
+    if (on && move) { int p = aNavPick(0, move); if (p >= 0) aNavIdx = p; else { aNavIdx += move; if (aNavIdx < 0) aNavIdx = aNavN - 1; if (aNavIdx >= aNavN) aNavIdx = 0; } }   // up / down: the widget above or below
+    if (on && side && !(aNavIdx < A_NAVMAX && aNavSl[aNavIdx])) { int p = aNavPick(side, 0); if (p >= 0) aNavIdx = p; aNavSide = 0; }   // left / right: a slider moves, anything else steps sideways
 }
 static void aRRL(Rectangle r, float rpx, float px, Color c);
 static Rectangle aGrow(Rectangle r, float d);
 static bool aNavFocus(Rectangle r) {   // registers a widget; true when it has the pad's focus (and draws the focus ring)
-    int id = aNavCur++; if (!aNavOn || id != aNavIdx) return false;
+    int id = aNavCur++; if (id < A_NAVMAX) { aNavR[id] = r; aNavSl[id] = aNavNextSl; } aNavNextSl = false; if (!aNavOn || id != aNavIdx) return false;
     float k = 0.6f + 0.4f * sinf((float)GetTime() * 6); aRRL(aGrow(r, 3 * aU), 6 * aU, 2, (Color){111, 214, 208, (unsigned char)(150 + 100 * k)}); return true;
 }
 static bool aMPressed(void) { return vidOn ? vidPress : (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || aPadClick); }
@@ -565,6 +576,7 @@ static float aSlider(Rectangle r, const char *label, float v, float mn, float mx
     Vector2 ms = aMeasure(b, 15, false);
     aText(b, r.x + r.width - ms.x, r.y - 22 * s, 15, C_CYAN, false);
     Rectangle hit = {r.x - 8, r.y - 8, r.width + 16, r.height + 16};
+    aNavNextSl = true;   // (the widget registered next is this slider)
     if (aNavFocus(hit) && aNavSide) { v += (mx - mn) / 20 * aNavSide; v = v < mn ? mn : v > mx ? mx : v; aNavSide = 0; if (aBlipOk) PlaySound(aBlip); }
     if (aMDown() && CheckCollisionPointRec(aMousePos(), hit)) { float t = (aMousePos().x - r.x) / r.width; t = t < 0 ? 0 : (t > 1 ? 1 : t); v = mn + (mx - mn) * t; }
     float t = (v - mn) / (mx - mn); t = t < 0 ? 0 : t > 1 ? 1 : t;

@@ -261,6 +261,7 @@ static void buildMapMesh(void) {   // everything on the map that does not move, 
         float h[4] = {hf[j * N + i], hf[j * N + i + st], hf[(j + st) * N + i + st], hf[(j + st) * N + i]}; Color cc[4];
         int vi[4] = {i, i + st, i + st, i}, vj[4] = {j, j, j + st, j + st};
         for (int q = 0; q < 4; q++) {
+            { float qx = HF_X0 + vi[q] * HF_S, qz = HF_X0 + vj[q] * HF_S; if (cityLand(qx, qz) || inCore(qx, qz)) { cc[q] = MP_WALK; h[q] = 0; continue; } }   // town ground is never drawn as water, whatever lies under the paving
             if (h[q] < SEA_Y + 0.1f || (h[q] < RIVER_Y && inRiverRaw(HF_X0 + vi[q] * HF_S, HF_X0 + vj[q] * HF_S))) { int db = (int)floorf((SEA_Y - h[q]) / 1.6f); if (db > 3) db = 3; cc[q] = mpLerp(MP_SEA, MP_DEEP, db / 3.0f); h[q] = -0.4f; continue; }   // still, oily water in four depth bands
             int ii = vi[q], jj = vj[q]; float hx = hf[jj * N + (ii + st < N ? ii + st : ii)] - hf[jj * N + (ii >= st ? ii - st : ii)], hz = hf[(jj + st < N ? jj + st : jj) * N + ii] - hf[(jj >= st ? jj - st : jj) * N + ii];
             float shade = clampf(0.92f + (-hx * 0.6f - hz * 0.4f) * 0.035f, 0.55f, 1.15f);   // light from the north-west

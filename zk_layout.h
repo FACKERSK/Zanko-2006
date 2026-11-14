@@ -295,15 +295,254 @@ static void streetsBuild(void) {
     #undef ST_IN
     {   // the high-rise district beyond the west tunnel: a straight grid, appended after the drawn streets
         float rows[3] = {DIST_BLVD_Z, DIST_ROW2_Z, DIST_ROW3_Z}, cols[5] = {-200, -255, -310, -365, -420};
-        for (int k = 0; k < 9 && nStreet < 1024; k++) { float x0, z0, x1, z1; int w;
+        for (int k = 0; k < 10 && nStreet < 1024; k++) { float x0, z0, x1, z1; int w;
             if (k < 3) { x0 = k == 0 ? DIST_TUN_X - 8.0f : DX1 - 3; x1 = DX0 + 4; z0 = z1 = rows[k]; w = k == 0 ? 140 : 100; }
-            else if (k < 8) { x0 = x1 = cols[k - 3]; z0 = DZ0 + 6; z1 = DIST_BLVD_Z; w = 100; }
-            else { x0 = DIST_TUN_X - 0.5f; x1 = DIST_TUN_X - 10.0f; z0 = z1 = DIST_BLVD_Z; w = 80; }   // out of the tunnel at its own width, then the boulevard widens
+            else if (k < 8) { x0 = x1 = cols[k - 3]; z0 = DZ0 + 2; z1 = DIST_BLVD_Z; w = 100; }
+            else if (k == 8) { x0 = DIST_TUN_X - 0.5f; x1 = DIST_TUN_X - 10.0f; z0 = z1 = DIST_BLVD_Z; w = 80; }
+            else { x0 = -200 + 5; x1 = -420 - 5; z0 = z1 = DZ0 + 2; w = 100; }   // the top row: the avenues meet it instead of stopping at the rock   // out of the tunnel at its own width, then the boulevard widens
             float L = sqrtf((x1 - x0) * (x1 - x0) + (z1 - z0) * (z1 - z0)); int m = (int)ceilf(L / 3.0f); if (np + m + 1 >= MAX_STPTS) break;
             int s2 = nStreet++; stOff[s2] = np; stCnt[s2] = m + 1; stW10[s2] = w; stKind[s2] = k == 0 || k == 8 ? 1 : 0;
             for (int q = 0; q <= m; q++) stPts[np++] = V3(Lerp(x0, x1, (float)q / m), 0, Lerp(z0, z1, (float)q / m)); }
     }
     if (getenv("KIRI_STDUMP")) { FILE *f = fopen(getenv("KIRI_STDUMP"), "w"); if (f) { for (int s2 = 0; s2 < ns; s2++) { fprintf(f, "S %d %g %d", s2, stW10[s2] / 10.0, stKind[s2]); for (int i = 0; i < stCnt[s2]; i++) fprintf(f, " %.2f,%.2f", stPts[stOff[s2] + i].x, stPts[stOff[s2] + i].z); fputc('\n', f); } fclose(f); } }
+}
+
+// ---------------------------------------------------------------- one road network
+// Every road end has to lead somewhere. Run after the streets, the coast road and the touge exist: an end that stops just past a
+// crossing loses the stub; one that stops short of a road carries straight on into it; one with nothing ahead is joined by a short
+// street to the nearest road it can reach without crossing the river or running along another road; the last loose ends are tied
+// to each other (the edge of town gets a lane round it). Bridges keep their spans and get roads onto both ends.
+static float cnNear(float x, float z, int skip, bool skipTouge, Vector2 *at, float *tw) {   // the nearest road centreline (not street skip)
+    float best = 1e9f;
+    for (int s2 = 0; s2 < nStreet; s2++) { if (s2 == skip || stCnt[s2] < 2) continue; const Vector3 *p = ST_P(s2);
+        for (int i = 0; i + 1 < stCnt[s2]; i++) { float dx = p[i + 1].x - p[i].x, dz = p[i + 1].z - p[i].z, L2 = dx * dx + dz * dz, t = L2 > 0 ? clampf(((x - p[i].x) * dx + (z - p[i].z) * dz) / L2, 0, 1) : 0;
+            float qx = p[i].x + dx * t, qz = p[i].z + dz * t, d = sqrtf((x - qx) * (x - qx) + (z - qz) * (z - qz)); if (d < best) { best = d; if (at) *at = (Vector2){qx, qz}; if (tw) *tw = stW10[s2] / 10.0f; } } }
+    for (int r = 0; r < 2; r++) { const Vector3 *p = r ? tougeP : coastP; int n = r ? nTouge : nCoast; if (n < 2 || (r && skipTouge)) continue;
+        for (int i = 0; i + 1 < n; i++) { float dx = p[i + 1].x - p[i].x, dz = p[i + 1].z - p[i].z, L2 = dx * dx + dz * dz, t = L2 > 0 ? clampf(((x - p[i].x) * dx + (z - p[i].z) * dz) / L2, 0, 1) : 0;
+            float qx = p[i].x + dx * t, qz = p[i].z + dz * t, d = sqrtf((x - qx) * (x - qx) + (z - qz) * (z - qz)); if (d < best) { best = d; if (at) *at = (Vector2){qx, qz}; if (tw) *tw = r ? 6.0f : 7.4f; } } }
+    return best;
+}
+static int cnNp(void) { int np = 0; for (int s2 = 0; s2 < nStreet; s2++) if (stOff[s2] + stCnt[s2] > np) np = stOff[s2] + stCnt[s2]; return np; }
+static unsigned char lotKill[4096]; static int cnHit[8], cnHitN = 0; static bool cnAllowLots = false; static float cnLotM = 2.2f;   // a lot a joining road had to cross is left empty (paved over)
+static bool cnLot(float x, float z, float m) {   // inside a building lot of the drawn town (they are built where they are drawn: a new road must go round)
+    for (int h = 0; h < DHOUSES_N; h++) { float r = fmaxf(dHouses[h][2], dHouses[h][3]) / 2 + 1.5f + m; if ((x - dHouses[h][0]) * (x - dHouses[h][0]) + (z - dHouses[h][1]) * (z - dHouses[h][1]) < r * r) return true; }   // the old houses on the hill
+    for (int k = 0; k < DSHRINES_N; k++) if ((x - dShrines[k][0]) * (x - dShrines[k][0]) + (z - dShrines[k][1]) * (z - dShrines[k][1]) < (5 + m) * (5 + m)) return true;
+    for (int l = 0; l < DLOTS_N && l < 4096; l++) { if (lotKill[l]) continue; float cx = dLots[l][0] + dLots[l][2] / 2, cz = dLots[l][1] + dLots[l][3] / 2, R = (dLots[l][2] + dLots[l][3]) / 2 + m; if (fabsf(x - cx) > R || fabsf(z - cz) > R) continue;
+        float c = cosf(dLots[l][7]), sn = sinf(dLots[l][7]), dx = x - cx, dz = z - cz, lx = dx * c - dz * sn, lz = dx * sn + dz * c;
+        if (fabsf(lx) < dLots[l][2] / 2 + m && fabsf(lz) < dLots[l][3] / 2 + m) {
+            if (!cnAllowLots) return true;
+            bool seen = false; for (int k = 0; k < cnHitN; k++) if (cnHit[k] == l) seen = true;
+            if (!seen) { if (cnHitN >= 2) return true; cnHit[cnHitN++] = l; } } }   // (at most two lots give way to one road)
+    return false;
+}
+static bool cnPathOk(Vector2 A, Vector2 B, float w, int skip, bool skipTouge, float freeA, float freeB) {   // no river under it, not running along another road
+    cnHitN = 0;
+    float L = Vector2Distance(A, B); if (L < 0.5f) return true;
+    if (inRiverRaw(B.x, B.y) || inRiverRaw(B.x + 3, B.y) || inRiverRaw(B.x - 3, B.y) || inRiverRaw(B.x, B.y + 3) || inRiverRaw(B.x, B.y - 3)) return false;
+    if (nCoast > 1 && coast_d(B.x, B.y) < 6) for (float o = -12; o <= 12; o += 2) if (inRiverRaw(B.x + o, B.y + 6) || inRiverRaw(B.x + o, B.y + 10) || inRiverRaw(B.x + o, B.y)) return false;   // not onto the coast road's river crossing
+    Vector2 d = Vector2Scale(Vector2Subtract(B, A), 1 / L), nn = {-d.y, d.x}; int onRail = 0;
+    for (float u = 0; u <= L; u += 1.0f) { Vector2 q = Vector2Add(A, Vector2Scale(d, u));
+        if (nRail > 1 && pathDist(railP, nRail, q.x, q.y, NULL) < 3.4f + w / 2) { if (++onRail > (int)(w + 8)) { if (getenv("KIRI_CNDBG")) TraceLog(LOG_INFO, "CNDBG %.0f,%.0f->%.0f,%.0f runs along the railway", A.x, A.y, B.x, B.y); return false; } }   // a level crossing yes, a road along the tracks no
+        for (int k = -2; k <= 2; k++) if (cnLot(q.x + nn.x * k * w / 4, q.y + nn.y * k * w / 4, cnLotM)) { if (getenv("KIRI_CNDBG")) TraceLog(LOG_INFO, "CNDBG %.0f,%.0f->%.0f,%.0f runs into a building lot at %.0f %.0f", A.x, A.y, B.x, B.y, q.x, q.y); return false; }
+        if (u > 2 && u < L - 2) for (int k = -1; k <= 1; k++) if (inRiverRaw(q.x + nn.x * k * w / 2, q.y + nn.y * k * w / 2)) { if (getenv("KIRI_CNDBG")) TraceLog(LOG_INFO, "CNDBG %.0f,%.0f->%.0f,%.0f crosses the river at %.0f %.0f", A.x, A.y, B.x, B.y, q.x, q.y); return false; }
+        if (u > freeA && u < L - freeB) { float tw; if (cnNear(q.x, q.y, skip, skipTouge, NULL, &tw) < tw / 2 + w / 2 - 0.3f) { if (getenv("KIRI_CNDBG")) TraceLog(LOG_INFO, "CNDBG %.0f,%.0f->%.0f,%.0f overlaps a road at %.0f %.0f", A.x, A.y, B.x, B.y, q.x, q.y); return false; } } }
+    return true;
+}
+static int cnAdd(Vector2 A, Vector2 B, float w) {   // a new street from A to B
+    int np = cnNp(); float L = Vector2Distance(A, B); int m = (int)ceilf(L / 3.0f); if (m < 1) m = 1;
+    if (nStreet >= 1023 || np + m + 2 >= MAX_STPTS) return -1;
+    for (int k = 0; k < cnHitN; k++) { lotKill[cnHit[k]] = 1; TraceLog(LOG_INFO, "ROADNET lot %d gives way to a joining road", cnHit[k]); } cnHitN = 0;
+    int s2 = nStreet++; stOff[s2] = np; stCnt[s2] = m + 1; stW10[s2] = (int)(w * 10); stKind[s2] = 0;
+    for (int q = 0; q <= m; q++) stPts[np + q] = V3(Lerp(A.x, B.x, (float)q / m), 0, Lerp(A.y, B.y, (float)q / m));
+    return s2;
+}
+// The drawn street plan has doubles: one street stored twice, an avenue laid over the streets it replaced, a lane running a few
+// metres beside another, a "bridge" lying along the river. One road per route: of two that share most of their length the one
+// that is more covered by the other goes (ties: the narrower, then the shorter); the ends left over are joined up afterwards.
+static float ncLen(int s2) { float L = 0; const Vector3 *p = ST_P(s2); for (int i = 0; i + 1 < stCnt[s2]; i++) L += Vector3Distance(p[i], p[i + 1]); return L; }
+static float ncCover(int a, int b, float gap, float *lenA) {   // metres of a lying within gap of b's centre line
+    const Vector3 *p = ST_P(a); float cov = 0, tot = 0;
+    for (int i = 0; i + 1 < stCnt[a]; i++) { float L = Vector3Distance(p[i], p[i + 1]); int m = (int)ceilf(L / 2.0f); if (m < 1) m = 1;
+        for (int k = 0; k < m; k++) { Vector3 q = Vector3Lerp(p[i], p[i + 1], (k + 0.5f) / m); tot += L / m; if (pathDist(ST_P(b), stCnt[b], q.x, q.z, NULL) < gap) cov += L / m; } }
+    if (lenA) *lenA = tot; return cov;
+}
+static void ncLotsOn(const Vector3 *pp, int n, float hw, unsigned char *mark) {   // the lots a street's carriageway touches
+    for (int i = 0; i + 1 < n; i++) { Vector2 dn = Vector2Normalize((Vector2){-(pp[i + 1].z - pp[i].z), pp[i + 1].x - pp[i].x}); for (int k = 0; k < 4; k++) { Vector3 q = Vector3Lerp(pp[i], pp[i + 1], k / 4.0f);
+        for (int c = -1; c <= 1; c++) { float x = q.x + dn.x * c * hw, z = q.z + dn.y * c * hw;
+            for (int l = 0; l < DLOTS_N && l < 4096; l++) { if (mark[l]) continue; float cx = dLots[l][0] + dLots[l][2] / 2, cz = dLots[l][1] + dLots[l][3] / 2, R = (dLots[l][2] + dLots[l][3]) / 2 + 1; if (fabsf(x - cx) > R || fabsf(z - cz) > R) continue;
+                float cs = cosf(dLots[l][7]), sn = sinf(dLots[l][7]), dx = x - cx, dz = z - cz, lx = dx * cs - dz * sn, lz = dx * sn + dz * cs; if (fabsf(lx) < dLots[l][2] / 2 + 0.6f && fabsf(lz) < dLots[l][3] / 2 + 0.6f) mark[l] = 1; } } } }
+}
+static void netClean(void) {
+    memset(lotKill, 0, sizeof lotKill);
+    static Vector3 rv[MAX_PATH]; int nr = loadPath(dRiverLine, DRIVERLINE_N, rv); bool dead[1024] = {0}; int gone = 0;
+    for (int a = 0; a < nStreet; a++) { float L = stCnt[a] >= 2 ? ncLen(a) : 0; if (L < 8.0f && stKind[a] != 3) { dead[a] = true; gone++; TraceLog(LOG_INFO, "NETCLEAN street %d: %.1f m long, removed", a, L); continue; }
+        if (stKind[a] == 3 && nr > 1) { const Vector3 *p = ST_P(a); int in = 0, tot = 0; for (int i = 0; i + 1 < stCnt[a]; i++) for (int k = 0; k < 8; k++) { Vector3 q = Vector3Lerp(p[i], p[i + 1], k / 8.0f); tot++; if (pathDist(rv, nr, q.x, q.z, NULL) < 4.0f) in++; }
+            if (tot && in > tot * 0.8f) { dead[a] = true; gone++; TraceLog(LOG_INFO, "NETCLEAN bridge %d lies along the river, removed", a); } } }
+    for (int pass = 0; pass < 2; pass++) for (int a = 0; a < nStreet; a++) { if (dead[a] || stKind[a] == 3) continue;
+        for (int b = 0; b < nStreet && !dead[a]; b++) { if (b == a || dead[b] || stKind[b] == 3) continue;
+            float wa = stW10[a] / 10.0f, wb = stW10[b] / 10.0f, gap = pass == 0 ? wa / 2 + wb / 2 - 1.0f : wa / 2 + wb / 2 + 5.0f, la, lb;
+            float ca = ncCover(a, b, gap, &la); if (ca < 10 || ca < la * (pass == 0 ? 0.45f : 0.6f)) continue;
+            float cb = ncCover(b, a, gap, &lb); float fa = ca / la, fb = cb / lb;
+            bool aGoes = fa > fb + 0.05f || (fabsf(fa - fb) <= 0.05f && (wa < wb || (wa == wb && (la < lb || (la == lb && a > b)))));
+            if (stKind[a] == 2 && stKind[b] != 2 && pass == 1) continue;   // a footpath beside a road stays
+            if (!aGoes) continue;
+            dead[a] = true; gone++; TraceLog(LOG_INFO, "NETCLEAN street %d (%.0f m, w %.0f) %s street %d for %.0f m: removed", a, la, wa, pass == 0 ? "lies on" : "runs beside", b, ca); } }
+    for (int a = 0; a < nStreet; a++) { if (dead[a] || stKind[a] == 3) continue; for (int b = a + 1; b < nStreet; b++) { if (dead[b] || stKind[b] != stKind[a] || stW10[b] != stW10[a]) continue;   // one street drawn as two pieces that miss each other: both ends move to the middle, the offset tapering out along each piece
+        for (int ea = 0; ea < 2; ea++) for (int eb = 0; eb < 2; eb++) { Vector3 *pa = &stPts[stOff[a]], *pb = &stPts[stOff[b]]; int na = stCnt[a], nb = stCnt[b];
+            Vector3 A = ea ? pa[na - 1] : pa[0], A2 = ea ? pa[na - 2] : pa[1], B = eb ? pb[nb - 1] : pb[0], B2 = eb ? pb[nb - 2] : pb[1];
+            float d = Vector3Distance(A, B); if (d < 1.0f || d > 14.0f) continue;
+            Vector3 da = Vector3Normalize(Vector3Subtract(A, A2)), db = Vector3Normalize(Vector3Subtract(B2, B)); if (Vector3DotProduct(da, db) < 0.9f) continue;   // b carries on the way a was going
+            Vector3 M = Vector3Lerp(A, B, 0.5f), sa = Vector3Subtract(M, A), sb = Vector3Subtract(M, B); float La = ncLen(a), Lb = ncLen(b), acc = 0;
+            static unsigned char m0[4096], m1[4096]; memset(m0, 0, sizeof m0); memset(m1, 0, sizeof m1); ncLotsOn(pa, na, stW10[a] / 20.0f, m0); ncLotsOn(pb, nb, stW10[b] / 20.0f, m0);
+            static Vector3 keepA[1200], keepB[1200]; if (na > 1200 || nb > 1200) continue; memcpy(keepA, pa, na * sizeof(Vector3)); memcpy(keepB, pb, nb * sizeof(Vector3));
+            for (int k = 0; k < na; k++) { int i = ea ? na - 1 - k : k; if (k) acc += Vector3Distance(pa[i], pa[ea ? i + 1 : i - 1]); float wgt = clampf(1 - acc / fminf(La, 40), 0, 1); pa[i] = Vector3Add(pa[i], Vector3Scale(sa, wgt)); }
+            acc = 0; for (int k = 0; k < nb; k++) { int i = eb ? nb - 1 - k : k; if (k) acc += Vector3Distance(pb[i], pb[eb ? i + 1 : i - 1]); float wgt = clampf(1 - acc / fminf(Lb, 40), 0, 1); pb[i] = Vector3Add(pb[i], Vector3Scale(sb, wgt)); }
+            ncLotsOn(pa, na, stW10[a] / 20.0f, m1); ncLotsOn(pb, nb, stW10[b] / 20.0f, m1); int fresh = 0; for (int l = 0; l < 4096; l++) if (m1[l] && !m0[l] && !lotKill[l]) fresh++;
+            if (fresh > 3) { memcpy(pa, keepA, na * sizeof(Vector3)); memcpy(pb, keepB, nb * sizeof(Vector3)); continue; }   // (it would take a row of houses: left as drawn)
+            for (int l = 0; l < 4096; l++) if (m1[l] && !m0[l]) lotKill[l] = 1;   // a house or two in the way gives way to the street
+            TraceLog(LOG_INFO, "NETCLEAN streets %d and %d: ends %.1f m apart brought together at %.0f %.0f", a, b, d, M.x, M.z); } } }
+    int w = 0; for (int a = 0; a < nStreet; a++) { if (dead[a]) continue; stOff[w] = stOff[a]; stCnt[w] = stCnt[a]; stW10[w] = stW10[a]; stKind[w] = stKind[a]; w++; }
+    TraceLog(LOG_INFO, "NETCLEAN %d of %d streets removed", gone, nStreet); nStreet = w;
+}
+static void roadsLeftovers(void) {
+    for (int it = 0; it < 4; it++) {   // leftovers: a few metres of street, or a short piece with an end in the air
+        bool dead[1024] = {0}; int gone = 0;
+        for (int s2 = 0; s2 < nStreet; s2++) { if (stKind[s2] == 3) continue; float L = stCnt[s2] >= 2 ? ncLen(s2) : 0; if (L < 8.0f) { dead[s2] = true; gone++; continue; } if (L > 30) continue;
+            for (int e = 0; e < 2; e++) { Vector3 P = e ? ST_P(s2)[stCnt[s2] - 1] : ST_P(s2)[0]; float tw; if (cnNear(P.x, P.z, s2, false, NULL, &tw) < tw / 2 + stW10[s2] / 20.0f + 1.0f) continue;
+                bool bore = false; for (int b = 0; b < nBore; b++) if (Vector2Distance((Vector2){P.x, P.z}, (Vector2){bores[b].px, bores[b].pz}) < 12) bore = true; if (!bore && !dead[s2]) { dead[s2] = true; gone++; } } }
+        if (!gone) break; int w = 0; for (int a2 = 0; a2 < nStreet; a2++) { if (dead[a2]) continue; stOff[w] = stOff[a2]; stCnt[w] = stCnt[a2]; stW10[w] = stW10[a2]; stKind[w] = stKind[a2]; w++; }
+        TraceLog(LOG_INFO, "ROADNET %d leftover pieces removed", gone); nStreet = w; }
+}
+// Clean lines: each street is reduced to its real corners (the plan's little jogs and wobbles go), every corner is turned on an
+// arc, the line is laid out again in even 3 m steps, and an end that meets another street runs on to that street's centre line so
+// junctions and corners close with no notch. A street whose new line would touch a house it did not touch before keeps its old one.
+static int nsSimplify(const Vector3 *p, int n, float tol, Vector3 *out) {   // Douglas-Peucker
+    static unsigned char keep[1200]; if (n > 1200) n = 1200; memset(keep, 0, n); keep[0] = keep[n - 1] = 1;
+    static int stA[1200], stB[1200]; int sp = 0; stA[0] = 0; stB[0] = n - 1; sp = 1;
+    while (sp > 0) { sp--; int a = stA[sp], b = stB[sp]; if (b <= a + 1) continue; float best = 0; int bi = -1;
+        float dx = p[b].x - p[a].x, dz = p[b].z - p[a].z, L2 = dx * dx + dz * dz;
+        for (int i = a + 1; i < b; i++) { float t = L2 > 0 ? clampf(((p[i].x - p[a].x) * dx + (p[i].z - p[a].z) * dz) / L2, 0, 1) : 0, ex = p[i].x - p[a].x - dx * t, ez = p[i].z - p[a].z - dz * t, d = sqrtf(ex * ex + ez * ez); if (d > best) { best = d; bi = i; } }
+        if (best > tol && bi > 0 && sp + 2 < 1200) { keep[bi] = 1; stA[sp] = a; stB[sp] = bi; sp++; stA[sp] = bi; stB[sp] = b; sp++; } }
+    int c = 0; for (int i = 0; i < n; i++) if (keep[i]) out[c++] = p[i]; return c;
+}
+static void netSmooth(void) {
+    static Vector3 all[MAX_STPTS]; static int off2[1024], cnt2[1024]; int tot = 0, smoothed = 0, kept = 0;
+    for (int s2 = 0; s2 < nStreet; s2++) { const Vector3 *p = ST_P(s2); int n = stCnt[s2]; off2[s2] = tot;
+        static Vector3 a[1200], b[1200], c[1200]; int nc = 0;
+        bool plain = stKind[s2] == 3 || stKind[s2] == 2 || n < 3 || n > 1100;   // bridges and steps stay as drawn
+        bool done = plain; for (int att = 0; att < 2 && !done; att++) { int na = nsSimplify(p, n, att ? 0.8f : 2.2f, a), nb = 0; nc = 0;
+            if (att == 0) for (int i = 1; i + 2 < na; i++) {   // a jog (two opposite turns a few metres apart) is drawn out into a long easy S
+                Vector3 u0 = Vector3Subtract(a[i], a[i - 1]), u1 = Vector3Subtract(a[i + 1], a[i]), u2 = Vector3Subtract(a[i + 2], a[i + 1]); float l0 = Vector3Length(u0), l1 = Vector3Length(u1), l2 = Vector3Length(u2);
+                if (l1 > 16 || l0 < 6 || l2 < 6) continue; float c0 = u0.x * u1.z - u0.z * u1.x, c1 = u1.x * u2.z - u1.z * u2.x; if (c0 * c1 >= 0) continue;
+                if (fabsf(c0) / (l0 * l1 + 0.01f) < 0.35f || fabsf(c1) / (l1 * l2 + 0.01f) < 0.35f) continue;
+                float m0 = fminf(14, l0 * 0.45f), m2 = fminf(14, l2 * 0.45f); a[i] = Vector3Subtract(a[i], Vector3Scale(u0, m0 / l0)); a[i + 1] = Vector3Add(a[i + 1], Vector3Scale(u2, m2 / l2)); i++; }
+            b[nb++] = a[0];
+            for (int i = 1; i + 1 < na; i++) { Vector3 P0 = a[i - 1], P1 = a[i], P2 = a[i + 1]; float l0 = Vector3Distance(P0, P1), l1 = Vector3Distance(P1, P2);
+                Vector3 d0 = Vector3Scale(Vector3Subtract(P0, P1), 1 / fmaxf(l0, 0.01f)), d1 = Vector3Scale(Vector3Subtract(P2, P1), 1 / fmaxf(l1, 0.01f)); float cs = Vector3DotProduct(d0, d1);
+                float d = fminf(fminf(l0, l1) * 0.45f, cs > 0.3f || att ? 3.0f : 7.0f);   // (a hairpin gets a tight arc)
+                if (cs < -0.985f || d < 0.6f) { b[nb++] = P1; continue; }
+                Vector3 A = Vector3Add(P1, Vector3Scale(d0, d)), B = Vector3Add(P1, Vector3Scale(d1, d));
+                for (int k = 0; k <= 6 && nb < 1190; k++) { float t = k / 6.0f; b[nb++] = Vector3Add(Vector3Add(Vector3Scale(A, (1 - t) * (1 - t)), Vector3Scale(P1, 2 * t * (1 - t))), Vector3Scale(B, t * t)); } }
+            b[nb++] = a[na - 1];
+            float L = 0; for (int i = 0; i + 1 < nb; i++) L += Vector3Distance(b[i], b[i + 1]); int m = (int)ceilf(L / 3.0f); if (m < 1) m = 1; if (m > 1100) m = 1100;   // even steps
+            { int seg = 0; float segStart = 0, segLen = Vector3Distance(b[0], b[1]); for (int q = 0; q <= m; q++) { float want = L * q / m; while (seg + 2 < nb && want > segStart + segLen) { segStart += segLen; seg++; segLen = Vector3Distance(b[seg], b[seg + 1]); }
+                c[nc++] = Vector3Lerp(b[seg], b[seg + 1], segLen > 0 ? clampf((want - segStart) / segLen, 0, 1) : 0); } }
+            static unsigned char m0[4096], m1[4096]; memset(m0, 0, sizeof m0); memset(m1, 0, sizeof m1); ncLotsOn(p, n, stW10[s2] / 20.0f, m0); ncLotsOn(c, nc, stW10[s2] / 20.0f, m1);
+            bool fresh = false; for (int l = 0; l < 4096; l++) if (m1[l] && !m0[l] && !lotKill[l]) fresh = true;
+            if (!fresh) { done = true; smoothed++; } }
+        if (!done) { plain = true; kept++; }
+        if (plain) { nc = 0; for (int i = 0; i < n && nc < 1200; i++) c[nc++] = p[i]; }
+        if (tot + nc + 4 >= MAX_STPTS) { nc = 0; for (int i = 0; i < n && tot + nc + 4 < MAX_STPTS; i++) c[nc++] = p[i]; }
+        for (int i = 0; i < nc; i++) all[tot + i] = c[i]; cnt2[s2] = nc; tot += nc + 3; }   // (3 spare: the ends may run on)
+    for (int s2 = 0; s2 < nStreet; s2++) { stOff[s2] = off2[s2]; stCnt[s2] = cnt2[s2]; } memcpy(stPts, all, tot * sizeof(Vector3));
+    int ran = 0;
+    for (int s2 = 0; s2 < nStreet; s2++) { if (stKind[s2] == 3 || stCnt[s2] < 2) continue; for (int e = 0; e < 2; e++) {   // ends run on to the centre line of the street they meet
+        Vector3 *p = &stPts[stOff[s2]]; int n = stCnt[s2]; Vector3 P = e ? p[n - 1] : p[0], Q = e ? p[n - 2] : p[1]; Vector2 dir = Vector2Normalize((Vector2){P.x - Q.x, P.z - Q.z});
+        float tw, d0 = cnNear(P.x, P.z, s2, false, NULL, &tw); if (d0 > tw / 2 + stW10[s2] / 20.0f + 1.0f || d0 < 0.3f) continue;
+        float bestU = 0, bestD = d0; for (float u = 0.25f; u <= tw / 2 + 1.5f; u += 0.25f) { float d = cnNear(P.x + dir.x * u, P.z + dir.y * u, s2, false, NULL, NULL); if (d < bestD - 0.01f) { bestD = d; bestU = u; } else if (d > bestD + 0.3f) break; }
+        if (bestU > 0) { Vector3 N = V3(P.x + dir.x * bestU, 0, P.z + dir.y * bestU); if (e) p[n - 1] = N; else p[0] = N; ran++; } } }
+    TraceLog(LOG_INFO, "NETSMOOTH %d streets redrawn on clean lines, %d kept as drawn (a house in the way), %d ends run on to the centre line, %d points", smoothed, kept, ran, tot);
+}
+static void roadsConnect(void) {
+    netClean();
+    int nOrig = nStreet, made = 0, trimmed = 0, extended = 0;
+    // the touge's foot is an end too: give it a street to stand for it while connecting
+    for (int round = 0; round < 2; round++) {
+    for (int pass = 0; pass < 4; pass++) for (int s2 = -1; s2 < nStreet; s2++) { cnAllowLots = pass == 3;
+        int n = s2 < 0 ? nTouge : stCnt[s2]; if (n < 2) continue; if (s2 >= 0 && stKind[s2] == 3 && pass == 0) {}
+        for (int e = 0; e < 2; e++) {
+            if (s2 < 0 && e == 1) continue;   // the touge's top runs into its tunnel
+            const Vector3 *p = s2 < 0 ? tougeP : ST_P(s2); float w = s2 < 0 ? 6.0f : stW10[s2] / 10.0f;
+            Vector2 P = e ? (Vector2){p[n - 1].x, p[n - 1].z} : (Vector2){p[0].x, p[0].z}, Q = e ? (Vector2){p[n - 2].x, p[n - 2].z} : (Vector2){p[1].x, p[1].z};
+            Vector2 dir = Vector2Normalize(Vector2Subtract(P, Q));
+            float tw; Vector2 at; float dn = cnNear(P.x, P.y, s2, s2 < 0, &at, &tw);
+            if (dn < tw / 2 + w / 2 + 1.0f) continue;   // it meets a road
+            { bool bore = false; for (int b = 0; b < nBore; b++) if (Vector2Distance(P, (Vector2){bores[b].px, bores[b].pz}) < 12) bore = true; if (bore) continue; }
+            if (s2 >= 0) {   // straight on into a road within 30 m
+                float hitU = -1; for (float u = 0.5f; u <= 30 && hitU < 0; u += 0.5f) { Vector2 q = Vector2Add(P, Vector2Scale(dir, u)); float tw2; if (cnNear(q.x, q.y, s2, false, NULL, &tw2) < tw2 / 2) hitU = u; }
+                if (hitU > 0) { Vector2 B = Vector2Add(P, Vector2Scale(dir, hitU + 1.0f)); cnLotM = 0.3f; bool okE = cnPathOk(P, B, w, s2, false, 2, 4); cnLotM = 2.2f; if (okE) {
+                    int np = cnNp(), m = (int)ceilf((hitU + 1) / 3.0f); if (np + n + m + 2 < MAX_STPTS) {
+                        Vector3 tmp[1200]; int c = 0; if (e) { for (int i = 0; i < n && c < 1100; i++) tmp[c++] = p[i]; for (int q = 1; q <= m && c < 1190; q++) { Vector2 v = Vector2Lerp(P, B, (float)q / m); tmp[c++] = V3(v.x, 0, v.y); } }
+                        else { for (int q = m; q >= 1 && c < 90; q--) { Vector2 v = Vector2Lerp(P, B, (float)q / m); tmp[c++] = V3(v.x, 0, v.y); } for (int i = 0; i < n && c < 1190; i++) tmp[c++] = p[i]; }
+                        stOff[s2] = np; stCnt[s2] = c; for (int i = 0; i < c; i++) stPts[np + i] = tmp[i]; extended++;
+                        TraceLog(LOG_INFO, "ROADNET street %d: carried on %.0f m into the road ahead", s2, hitU + 1); continue; } } } }
+            if (s2 >= 0 && s2 < nOrig && stKind[s2] != 3 && pass == 0) {   // a stub just past a crossing: cut back to the crossing
+                float acc = 0; int cut = -1; Vector2 cq = P;
+                for (int k = 0; k + 1 < n && acc < 25 && cut < 0; k++) { int i0 = e ? n - 1 - k : k, i1 = e ? n - 2 - k : k + 1; Vector2 a = {p[i0].x, p[i0].z}, b = {p[i1].x, p[i1].z}; float L = Vector2Distance(a, b);
+                    for (float u = 0; u < L && cut < 0; u += 0.5f) { Vector2 q = Vector2Lerp(a, b, u / L); float tw2; if (cnNear(q.x, q.y, s2, false, NULL, &tw2) < tw2 / 2 - 0.2f) { cut = k; cq = q; } } acc += L; }
+                if (cut >= 0 && n - cut - 1 >= 2) { if (e) { stCnt[s2] = n - cut; stPts[stOff[s2] + stCnt[s2] - 1] = V3(cq.x, 0, cq.y); } else { stOff[s2] += cut; stCnt[s2] = n - cut; stPts[stOff[s2]] = V3(cq.x, 0, cq.y); }
+                    trimmed++; TraceLog(LOG_INFO, "ROADNET street %d: stub cut back to the crossing at %.0f %.0f", s2, cq.x, cq.y); continue; } }
+            // a short street to the nearest road it can reach (ahead or to the side), else to another loose end
+            float cw = fminf(w, 7.0f); int done = -1;
+            for (int tries = 0; tries < 2 && done < 0; tries++) { float cwT = tries ? 4.0f : cw;
+                float best = 1e9f; Vector2 bt = {0, 0}; float btw = 0;
+                for (float a = -1.6f; a <= 1.6f; a += 0.1f) for (float r = 4; r <= (pass == 3 ? 120 : 70); r += 2) {   // fan out from the end
+                    float ca = cosf(a), sa = sinf(a); Vector2 dd = {dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca}; if (s2 < 0) { if (a > -1.15f) {} }
+                    Vector2 q = Vector2Add(P, Vector2Scale(dd, r)); float tw2; Vector2 a2; float d2 = cnNear(q.x, q.y, s2, s2 < 0, &a2, &tw2);
+                    if (d2 < tw2 / 2) { float L = Vector2Distance(P, a2); if (L < best && L > 3 && cnPathOk(P, a2, cwT, s2, s2 < 0, 3, tw2 / 2 + cwT / 2 + 3)) { best = L; bt = a2; btw = tw2; } break; } }
+                if (best < 1e8f) { cnPathOk(P, bt, cwT, s2, s2 < 0, 3, btw / 2 + cwT / 2 + 3); done = cnAdd(P, bt, cwT); if (done >= 0) { made++; TraceLog(LOG_INFO, "ROADNET %s %d: new street %d, %.0f m to the road at %.0f %.0f", s2 < 0 ? "touge" : "street", s2, done, best, bt.x, bt.y); } }
+                if (done < 0 && pass >= 2 && s2 >= 0) {   // off a bridge or a bank: 10 m straight on first, then to the nearest road from there
+                    Vector2 P2 = Vector2Add(P, Vector2Scale(dir, 10)); float best2 = 1e9f, btw2 = 0; Vector2 bt2 = {0, 0};
+                    if (cnPathOk(P, P2, cwT, s2, false, 3, 3)) for (float a = -1.6f; a <= 1.6f; a += 0.1f) for (float r = 4; r <= 90; r += 2) {
+                        float ca = cosf(a), sa = sinf(a); Vector2 dd = {dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca}; Vector2 q = Vector2Add(P2, Vector2Scale(dd, r)); float tw2; Vector2 a2;
+                        if (cnNear(q.x, q.y, s2, false, &a2, &tw2) < tw2 / 2) { float L = Vector2Distance(P2, a2); if (L < best2 && L > 3 && cnPathOk(P2, a2, cwT, s2, false, 3, tw2 / 2 + cwT / 2 + 3)) { best2 = L; bt2 = a2; btw2 = tw2; } break; } }
+                    if (best2 < 1e8f) { int hA[8], nA; cnPathOk(P, P2, cwT, s2, false, 3, 3); nA = cnHitN; for (int k = 0; k < nA; k++) hA[k] = cnHit[k];
+                        cnPathOk(P2, bt2, cwT, s2, false, 3, btw2 / 2 + cwT / 2 + 3); for (int k = 0; k < nA && cnHitN < 8; k++) cnHit[cnHitN++] = hA[k];   // (both legs checked before either exists)
+                        int s4 = cnAdd(P, P2, cwT); if (s4 >= 0) { done = cnAdd(P2, bt2, cwT); made += 2; TraceLog(LOG_INFO, "ROADNET street %d: new streets %d and %d, on 10 m then %.0f m to the road at %.0f %.0f", s2, s4, done, best2, bt2.x, bt2.y); } } }
+                if (done < 0 && pass >= 2) {   // to the nearest other loose end
+                    float bd = 1e9f, bfree = 7; Vector2 bp = {0, 0};
+                    for (int s3 = 0; s3 < nStreet; s3++) { if (s3 == s2 || stCnt[s3] < 2) continue; for (int e3 = 0; e3 < 2; e3++) { const Vector3 *p3 = ST_P(s3); Vector2 P3 = e3 ? (Vector2){p3[stCnt[s3] - 1].x, p3[stCnt[s3] - 1].z} : (Vector2){p3[0].x, p3[0].z};
+                        float L = Vector2Distance(P, P3); if (L < 4 || L > 95 || L >= bd) continue; float tw3; if (cnNear(P3.x, P3.y, s3, false, NULL, &tw3) < tw3 / 2 + stW10[s3] / 20.0f + 1) continue;
+                        if (Vector2DotProduct(Vector2Normalize(Vector2Subtract(P3, P)), dir) < (pass == 3 ? -0.95f : -0.3f)) continue; if (!cnPathOk(P, P3, cwT, s2, s2 < 0, 3, stW10[s3] / 20.0f + cwT / 2 + 4)) continue; bd = L; bp = P3; bfree = stW10[s3] / 20.0f + cwT / 2 + 4; } }
+                    if (bd < 1e8f) { cnPathOk(P, bp, cwT, s2, s2 < 0, 3, bfree); done = cnAdd(P, bp, cwT); if (done >= 0) { made++; TraceLog(LOG_INFO, "ROADNET %s %d: new street %d, %.0f m to the loose end at %.0f %.0f", s2 < 0 ? "touge" : "street", s2, done, bd, bp.x, bp.y); } } }
+                }
+        }
+    }
+    for (int s2 = nOrig; s2 < nStreet; s2++) for (int e = 0; e < 2; e++) {   // a new street that meets a bridge comes onto it along the bridge's own line, between the parapets
+        int n = stCnt[s2]; if (n < 2 || n > 1100) continue; Vector3 *p = &stPts[stOff[s2]]; Vector3 P = e ? p[n - 1] : p[0];
+        for (int b = 0; b < nOrig; b++) { if (stKind[b] != 3 || stCnt[b] < 2) continue; for (int be = 0; be < 2; be++) { const Vector3 *q = ST_P(b); int bn = stCnt[b]; Vector3 E = be ? q[bn - 1] : q[0], I = be ? q[bn - 2] : q[1];
+            if (Vector3Distance(P, E) > 2.5f) continue; if (n >= 2 && Vector3Distance(e ? p[n - 2] : p[1], V3(E.x + (E.x - I.x) / Vector3Distance(E, I) * 6, 0, E.z + (E.z - I.z) / Vector3Distance(E, I) * 6)) < 1) continue; Vector2 ax = Vector2Normalize((Vector2){E.x - I.x, E.z - I.z}); Vector3 A = V3(E.x + ax.x * 6, 0, E.z + ax.y * 6);
+            int np = cnNp(); if (np + n + 3 >= MAX_STPTS) continue; Vector3 tmp[1200]; int c = 0;
+            if (e) { for (int i = 0; i < n - 1; i++) if (i == 0 || Vector3Distance(p[i], E) > 11) tmp[c++] = p[i]; tmp[c++] = A; tmp[c++] = E; } else { tmp[c++] = E; tmp[c++] = A; for (int i = 1; i < n; i++) if (i == n - 1 || Vector3Distance(p[i], E) > 11) tmp[c++] = p[i]; }
+            stOff[s2] = np; stCnt[s2] = c; for (int i = 0; i < c; i++) stPts[np + i] = tmp[i]; p = &stPts[np]; n = c;
+            TraceLog(LOG_INFO, "ROADNET street %d: comes onto bridge %d along its line", s2, b); } } }
+    if (round == 0) roadsLeftovers();
+    }
+    for (int s2 = 0; s2 < nStreet; s2++) { int n = stCnt[s2]; if (n < 3 || stKind[s2] == 3) continue; for (int e = 0; e < 2; e++) {   // what is still loose: the tail past its last crossing goes (up to 60 m)
+        n = stCnt[s2]; const Vector3 *p = ST_P(s2); Vector2 P = e ? (Vector2){p[n - 1].x, p[n - 1].z} : (Vector2){p[0].x, p[0].z}; float tw;
+        if (cnNear(P.x, P.y, s2, false, NULL, &tw) < tw / 2 + stW10[s2] / 20.0f + 1.0f) continue; bool bore = false; for (int b = 0; b < nBore; b++) if (Vector2Distance(P, (Vector2){bores[b].px, bores[b].pz}) < 12) bore = true; if (bore) continue;
+        float acc = 0; int cut = -1; Vector2 cq = P;
+        for (int k = 0; k + 1 < n && acc < 60 && cut < 0; k++) { int i0 = e ? n - 1 - k : k, i1 = e ? n - 2 - k : k + 1; Vector2 a = {p[i0].x, p[i0].z}, b = {p[i1].x, p[i1].z}; float L = Vector2Distance(a, b);
+            for (float u = 0; u < L && cut < 0; u += 0.5f) { Vector2 q = Vector2Lerp(a, b, u / fmaxf(L, 0.01f)); float tw2; if (cnNear(q.x, q.y, s2, false, NULL, &tw2) < tw2 / 2 + stW10[s2] / 20.0f) { cut = k; cq = q; } } acc += L; }
+        if (cut >= 0 && n - cut - 1 >= 2) { if (e) { stCnt[s2] = n - cut; stPts[stOff[s2] + stCnt[s2] - 1] = V3(cq.x, 0, cq.y); } else { stOff[s2] += cut; stCnt[s2] = n - cut; stPts[stOff[s2]] = V3(cq.x, 0, cq.y); }
+            trimmed++; TraceLog(LOG_INFO, "ROADNET street %d: dead-end tail cut back to the crossing at %.0f %.0f", s2, cq.x, cq.y); } } }
+    roadsLeftovers();
+    netSmooth();
+    int loose = 0; for (int s2 = 0; s2 < nStreet; s2++) { int n = stCnt[s2]; if (n < 2) continue; for (int e = 0; e < 2; e++) { Vector3 P = e ? ST_P(s2)[n - 1] : ST_P(s2)[0]; float tw;
+        if (cnNear(P.x, P.z, s2, false, NULL, &tw) < tw / 2 + stW10[s2] / 20.0f + 1.0f) continue; bool bore = false; for (int b = 0; b < nBore; b++) if (Vector2Distance((Vector2){P.x, P.z}, (Vector2){bores[b].px, bores[b].pz}) < 12) bore = true; if (bore) continue;
+        loose++; TraceLog(LOG_INFO, "ROADNET still loose: street %d end %d at %.0f %.0f", s2, e, P.x, P.z); } }
+    cnAllowLots = false; if (getenv("KIRI_CNDBG")) TraceLog(LOG_INFO, "CNDBG2 lot at 442,221: %d  kill461 %d kill198 %d kill197 %d DLOTS_N %d", cnLot(442, 221, 0), lotKill[461], lotKill[198], lotKill[197], DLOTS_N);
+    TraceLog(LOG_INFO, "ROADNET %d stubs cut, %d ends carried on, %d new streets, %d ends still loose", trimmed, extended, made, loose);
 }
 
 // ---------------------------------------------------------------- layout definition
@@ -325,6 +564,7 @@ static void layoutInit(void) {
     {   float total = 0; for (int i = 1; i < nTouge; i++) total += Vector3Distance(V3(tougeP[i].x, 0, tougeP[i].z), V3(tougeP[i - 1].x, 0, tougeP[i - 1].z));
         float acc = 0; tougeP[0].y = 0;
         for (int i = 1; i < nTouge; i++) { acc += Vector3Distance(V3(tougeP[i].x, 0, tougeP[i].z), V3(tougeP[i - 1].x, 0, tougeP[i - 1].z)); float t = acc / total; tougeP[i].y = 34.0f * (t * t * 0.35f + t * 0.65f); } }
+    roadsConnect();
     {   // 3: the old brick tunnel at the top, straight on from the last stretch of the pass so the road runs into it
         Vector3 e = tougeP[nTouge - 1], pv = tougeP[nTouge - 6 > 0 ? nTouge - 6 : 0]; float dx = e.x - pv.x, dz = e.z - pv.z;
         int dir = fabsf(dx) > fabsf(dz) ? (dx > 0 ? 0 : 1) : (dz > 0 ? 2 : 3);
@@ -541,6 +781,12 @@ static void wallRibbon(int t, const Vector3 *p, int n, float o, float y0, float 
         quad(t, a0, a1, b1, b0, nn, c); quad(t, b0, b1, a1, a0, Vector3Negate(nn), c);
     }
 }
+#define LR_X0 (-480.0f)
+#define LR_Z0 (-250.0f)
+#define LR_W 2300
+#define LR_H 1560
+static unsigned char *lotR;
+static bool lotAt(float x, float z) { if (!lotR) return false; int i = (int)floorf((x - LR_X0) * 2), j = (int)floorf((z - LR_Z0) * 2); return i >= 0 && j >= 0 && i < LR_W && j < LR_H && lotR[j * LR_W + i]; }
 static int dashSt = -1;   // the street whose lines are being painted: they stop where another street crosses it
 static void dashes(const Vector3 *p, int n, float o, float y, float w, int on, int off, Color c) {
     for (int i = 0; i + 1 < n; i++) { if (off > 0 && (i % (on + off)) >= on) continue;
@@ -1000,7 +1246,7 @@ static void buildBore(Bore *b) {
 
 // ---------------------------------------------------------------- the rest of the outside world
 static bool coastSkipVerge(Vector3 q) { return cityLand(q.x, q.z) || roadAt(q.x, q.z) || seaSide(q.x, q.z) || !inCore(q.x, q.z); }   // gaps where streets meet the coast road
-static bool coastSkipPave(Vector3 q) { return cityLand(q.x, q.z) || seaDepth(q.x, q.z) > 0; }
+static bool coastSkipPave(Vector3 q) { return cityLand(q.x, q.z) || seaDepth(q.x, q.z) > 0 || streetInside(q.x, q.z, -1.0f); }   // (and open where a street joins)
 
 // ---------------------------------------------------------------- the high-rise district (0.9.0)
 // Beyond the west tunnel, on the bay: office and apartment towers of 8 to 22 storeys on a straight grid, shop rows and bars
@@ -1009,7 +1255,7 @@ static void genDistrict(void) {
     float cols[5] = {-420, -365, -310, -255, -200}, rows[4] = {DZ0 + 2, DIST_ROW3_Z, DIST_ROW2_Z, DIST_BLVD_Z};
     bool keepB = gBasementAll; gBasementAll = true;
     for (int bi = 0; bi < 4; bi++) for (int bj = 0; bj < 3; bj++) {
-        float x0 = cols[bi] + 7.2f, x1 = cols[bi + 1] - 7.2f, z0 = rows[bj] + (bj == 0 ? 1.0f : 7.2f), z1 = rows[bj + 1] - (bj == 2 ? 9.2f : 7.2f);
+        float x0 = cols[bi] + 7.2f, x1 = cols[bi + 1] - 7.2f, z0 = rows[bj] + 7.2f, z1 = rows[bj + 1] - (bj == 2 ? 9.2f : 7.2f);
         float half = (x1 - x0 - 4) / 2;
         for (int side = 0; side < 2; side++) {
             float lx0 = side ? x0 + half + 4 : x0, lx1 = lx0 + half;
@@ -1134,6 +1380,15 @@ static void genLayoutWorld(void) {
     nPoleT = 0;
     static float kerbS[40000][6]; int nKerbS = 0;   // raised pavement slabs, made solid after the street furniture has found its places
     // ================= the town (concept map 6, mirrored Atami): streets, river, railway, buildings, shrines, castle, parks
+    {   // where the buildings will stand (they are built after the streets): the pavements stop at their fronts
+        if (!lotR) lotR = malloc((size_t)LR_W * LR_H); memset(lotR, 0, (size_t)LR_W * LR_H);
+        for (int l = 0; l < DLOTS_N; l++) { Rectangle r = {dLots[l][0], dLots[l][1], dLots[l][2], dLots[l][3]}; if ((int)dLots[l][4] == 5 || stnCovers(r, dLots[l][7]) || (l < 4096 && lotKill[l])) continue;
+            float cx = r.x + r.width / 2, cz = r.y + r.height / 2, c = cosf(dLots[l][7]), sn = sinf(dLots[l][7]), R = sqrtf(r.width * r.width + r.height * r.height) / 2 + 0.5f;
+            for (float z = cz - R; z <= cz + R; z += 0.5f) for (float x = cx - R; x <= cx + R; x += 0.5f) { float dx = x - cx, dz = z - cz, lx = cx + dx * c - dz * sn, lz = cz + dx * sn + dz * c;
+                if (lx > r.x - 0.2f && lx < r.x + r.width + 0.2f && lz > r.y - 0.2f && lz < r.y + r.height + 0.2f) { int i = (int)floorf((x - LR_X0) * 2), j = (int)floorf((z - LR_Z0) * 2); if (i >= 0 && j >= 0 && i < LR_W && j < LR_H) lotR[j * LR_W + i] = 1; } } }
+        float cols[5] = {-420, -365, -310, -255, -200}, rows[4] = {DZ0 + 2, DIST_ROW3_Z, DIST_ROW2_Z, DIST_BLVD_Z};   // the district's blocks (genDistrict)
+        for (int bi = 0; bi < 4; bi++) for (int bj = 0; bj < 3; bj++) { float x0 = cols[bi] + 7.2f, x1 = cols[bi + 1] - 7.2f, z0 = rows[bj] + 7.2f, z1 = rows[bj + 1] - (bj == 2 ? 9.2f : 7.2f);
+            for (float z = z0; z <= z1; z += 0.5f) for (float x = x0; x <= x1; x += 0.5f) { int i = (int)floorf((x - LR_X0) * 2), j = (int)floorf((z - LR_Z0) * 2); if (i >= 0 && j >= 0 && i < LR_W && j < LR_H) lotR[j * LR_W + i] = 1; } } }
     for (int s2 = 0; s2 < nStreet; s2++) {   // streets on top of the paving: asphalt (stairs in concrete), edge lines on the wider ones
         const Vector3 *p = ST_P(s2); int n = ST_N(s2); float w = stW10[s2] / 10.0f; int k = stKind[s2];
         float sy = (k == 2 ? SIDEH + 0.012f : SIDEH + 0.03f) + 0.0018f * (s2 % 5);   // (concrete steps and paths lie under the asphalt where they cross a road)   // layers: paving, asphalt, stair concrete, markings (no two surfaces share a height; where two streets cross, one is a hair above the other)
@@ -1146,7 +1401,7 @@ static void genLayoutWorld(void) {
         if (k == 1 || (k == 0 && w >= 6.5f)) for (int i = 0; i + 1 < n; i++) for (int sd = -1; sd <= 1; sd += 2) {   // a raised pavement along each side: kerbstone, kerb face, slab
             Vector2 N0 = pnorm(p, n, i), N1 = pnorm(p, n, i + 1); float oA = sd * w / 2, oB = sd * (w / 2 + 1.4f), oM = sd * (w / 2 + 0.7f);
             float segL = Vector3Distance(p[i], p[i + 1]); int np = (int)ceilf(segL / 1.2f); if (np < 1) np = 1;   // in pieces of about a metre: a junction or a doorway only cuts the pieces it touches
-            bool ok[64]; if (np > 64) np = 64;
+            bool ok[64]; float wid[64]; if (np > 64) np = 64;
             for (int pc = 0; pc < np; pc++) {
                 float t0 = (float)pc / np, t1 = (float)(pc + 1) / np;
                 Vector3 P0 = Vector3Lerp(p[i], p[i + 1], t0), P1 = Vector3Lerp(p[i], p[i + 1], t1);
@@ -1155,12 +1410,17 @@ static void genLayoutWorld(void) {
                 mrNoPaths = true;
                 bool ends = true; for (int e = 0; e < 2 && ends; e++) { const Vector3 *pe = e ? &P1 : &P0; Vector2 ne = e ? n1 : n0; float ex = pe->x + ne.x * oM, ez = pe->z + ne.y * oM; if (!cityLand(ex, ez) || mainRoadAt(ex, ez, 0.1f) || mainRoadAtEx(pe->x + ne.x * oB, pe->z + ne.y * oB, 0.25f, s2) || mainRoadAtEx(pe->x + ne.x * (oA + sd * 0.2f), pe->z + ne.y * (oA + sd * 0.2f), 0.25f, s2)) ends = false; }   // (only the other streets count: the slab stops at their kerb line)
                 ok[pc] = ends && cityLand(qx, qz) && !mainRoadAt(qx, qz, 0.1f) && coast_d(qx, qz) >= 7.0f && !inRiverRaw(qx, qz) && pointFree(qx, qz, 0.55f, SIDEH + 0.5f);
+                wid[pc] = 1.4f;
+                if (ok[pc] && !getenv("KIRI_NOWIDE")) for (float o = 1.65f; o <= 12.0f; o += 0.25f) {   // the pavement runs on to the building fronts, the walls and the fences behind it
+                    float x = m.x + nm.x * sd * (w / 2 + o), z = m.z + nm.y * sd * (w / 2 + o);
+                    if (!cityLand(x, z) || lotAt(x, z) || mainRoadAtEx(x, z, 0.3f, s2) || inRiverRaw(x, z) || coast_d(x, z) < 7.0f || inPit(x, z) || inHole(x, z) || !pointFree(x, z, 0.15f, SIDEH + 0.5f) || ceilAt(V3(x, SIDEH + 0.05f, z), 0.05f) < SIDEH + 8) break;
+                    wid[pc] = o; }
                 mrNoPaths = false;
                 { static float kx = 1e9f, kz; static int kinit = 0; if (!kinit) { kinit = 1; if (getenv("KIRI_KAT")) sscanf(getenv("KIRI_KAT"), "%f %f", &kx, &kz); }
                   if (fabsf(qx - kx) < 2 && fabsf(qz - kz) < 2) TraceLog(LOG_INFO, "KAT s2 %d k %d w %.1f q %.1f %.1f ends %d city %d road %d coast %.1f river %d free %d", s2, k, w, qx, qz, ends, cityLand(qx, qz), mainRoadAt(qx, qz, 0.6f), coast_d(qx, qz), inRiverRaw(qx, qz), pointFree(qx, qz, 0.55f, SIDEH + 0.5f)); }
                 { static int kc[2]; kc[0]++; kc[1] += ok[pc]; if (getenv("KIRI_KDBG") && kc[0] % 4000 == 0) TraceLog(LOG_INFO, "KERB pieces %d raised %d", kc[0], kc[1]); } }
-            for (int r0 = 0; r0 < np;) { if (!ok[r0]) { r0++; continue; } int r1 = r0; while (r1 + 1 < np && ok[r1 + 1]) r1++;   // one slab per run of pieces
-                float t0 = (float)r0 / np, t1 = (float)(r1 + 1) / np; r0 = r1 + 1;
+            for (int r0 = 0; r0 < np;) { if (!ok[r0]) { r0++; continue; } int r1 = r0; while (r1 + 1 < np && ok[r1 + 1] && wid[r1 + 1] == wid[r0]) r1++;   // one slab per run of pieces as wide
+                float t0 = (float)r0 / np, t1 = (float)(r1 + 1) / np; float oB = sd * (w / 2 + wid[r0]); r0 = r1 + 1;
                 Vector3 P0 = Vector3Lerp(p[i], p[i + 1], t0), P1 = Vector3Lerp(p[i], p[i + 1], t1);
                 Vector2 n0 = Vector2Normalize(Vector2Lerp(N0, N1, t0)), n1 = Vector2Normalize(Vector2Lerp(N0, N1, t1));
                 Vector3 m = Vector3Lerp(P0, P1, 0.5f); Vector2 nm = Vector2Scale(Vector2Add(n0, n1), 0.5f);
@@ -1260,7 +1520,7 @@ static void genLayoutWorld(void) {
     }
     for (int l = 0; l < DLOTS_N; l++) {   // every building of the town, as drawn: kind, storeys and the side that faces the street
         Rectangle r = {dLots[l][0], dLots[l][1], dLots[l][2], dLots[l][3]}; int kind = (int)dLots[l][4], floors = (int)dLots[l][5], face = (int)dLots[l][6];
-        if (kind == 5 || stnCovers(r, dLots[l][7])) continue;   // the station is built along the line (trainStation)
+        if (kind == 5 || stnCovers(r, dLots[l][7]) || (l < 4096 && lotKill[l])) continue;   // the station is built along the line (trainStation); a lot a joining road crosses stays empty
         if (kind == 5) {
             float bx = r.x, bz = r.y; bool ok = false;
             for (int tr2 = 0; tr2 < 400 && !ok; tr2++) { float ox = tr2 ? fr(-45, 45) : 0, oz = tr2 ? fr(-16, 16) : 0; ok = true;
