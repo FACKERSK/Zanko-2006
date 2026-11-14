@@ -1,4 +1,13 @@
-ZANKO 2006 - Afterglow  (v0.9.4, corners, river, rooms, walls)
+ZANKO 2006 - Afterglow  (v0.9.5, online accounts)
+
+- 0.9.5: online accounts.
+  * Accounts are made on the website (zanko2006.net, Account):
+    username, e-mail, password. The e-mail is confirmed by a
+    link sent to it.
+  * The launcher logs in with that e-mail and password and
+    keeps the login until Log Out. Local accounts are gone;
+    Guest stays. A profile made under the same name before
+    is picked up again.
 
 - 0.9.4: the things 0.9.3 left out.
   * Junction corners are rounded: the kerb turns the corner

@@ -98,7 +98,9 @@ static VerEntry vers[VMAX]; static int nVers = 0;
 static char verSel[24] = "";          // "" = the installed (latest) version
 static volatile int verBusy = 0; static char verStatus[200] = ""; static char verPending[24] = ""; static volatile int verLaunch = 0;
 static bool verPopup = false; static Rectangle verPopR; static volatile int versReload = 0; static bool verHoldClick = false;
-static char lastUser[32] = "";
+static char lastUser[128] = "";   // the e-mail last logged in with (prefilled)
+static char accSession[1100] = "";   // the online login kept between starts (a refresh token; Data/Userdata/session.dat)
+static bool accOnline = false;
 static int closeOnPlay = 1;
 static volatile int updBusy = 0, updAvailable = 0, updDone = 0;
 static char remoteVer[32] = "";
@@ -113,7 +115,7 @@ static void launcherIniLoad(void) {
         v[0] = 0;
         if (sscanf(line, "%63[^=]=%599[^\r\n]", k, v) < 1) continue;
         if (!strcmp(k, "update_url")) { if (v[0]) { strncpy(updateUrl, v, 511); updateUrl[511] = 0; } }   // empty keeps the GitHub default
-        else if (!strcmp(k, "lastUser")) { strncpy(lastUser, v, 31); lastUser[31] = 0; }
+        else if (!strcmp(k, "lastUser")) { strncpy(lastUser, v, 127); lastUser[127] = 0; }
         else if (!strcmp(k, "closeOnPlay")) closeOnPlay = atoi(v);
         else if (!strcmp(k, "ram_mb")) ramMB = atoi(v);
         else if (!strcmp(k, "p_windowed")) pWindowed = atoi(v);
@@ -323,6 +325,9 @@ static void checkUpdates(void) {
 }
 
 // ---------------------------------------------------------------- accounts
+#include "zk_account.h"
+static void sessionLoad(void) { accSession[0] = 0; FILE *f = fopen(P("Data/Userdata/session.dat"), "r"); if (!f) return; if (fgets(accSession, sizeof accSession, f)) { size_t n = strlen(accSession); while (n && (accSession[n - 1] == '\n' || accSession[n - 1] == '\r')) accSession[--n] = 0; } fclose(f); }
+static void sessionSave(void) { ensureDir("Data"); ensureDir("Data/Userdata"); if (!accSession[0]) { remove(P("Data/Userdata/session.dat")); return; } FILE *f = fopen(P("Data/Userdata/session.dat"), "w"); if (f) { fputs(accSession, f); fclose(f); } }
 static bool validName(const char *n) {
     int l = (int)strlen(n);
     if (l < 3 || l > 16) return false;
@@ -361,7 +366,6 @@ static bool login(const char *name, const char *pw) {
 }
 static void enterMain(const char *name) {
     profLoad(name);
-    snprintf(lastUser, sizeof lastUser, "%s", strcmp(name, "Guest") ? name : "");
     launcherIniSave();
     lstate = L_MAIN; status[0] = 0;
 }
@@ -504,27 +508,26 @@ static void drawBoot(float W, float H) {
     aTextC(updStatus[0] ? updStatus : "Starting ...", W / 2, H * 0.68f + 110 * s, 12, C_BONE2, false);
     if (bootT > 2.2f || (bootT > 0.3f && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)))) lstate = L_LOGIN;
 }
+static int loginStep = 0;   // 1: "Connecting..." is on screen, the request goes out on the next frame (it blocks for a moment)
 static void drawLogin(float W, float H) {
     float s = aU;
     aLogo(W / 2, H * 0.08f, 62, "S E I R Y \xC5\xAA   O S   -   L A U N C H E R");
-    Rectangle p = {W / 2 - 230 * s, H * 0.33f, 460 * s, 360 * s};
+    Rectangle p = {W / 2 - 230 * s, H * 0.33f, 460 * s, 372 * s};
     aWindow(p, "Seiry\xC5\xAB - Citizen Registry");
-    aTextBox((Rectangle){p.x + 40 * s, p.y + 86 * s, 380 * s, 40 * s}, "Citizen name", &tbUser);
+    aTextBox((Rectangle){p.x + 40 * s, p.y + 86 * s, 380 * s, 40 * s}, "E-mail", &tbUser);
     aTextBox((Rectangle){p.x + 40 * s, p.y + 160 * s, 380 * s, 40 * s}, "Password", &tbPass);
-    bool doLogin = aButton((Rectangle){p.x + 40 * s, p.y + 220 * s, 180 * s, 42 * s}, "Log In", true) || (IsKeyPressed(KEY_ENTER) && tbPass.len > 0);
+    bool doLogin = aButton((Rectangle){p.x + 40 * s, p.y + 220 * s, 180 * s, 42 * s}, loginStep ? "Connecting..." : "Log In", !loginStep) || (IsKeyPressed(KEY_ENTER) && tbPass.len > 0 && !loginStep);
     bool doCreate = aButton((Rectangle){p.x + 240 * s, p.y + 220 * s, 180 * s, 42 * s}, "Register", true);
     bool doGuest = aButton((Rectangle){p.x + 120 * s, p.y + 274 * s, 220 * s, 38 * s}, "Enter as Guest", true);
     if (IsKeyPressed(KEY_TAB)) { bool u = tbUser.active; tbUser.active = !u; tbPass.active = u; }
-    aTextC(status, W / 2, p.y + 322 * s, 15, (Color){255, 170, 140, 255}, true);
+    aTextC(status, W / 2, p.y + 328 * s, 15, (Color){255, 170, 140, 255}, true);
     DrawRectangle(0, (int)(H - 40 * s), (int)W, (int)(40 * s), (Color){8, 10, 11, 200});
-    aTextC("Accounts are stored locally in Data/Userdata (salted SHA-256). Online accounts require the multiplayer server.", W / 2, H - 29 * s, 14, (Color){214, 208, 196, 255}, false);
-    if (doLogin) { if (login(tbUser.buf, tbPass.buf)) enterMain(tbUser.buf); }
-    if (doCreate) {
-        if (!validName(tbUser.buf)) snprintf(status, sizeof status, "Name: 3-16 letters, digits, _ or -.");
-        else if (tbPass.len < 4) snprintf(status, sizeof status, "Password: at least 4 characters.");
-        else if (createAccount(tbUser.buf, tbPass.buf)) enterMain(tbUser.buf);
-    }
-    if (doGuest) enterMain("Guest");
+    aTextC("Accounts are made on the website (Register opens it): username, e-mail, password. Log in here with that e-mail. A Guest's stats are not saved.", W / 2, H - 29 * s, 14, (Color){214, 208, 196, 255}, false);
+    if (loginStep == 1) { loginStep = 0; char name[40];
+        if (accLogin(tbUser.buf, tbPass.buf, name, accSession, sizeof accSession, status, sizeof status)) { sessionSave(); snprintf(lastUser, sizeof lastUser, "%s", tbUser.buf); accOnline = true; tbPass.len = 0; tbPass.buf[0] = 0; enterMain(name); } }
+    else if (doLogin) { if (!strchr(tbUser.buf, '@')) snprintf(status, sizeof status, "Log in with the account's e-mail address."); else if (tbPass.len < 1) snprintf(status, sizeof status, "Enter the password."); else { status[0] = 0; loginStep = 1; } }
+    if (doCreate) { openFolder(ZK_ACCOUNT_URL); snprintf(status, sizeof status, "The registration page opens in the browser."); }
+    if (doGuest) { accOnline = false; enterMain("Guest"); }
 }
 
 // ---- tabs
@@ -722,9 +725,9 @@ static void drawLauncher(float W, float H) {
     Rectangle acc = {12 * s, H - 132 * s, sbw - 24 * s, 118 * s};
     card(acc, NULL);
     aText(prof.name, acc.x + 14 * s, acc.y + 10 * s, 17, (Color){236, 230, 216, 255}, true);
-    aText(strcmp(prof.name, "Guest") ? "Local citizen account" : "Guest (stats not saved)", acc.x + 14 * s, acc.y + 34 * s, 11, C_BONE2, false);
+    aText(strcmp(prof.name, "Guest") ? "Online citizen account" : "Guest (stats not saved)", acc.x + 14 * s, acc.y + 34 * s, 11, C_BONE2, false);
     aText(TextFormat("v%s  -  %s", localVer, cfg.channel), acc.x + 14 * s, acc.y + 52 * s, 11, (Color){150, 146, 136, 230}, false);
-    if (aButton((Rectangle){acc.x + 12 * s, acc.y + 76 * s, acc.width * 0.5f - 18 * s, 30 * s}, "Log Out", true)) { lstate = L_LOGIN; tbPass.len = 0; tbPass.buf[0] = 0; }
+    if (aButton((Rectangle){acc.x + 12 * s, acc.y + 76 * s, acc.width * 0.5f - 18 * s, 30 * s}, "Log Out", true)) { lstate = L_LOGIN; tbPass.len = 0; tbPass.buf[0] = 0; accSession[0] = 0; sessionSave(); accOnline = false; }
     if (aButton((Rectangle){acc.x + acc.width * 0.5f + 6 * s, acc.y + 76 * s, acc.width * 0.5f - 18 * s, 30 * s}, "Quit", true)) { if (modsDirty) modsWrite(); CloseWindow(); exit(0); }
     // content
     Rectangle c = {sbw, 0, W - sbw, H - bbh};
@@ -813,11 +816,12 @@ int main(void) {
     }
     aeroLoadFont();
     saInit(P("Textures/ecoglass.png"), P("Textures/facade_a.png"));
-    tbPass.mask = true; tbUser.max = 16; tbPass.max = 31; tbArgs.max = 250; tbSeed.max = 10;
+    tbPass.mask = true; tbUser.max = 120; tbPass.max = 63; tbArgs.max = 250; tbSeed.max = 10;
     snprintf(tbArgs.buf, sizeof tbArgs.buf, "%s", launchArgs); tbArgs.len = (int)strlen(tbArgs.buf);
     snprintf(tbSeed.buf, sizeof tbSeed.buf, "%s", pSeed); tbSeed.len = (int)strlen(tbSeed.buf);
     if (vidOn) lastUser[0] = 0;
     if (lastUser[0]) { snprintf(tbUser.buf, sizeof tbUser.buf, "%s", lastUser); tbUser.len = (int)strlen(lastUser); tbPass.active = true; } else tbUser.active = true;
+    sessionLoad();
     versLoad();
     if (cfg.autoUpdate) checkUpdates(); else snprintf(updStatus, sizeof updStatus, "Automatic update check is off.");
     modsReload();
@@ -835,7 +839,8 @@ int main(void) {
         aCorrupt = 0;
         aLayerBegin();
         if (lstate == L_BOOT) drawBoot(W, H);
-        else if (lstate == L_LOGIN) drawLogin(W, H);
+        else if (lstate == L_LOGIN) { static int resumed = 0; if (!resumed && !shot) { resumed = 1; char nm[40], msg[160] = ""; if (accSession[0]) { if (accResume(accSession, sizeof accSession, nm, msg, sizeof msg)) { sessionSave(); accOnline = true; enterMain(nm); } else { sessionSave(); snprintf(status, sizeof status, "%s", msg); } } }   // a kept login: straight in
+            if (lstate == L_LOGIN) drawLogin(W, H); else drawLauncher(W, H); }
         else drawLauncher(W, H);
         aLayerEnd(1);
         aDrawCursor();
@@ -844,7 +849,7 @@ int main(void) {
             if (frame == 30) TakeScreenshot("launcher_boot.png");
             if (frame == 31) lstate = L_LOGIN;
             if (frame == 45) TakeScreenshot("launcher_login.png");
-            if (frame == 46) { if (!createAccount("Gonbei", "test1234")) login("Gonbei", "test1234"); enterMain("Gonbei"); }
+            if (frame == 46) { enterMain("Gonbei"); }
             if (frame == 60) TakeScreenshot("launcher_play.png");
             if (frame == 61) tab = TAB_MODS;
             if (frame == 70) TakeScreenshot("launcher_mods.png");
