@@ -100,7 +100,7 @@ static volatile int verBusy = 0; static char verStatus[200] = ""; static char ve
 static bool verPopup = false; static Rectangle verPopR; static volatile int versReload = 0; static bool verHoldClick = false;
 static char lastUser[128] = "";   // the e-mail last logged in with (prefilled)
 static char accSession[1100] = "";   // the online login kept between starts (a refresh token; Data/Userdata/session.dat)
-static bool accOnline = false;
+static bool accOnline = false; static int rememberMe = 1;   // keep the login for the next start
 static int closeOnPlay = 1;
 static volatile int updBusy = 0, updAvailable = 0, updDone = 0;
 static char remoteVer[32] = "";
@@ -117,6 +117,7 @@ static void launcherIniLoad(void) {
         if (!strcmp(k, "update_url")) { if (v[0]) { strncpy(updateUrl, v, 511); updateUrl[511] = 0; } }   // empty keeps the GitHub default
         else if (!strcmp(k, "lastUser")) { strncpy(lastUser, v, 127); lastUser[127] = 0; }
         else if (!strcmp(k, "closeOnPlay")) closeOnPlay = atoi(v);
+        else if (!strcmp(k, "rememberMe")) rememberMe = atoi(v);
         else if (!strcmp(k, "ram_mb")) ramMB = atoi(v);
         else if (!strcmp(k, "p_windowed")) pWindowed = atoi(v);
         else if (!strcmp(k, "p_newgame")) pNewGame = atoi(v);
@@ -141,7 +142,7 @@ static void launcherIniSave(void) {
     fprintf(f, "#   {channel} in the URL is replaced with the selected update channel (stable/beta).\n");
     fprintf(f, "# ram_mb: memory reserved for the game process in MB (0 = automatic). Passed as --ram.\n");
     fprintf(f, "# launch_args: extra startup arguments passed to Zanko.exe.\n");
-    fprintf(f, "update_url=%s\nlastUser=%s\ncloseOnPlay=%d\nram_mb=%d\nlaunch_args=%s\n", updateUrl, lastUser, closeOnPlay, ramMB, launchArgs);
+    fprintf(f, "update_url=%s\nlastUser=%s\ncloseOnPlay=%d\nram_mb=%d\nlaunch_args=%s\nrememberMe=%d\n", updateUrl, rememberMe ? lastUser : "", closeOnPlay, ramMB, launchArgs, rememberMe);
     fprintf(f, "# version: the game version PLAY starts (empty = the installed, newest version)\nversion=%s\n", verSel);
     fprintf(f, "# Parameters tab\np_windowed=%d\np_newgame=%d\np_nomods=%d\np_log=%d\np_novsync=%d\np_fps=%d\np_render=%d\np_seed=%s\n", pWindowed, pNewGame, pNoMods, pLog, pNoVsync, pFps, pRender, pSeed);
     fclose(f);
@@ -512,19 +513,20 @@ static int loginStep = 0;   // 1: "Connecting..." is on screen, the request goes
 static void drawLogin(float W, float H) {
     float s = aU;
     aLogo(W / 2, H * 0.08f, 62, "S E I R Y \xC5\xAA   O S   -   L A U N C H E R");
-    Rectangle p = {W / 2 - 230 * s, H * 0.33f, 460 * s, 372 * s};
+    Rectangle p = {W / 2 - 230 * s, H * 0.31f, 460 * s, 410 * s};
     aWindow(p, "Seiry\xC5\xAB - Citizen Registry");
     aTextBox((Rectangle){p.x + 40 * s, p.y + 86 * s, 380 * s, 40 * s}, "E-mail", &tbUser);
     aTextBox((Rectangle){p.x + 40 * s, p.y + 160 * s, 380 * s, 40 * s}, "Password", &tbPass);
-    bool doLogin = aButton((Rectangle){p.x + 40 * s, p.y + 220 * s, 180 * s, 42 * s}, loginStep ? "Connecting..." : "Log In", !loginStep) || (IsKeyPressed(KEY_ENTER) && tbPass.len > 0 && !loginStep);
-    bool doCreate = aButton((Rectangle){p.x + 240 * s, p.y + 220 * s, 180 * s, 42 * s}, "Register", true);
-    bool doGuest = aButton((Rectangle){p.x + 120 * s, p.y + 274 * s, 220 * s, 38 * s}, "Enter as Guest", true);
+    rememberMe = aToggle(p.x + 40 * s, p.y + 214 * s, "Remember me on this computer", rememberMe);
+    bool doLogin = aButton((Rectangle){p.x + 40 * s, p.y + 258 * s, 180 * s, 42 * s}, loginStep ? "Connecting..." : "Log In", !loginStep) || (IsKeyPressed(KEY_ENTER) && tbPass.len > 0 && !loginStep);
+    bool doCreate = aButton((Rectangle){p.x + 240 * s, p.y + 258 * s, 180 * s, 42 * s}, "Register", true);
+    bool doGuest = aButton((Rectangle){p.x + 120 * s, p.y + 312 * s, 220 * s, 38 * s}, "Enter as Guest", true);
     if (IsKeyPressed(KEY_TAB)) { bool u = tbUser.active; tbUser.active = !u; tbPass.active = u; }
-    aTextC(status, W / 2, p.y + 328 * s, 15, (Color){255, 170, 140, 255}, true);
+    aTextC(status, W / 2, p.y + 366 * s, 15, (Color){255, 170, 140, 255}, true);
     DrawRectangle(0, (int)(H - 40 * s), (int)W, (int)(40 * s), (Color){8, 10, 11, 200});
     aTextC("Accounts are made on the website (Register opens it): username, e-mail, password. Log in here with that e-mail. A Guest's stats are not saved.", W / 2, H - 29 * s, 14, (Color){214, 208, 196, 255}, false);
     if (loginStep == 1) { loginStep = 0; char name[40];
-        if (accLogin(tbUser.buf, tbPass.buf, name, accSession, sizeof accSession, status, sizeof status)) { sessionSave(); snprintf(lastUser, sizeof lastUser, "%s", tbUser.buf); accOnline = true; tbPass.len = 0; tbPass.buf[0] = 0; enterMain(name); } }
+        if (accLogin(tbUser.buf, tbPass.buf, name, accSession, sizeof accSession, status, sizeof status)) { if (!rememberMe) accSession[0] = 0; sessionSave(); snprintf(lastUser, sizeof lastUser, "%s", tbUser.buf); accOnline = true; tbPass.len = 0; tbPass.buf[0] = 0; enterMain(name); } }
     else if (doLogin) { if (!strchr(tbUser.buf, '@')) snprintf(status, sizeof status, "Log in with the account's e-mail address."); else if (tbPass.len < 1) snprintf(status, sizeof status, "Enter the password."); else { status[0] = 0; loginStep = 1; } }
     if (doCreate) { openFolder(ZK_ACCOUNT_URL); snprintf(status, sizeof status, "The registration page opens in the browser."); }
     if (doGuest) { accOnline = false; enterMain("Guest"); }

@@ -206,7 +206,7 @@ static void netRecvAll(double now) {
             else if (t == P_BYE) { char b[96]; snprintf(b, sizeof b, "%s left.", rps[k].name); say(b); rps[k].on = false; netSay(b, k); }
         } else if (netMode == NM_CLIENT) {
             if (from.ip != hostAddr.ip || from.port != hostAddr.port) continue;
-            rps[0].heard = now;
+            if (rps[0].heard < now) rps[0].heard = now;   // (never back: right after the town was built, the packets still queued carry the time from before the build)
             if (t == P_WELCOME && netJoining) { mySlot = RV(&r, unsigned char); unsigned int seed = RV(&r, unsigned int); netPvp = RV(&r, unsigned char); if (r.bad) continue;
                 netJoining = false; snprintf(netStatus, sizeof netStatus, "Connected as player %d.", mySlot + 1); startClientWorld(seed); rps[0].heard = GetTime() + 5; continue; }
             if (t == P_REJECT) { char m[64]; rbr(&r, m, 64); m[63] = 0; netStop(NULL); snprintf(netStatus, sizeof netStatus, "Refused: %s", m); continue; }

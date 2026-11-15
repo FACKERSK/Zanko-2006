@@ -8,7 +8,7 @@
 #include <math.h>
 #include "raymath.h"
 
-#define GAME_VERSION "0.9.5"
+#define GAME_VERSION "0.9.6"
 #if defined(PLATFORM_WEB)
 #define GLSL_HEAD "#version 300 es\nprecision highp float;\nprecision highp int;\n"
 #include <emscripten/emscripten.h>
@@ -241,7 +241,7 @@ typedef struct { int kind; Rectangle r; int state; Color base; float v; } AW3;  
 #define AW3MAX 96
 static AW3 aW3[AW3MAX]; static int aW3n = 0;
 static void aW3Add(int kind, Rectangle r, int state, Color base, float v) { if (aW3n < AW3MAX) aW3[aW3n++] = (AW3){kind, r, state, base, v}; }
-static Vector2 aRealMouse(void) { return vidOn ? vidMouse : GetMousePosition(); }
+static Vector2 aRealMouse(void) { static int t = -1; static Vector2 m; if (t < 0) { t = 0; const char *e = getenv("KIRI_MOUSE"); if (e && sscanf(e, "%f %f", &m.x, &m.y) == 2) t = 1; } if (t) return m; return vidOn ? vidMouse : GetMousePosition(); }   // (KIRI_MOUSE: a fixed cursor for screenshots)
 static Vector2 aMousePos(void) { return aMO ? aMOp : vidOn ? vidMouse : GetMousePosition(); }
 static bool aPadClick = false, aPadDown = false;   // the game's gamepad A button acts as the left mouse button in menus
 // ---- gamepad focus: in menus the D-pad / left stick step through the buttons, toggles and sliders in the order they are drawn,

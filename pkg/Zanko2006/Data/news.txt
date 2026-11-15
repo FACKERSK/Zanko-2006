@@ -1,4 +1,21 @@
-ZANKO 2006 - Afterglow  (v0.9.5, online accounts)
+ZANKO 2006 - Afterglow  (v0.9.6, rooms, stairs, accounts)
+
+- 0.9.6: rooms you can walk into, room at the stairs.
+  * Every room in a house, flat, shop or office can be
+    walked into: a doorway that two rooms' walls shut on
+    each other is cut through both, and a room still closed
+    off gets a door from the hall or the room next to it.
+  * Furniture never cuts one doorway off from another (a
+    table set, a sofa or a washing machine across the way
+    is moved or left out).
+  * Stairs: no junk piles on the landings any more; the
+    landings are 1.4 m long where the building allows.
+  * Inventory: the item card stays inside its panel (it
+    used to stick out of a container as a dark band).
+  * Launcher: "Remember me" tick on the login. Unticked,
+    the next start asks for the password again.
+  * Multiplayer: joining no longer drops right after the
+    town is built on the joining machine.
 
 - 0.9.5: online accounts.
   * Accounts are made on the website (zanko2006.net, Account):

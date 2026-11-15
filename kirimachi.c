@@ -1165,6 +1165,7 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
 static void genWorld(unsigned int seed) {
     freeWorld();
     if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
+    raRooms = raBad = 0; raList[0] = 0; jpDoorsAdded = jpRoomsShut = 0; memset(raHist, 0, sizeof raHist);
     free(cover); cover = calloc((size_t)CV_W * CV_H, 1);
     hfReady = false; layoutInit();
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
@@ -2426,11 +2427,15 @@ int main(int argc, char **argv) {
                 if (getenv("KIRI_MAPSHOT")) { pl.mapOpen = true; EnableCursor(); float zx, tx, tz; if (sscanf(getenv("KIRI_MAPSHOT"), "%f %f %f", &zx, &tx, &tz) == 3) { mapZoom = zx; mapTgt = (Vector2){tx, tz}; } }
                 if (getenv("KIRI_INVSHOT")) { invAdd(IT_COAT, 1); invAdd(IT_HARDHAT, 1); invAdd(IT_BOOTS, 1); invAdd(IT_WORKPANTS, 1); invAdd(IT_STABVEST, 1); invAdd(IT_NAGINATA, 1); invAdd(IT_TETSUBO, 1); invAdd(IT_BEANIE, 1);
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
+                if (getenv("KIRI_INVC")) { for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_FRIDGE) { lootFill(&conts[i]); for (int k = 0; k < 4; k++) if (conts[i].s[k].t < 0) conts[i].s[k] = (Slot){IT_WATER, 1, 0}; conts[i].pos = Vector3Add(pl.pos, V3(1, 0, 0)); pl.openC = i; break; } }
                 if (getenv("KIRI_TOUGE")) for (int i = 0; i < nTouge; i++) TraceLog(LOG_INFO, "TOUGE %d %.2f %.2f y %.2f ground %.2f terr %.2f", i, tougeP[i].x, tougeP[i].z, tougeP[i].y, groundAt(V3(tougeP[i].x, tougeP[i].y + 1.5f, tougeP[i].z), 0.05f, 8), terrainH(tougeP[i].x, tougeP[i].z));
                 if (getenv("KIRI_SOLAT")) { float kx, ky, kz; if (sscanf(getenv("KIRI_SOLAT"), "%f %f %f", &kx, &ky, &kz) == 3) { query(kx - 0.1f, kz - 0.1f, kx + 0.1f, kz + 0.1f); for (int k = 0; k < qn; k++) { Solid *s2 = &sol[qb[k]]; Vector3 L = solL(s2, V3(kx, ky, kz));
                     if (L.x > s2->mn.x && L.x < s2->mx.x && L.z > s2->mn.z && L.z < s2->mx.z && fabsf(s2->mx.y - ky) < 3) TraceLog(LOG_INFO, "SOLAT %.2f..%.2f x %.2f..%.2f z %.2f..%.2f", s2->mn.y, s2->mx.y, s2->mn.x, s2->mx.x, s2->mn.z, s2->mx.z); } } }
                 if (getenv("KIRI_RIVW")) { static Vector3 rv[MAX_PATH]; int nr = loadPath(dRiverLine, DRIVERLINE_N, rv); for (int i = 0; i < nr; i += 3) { Vector2 nn = pnorm(rv, nr, i); float w[2]; for (int sg = 0; sg < 2; sg++) { float o = 0; while (o < 20 && inPoly(dRiver, DRIVER_N, rv[i].x + nn.x * o * (sg ? 1 : -1), rv[i].z + nn.y * o * (sg ? 1 : -1))) o += 0.1f; w[sg] = o; }
                     TraceLog(LOG_INFO, "RIVW %d %.1f %.1f  -:%.1f +:%.1f raw-:%d raw+:%d st-:%d st+:%d", i, rv[i].x, rv[i].z, w[0], w[1], inRiverRaw(rv[i].x - nn.x * 3.5f, rv[i].z - nn.y * 3.5f), inRiverRaw(rv[i].x + nn.x * 3.5f, rv[i].z + nn.y * 3.5f), mainRoadAt(rv[i].x - nn.x * 5.5f, rv[i].z - nn.y * 5.5f, 0), mainRoadAt(rv[i].x + nn.x * 5.5f, rv[i].z + nn.y * 5.5f, 0)); } }
+                if (getenv("KIRI_SOLNEAR")) { float kx, ky, kz, kr; if (sscanf(getenv("KIRI_SOLNEAR"), "%f %f %f %f", &kx, &ky, &kz, &kr) == 4) { query(kx - kr, kz - kr, kx + kr, kz + kr); for (int k = 0; k < qn; k++) { Solid *s2 = &sol[qb[k]]; if (s2->mx.y <= ky + 0.42f || s2->mn.y >= ky + 1.7f) continue; { Vector3 L = solL(s2, V3(kx, 0, kz)); if (L.x < s2->mn.x - kr || L.x > s2->mx.x + kr || L.z < s2->mn.z - kr || L.z > s2->mx.z + kr) continue; TraceLog(LOG_INFO, "SOLNEAR local pt %.2f,%.2f box %.2f..%.2f x %.2f..%.2f z %.2f..%.2f", L.x, L.z, s2->mn.y, s2->mx.y, s2->mn.x, s2->mx.x, s2->mn.z, s2->mx.z); }
+                    Vector3 c0 = xfP(s2->f, s2->mn), c1 = xfP(s2->f, s2->mx); TraceLog(LOG_INFO, "SOLNEAR f%d y %.2f..%.2f world %.2f,%.2f .. %.2f,%.2f  size %.2f x %.2f", s2->f, s2->mn.y, s2->mx.y, c0.x, c0.z, c1.x, c1.z, s2->mx.x - s2->mn.x, s2->mx.z - s2->mn.z); } } }
+                if (getenv("KIRI_STANDAT")) { float kx, kz, ky; if (sscanf(getenv("KIRI_STANDAT"), "%f %f %f", &kx, &kz, &ky) == 3) { int kf = curXf; curXf = 0; for (int j = -10; j <= 10; j++) { char row[64]; int n = 0; for (int i = -15; i <= 15; i++) row[n++] = (i == 0 && j == 0) ? '@' : standFree(kx + i * 0.1f, kz + j * 0.1f, ky) ? '.' : '#'; row[n] = 0; TraceLog(LOG_INFO, "STANDAT %s", row); } curXf = kf; } }
                 if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
                     TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d terrain %.2f", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z), terrainH(x, z)); } }
                 if (getenv("KIRI_MANGATEST")) { pl.watchKind = 2; pl.watchT = MANGA_T; mangaStep = 0; }
@@ -3181,7 +3186,16 @@ int main(int argc, char **argv) {
                                 float g = groundAt(V3(q.x, from, q.z), 0.05f, stp); pts++;
                                 if (prev > -1e8f && fabsf(g - prev) > 0.2f) { steps++; if (steps <= 14) { char t2[64]; snprintf(t2, 64, " (r%d %.0f,%.0f %+.2f)", r, q.x, q.z, g - prev); strcat(sb2, t2); } }
                                 prev = g; } } }
-                    TraceLog(LOG_INFO, "STEPAUDIT %d paces along every road: %d steps over 0.2 m%s", pts, steps, sb2); } }
+                    TraceLog(LOG_INFO, "STEPAUDIT %d paces along every road: %d steps over 0.2 m%s", pts, steps, sb2); }
+                {   // the top of every flight: room to stand there and to walk on off it (a person 0.6 m wide)
+                    int keepF = curXf; curXf = 0; int tops = 0, tight = 0; char tb[500] = "";
+                    for (int k = 0; k < nStair; k++) { Vector3 b = stairs[k].bot, t = stairs[k].top; if (t.y < b.y + 1.0f) continue; tops++;
+                        Vector2 dv = Vector2Normalize((Vector2){t.x - b.x, t.z - b.z}); int okN = 0;
+                        for (int e = 0; e < 3; e++) { float o = e * 0.4f; if (standFree(t.x + dv.x * o, t.z + dv.y * o, t.y)) okN++; }
+                        bool side = false; for (int sg = -1; sg <= 1 && !side; sg += 2) for (float o = 0.6f; o <= 1.6f && !side; o += 0.2f) if (standFree(t.x - dv.y * sg * o, t.z + dv.x * sg * o, t.y) && standFree(t.x - dv.y * sg * (o - 0.3f), t.z + dv.x * sg * (o - 0.3f), t.y)) side = true;   // or off to one side of the landing
+                        if (!standFree(t.x, t.z, t.y) || (okN < 3 && !side)) { tight++; if (strlen(tb) < 440) { char q[96]; snprintf(q, 96, " (%.1f,%.1f y%.1f from %.1f,%.1f ok%d)", t.x, t.z, t.y, b.x, b.z, okN); strcat(tb, q); } } }
+                    curXf = keepF; TraceLog(LOG_INFO, "STAIRTOP %d flight tops: %d without room to step off%s", tops, tight, tb); }
+                TraceLog(LOG_INFO, "ROOMAUDIT %d rooms on planned floors: %d cannot be walked into%s", raRooms, raBad, raList); TraceLog(LOG_INFO, "ROOMAUDIT doorways added %d, rooms with no wall to put one in %d", jpDoorsAdded, jpRoomsShut); for (int u = 0; u < 2; u++) { char hb[400] = ""; for (int p = 0; p < 20; p++) if (raHist[u][0][p] + raHist[u][1][p]) { char t[40]; snprintf(t, 40, " p%d:%d/%d", p, raHist[u][1][p], raHist[u][0][p] + raHist[u][1][p]); strcat(hb, t); } TraceLog(LOG_INFO, "ROOMAUDIT %s (plan: bad/all)%s", u ? "upstairs" : "ground", hb); } }
             if (frame == 1149) TraceLog(LOG_INFO, "FEAT parks %d at %.1f %.1f mirror %.1f %.1f", nFeatPark, featPark.x, featPark.z, featMirror.x, featMirror.z);
             if (frame == 1191 || frame == 1197) { state = ST_PLAY; pl.hp = 100; cht.menu = false; pl.invOpen = pl.mapOpen = false; gameActive = true; }
             if (frame == 1191) { Vector3 c = Vector3Add(featPark, Vector3Scale(featParkFace, 13)); pl.pos = V3(c.x, SIDEH + 0.1f, c.z); pl.vy = 0; Vector3 d = Vector3Subtract(featPark, c); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.18f; pl.tod = 13; pl.flash = false; for (int i = 0; i < nCr; i++) crs[i].on = false; }

@@ -128,7 +128,10 @@ static void slotTooltip(Rectangle panel) {
     Slot *sl = slotRef(uiHot); if (!sl || sl->t < 0) return;
     float s = aU; const ItemDef *d = &idef[sl->t];
     Vector2 m = aMousePos(); Rectangle tp = {m.x + 18 * s, m.y + 10 * s, 290 * s, 92 * s};
-    if (tp.x + tp.width > panel.width) tp.x = m.x - tp.width - 10 * s; if (tp.y + tp.height > panel.height) tp.y = panel.height - tp.height - 4 * s;
+    if (tp.width > panel.width - 8 * s) tp.width = panel.width - 8 * s;
+    if (tp.x + tp.width > panel.x + panel.width - 4 * s) { tp.x = panel.x + panel.width - tp.width - 4 * s; tp.y = m.y + 26 * s; }   // no room to the right of the cursor: the card slides back into the panel, below the cursor (it used to jump left, out of a narrow panel, leaving a dark stub)
+    if (tp.x < panel.x + 4 * s) tp.x = panel.x + 4 * s;
+    if (tp.y + tp.height > panel.y + panel.height - 4 * s) tp.y = (tp.x < m.x && tp.x + tp.width > m.x) ? m.y - tp.height - 12 * s : panel.y + panel.height - tp.height - 4 * s;
     aGadget(tp);
     aText(d->name, tp.x + 12 * s, tp.y + 10 * s, 15, (Color){236, 230, 216, 255}, true);
     aText(TextFormat("%.2f kg each", d->weight), tp.x + 12 * s, tp.y + 30 * s, 11, C_BONE2, false);
