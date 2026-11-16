@@ -96,6 +96,28 @@ static void impactFX(Cr *c, float heavy, bool kill, Vector3 dir) {
     }
     for (int s = 0; s < 2 + (int)(heavy * 2); s++) addSplat(V3(c->pos.x + dir.x * fr(0.3f, 1.8f) + fr(-0.3f, 0.3f), c->pos.y + 0.02f, c->pos.z + dir.z * fr(0.3f, 1.8f) + fr(-0.3f, 0.3f)), fr(0.25f, 0.6f) + heavy * 0.25f);
     if (kill) addSplat(V3(c->pos.x, c->pos.y + 0.021f, c->pos.z), 1.0f + heavy * 0.5f);
+    {   // gore: a wound where it struck; a blade can take an arm, a leg or the head; a heavy blow or a shot to the head bursts it
+        int ci = (int)(c - crs); if (ci < 0 || ci >= MAX_CR) ci = 0; Gore *g = &gore[ci]; int wt = goreCtx.weapon;
+        float la = wrapA(atan2f(-dir.x, -dir.z) - c->yaw);   // the side facing the blow, in the body's frame
+        if (g->nw < 8) g->w[g->nw++] = (Wound){la + fr(-0.4f, 0.4f), crHeight(c->type) * fr(0.45f, 1.05f), fr(0.07f, 0.13f) + heavy * 0.05f}; else g->w[ri(8)] = (Wound){la, crHeight(c->type) * fr(0.45f, 1.05f), 0.12f};
+        bool blade = wt == IT_KATANA || wt == IT_WAKIZASHI || wt == IT_NAGINATA || wt == IT_MACHETE || wt == IT_CLEAVER || wt == IT_SICKLE || wt == IT_AXE || wt == IT_KNIFE || wt == IT_SCALPEL;
+        bool blunt = !goreCtx.gun && !blade && heavy > 0.55f;
+        int sev = 0; float rr = fr(0, 1);
+        if (!goreCtx.gun && blade) { if (kill && rr < 0.75f) { float q = fr(0, 1); sev = q < 0.4f ? GB_HEAD : q < 0.85f ? (ri(2) ? GB_ARM0 : GB_ARM1) : (ri(2) ? GB_LEG0 : GB_LEG1); }
+            else if (!kill && heavy > 0.45f && rr < 0.12f) sev = ri(2) ? GB_ARM0 : GB_ARM1; }
+        else if (blunt && kill && rr < 0.35f) sev = -GB_HEAD;   // crushed
+        else if (goreCtx.gun) { if (kill && goreCtx.head && rr < 0.6f) sev = -GB_HEAD; else if (kill && rr < 0.15f) sev = ri(2) ? GB_ARM0 : GB_ARM1; }
+        if (c->type == 4 || c->phantom) sev = 0;   // (spirits do not come apart)
+        if (sev > 0) { goreSever(ci, sev); spawnParts(Vector3Add(c->pos, V3(0, sev == GB_HEAD ? crHeight(c->type) * 1.15f : crHeight(c->type) * 0.8f, 0)), 26, T_FLESH, rgb(130, 8, 8), 3.0f, 0.06f); }
+        if (sev < 0) { int b = -sev; if (!(g->lost & b)) { g->lost |= b; g->severT[goreBitIdx(b)] = 0.0001f; }   // burst: no part flies off whole, only pieces
+            Vector3 hp = Vector3Add(c->pos, V3(0, crHeight(c->type) * 1.2f, 0));
+            for (int k = 0; k < 60; k++) for (int i = 0; i < MAX_PART; i++) if (parts[i].life <= 0) {
+                parts[i] = (Part){hp, Vector3Add(Vector3Scale(dir, fr(1.0f, 5.0f)), V3(fr(-2.5f, 2.5f), fr(1.0f, 4.5f), fr(-2.5f, 2.5f))), fr(0.7f, 1.8f), fr(0.03f, k < 10 ? 0.12f : 0.07f), c->pos.y + 0.02f, T_FLESH, k < 8 ? rgb(215, 205, 190) : rgb(fr(80, 160), 6, 6)}; break; }
+            for (int s2 = 0; s2 < 3; s2++) addSplat(V3(hp.x + dir.x * fr(0.5f, 2.5f) + fr(-0.5f, 0.5f), c->pos.y + 0.02f, hp.z + dir.z * fr(0.5f, 2.5f) + fr(-0.5f, 0.5f)), fr(0.4f, 0.8f)); }
+        gCrVel = Vector3Add(Vector3Scale(dir, fr(2.5f, 4.5f)), V3(0, 0, 0));
+        if (kill) {   // how it falls: away from the blow (back if struck from the front), now and then folding at the knees
+            Vector3 fwd = V3(sinf(c->yaw), 0, cosf(c->yaw)), side = V3(cosf(c->yaw), 0, -sinf(c->yaw)); float df = Vector3DotProduct(dir, fwd), ds = Vector3DotProduct(dir, side);
+            g->dStyle = ri(5) == 0 ? 4 : fabsf(df) > fabsf(ds) ? (df > 0 ? 1 : 0) : 2; g->dSide = ds > 0 ? 1 : -1; g->twK = fr(0.8f, 1.6f); } }
     if (audioOk) { SetSoundPitch(sImpact, 1.1f - heavy * 0.35f + fr(-0.05f, 0.05f)); SetSoundVolume(sImpact, gs.sfx); PlaySound(sImpact);
         SetSoundPitch(sBone, fr(0.85f, 1.05f) - heavy * 0.15f); SetSoundVolume(sBone, (kill ? 1.0f : 0.55f) * gs.sfx); PlaySound(sBone); }
     play(sSplat, 0.75f);
@@ -141,7 +163,7 @@ static void meleeHit(Vector3 eye, Vector3 aim) {
         bool kill = c->hp <= 0;
         if (c->hanging) { c->hanging = false; c->pos.y = groundAt(c->pos, 0.3f, 4.0f); }
         c->state = kill ? CS_DEAD : CS_CHASE; c->lastKnown = pl.pos; c->losT = 0;
-        impactFX(c, heavy * (c->type == 9 ? 1 : w->knock + 0.4f), kill, push);
+        goreCtx.weapon = handsType(); goreCtx.head = false; goreCtx.gun = false; impactFX(c, heavy * (c->type == 9 ? 1 : w->knock + 0.4f), kill, push);
         pl.sanity -= kill ? 2.5f : 1.0f;
         if (kill) { c->deadT = 0; pl.kills++; playAt(sScreech, c->pos, 30, 0.5f); }
         skGain(SK_STR, kill ? 3 : 1);
@@ -227,7 +249,7 @@ static void shootEx(Vector3 eye, Vector3 aim, float dmg, float range, bool fx) {
         Cr *c = &crs[hitC];
         { float gd = cht.on[CH_ONEHIT] ? 9999 : (head ? dmg * 2 : dmg); c->hp -= gd; if (netMode == NM_CLIENT) netCreatureHit(hitC, gd); } c->hurt = 0.2f; c->state = c->hp <= 0 ? CS_DEAD : CS_CHASE; c->wind = 0;
         if (c->hanging) { c->hanging = false; c->pos.y = groundAt(c->pos, 0.3f, 4.0f); }
-        impactFX(c, 0.7f, c->state == CS_DEAD, aim); if (head && hitMarkKind < 2) hitMarkKind = 1;
+        goreCtx.weapon = handsType(); goreCtx.head = head; goreCtx.gun = true; impactFX(c, 0.7f, c->state == CS_DEAD, aim); if (head && hitMarkKind < 2) hitMarkKind = 1;
         if (c->state == CS_DEAD) { c->deadT = 0; pl.kills++; playAt(sScreech, c->pos, 40, 0.6f); }
     } else if (best < range && fx) spawnParts(Vector3Add(eye, Vector3Scale(aim, best - 0.05f)), 4, T_CONCRETE, rgb(150, 150, 150), 1.2f, 0.04f);
 }

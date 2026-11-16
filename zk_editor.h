@@ -59,6 +59,7 @@ static void edInsert(int L, int j) {   // a new point after j, halfway to the ne
     bool hasNext = j + 1 < n && edSameGroup(L, j, j + 2) ; if (e->kind == 2) { int s2 = edStreetOf(j); hasNext = j + 1 < dStreets[s2][0] + dStreets[s2][1]; }
     if (e->kind == 3) q = (Vector2){p.x + 4, p.y + 4}; else if (hasNext) { Vector2 nx = edGet(L, j + 2); q = Vector2Lerp(p, nx, 0.5f); } else q = (Vector2){p.x + 3, p.y};
     *a->n = n + 1; edSetP(L, j + 1, q);
+    if (e->kind == 2 && hasNext) { float w0 = mapGet(a, j, 2), w1 = mapGet(a, j + 2, 2); mapSet(a, j + 1, 2, (w0 > 0 && w1 > 0) ? (w0 + w1) / 2 : w0); }
     if (e->kind == 2) { int s2 = edStreetOf(j); dStreets[s2][1]++; for (int t = 0; t < DSTREETS_N; t++) if (t != s2 && dStreets[t][0] > j) dStreets[t][0]++; }
     edSel = j + 1; edDirty = true;
 }
@@ -77,7 +78,7 @@ static void edDeleteStreet(int j) {
     if (!edNoPush) edPush();
     int s2 = edStreetOf(j); if (s2 < 0) return; int st = dStreets[s2][0], cnt = dStreets[s2][1];
     MapArr *a = mapArr("dStreetPts"); int n = mapRows(a);
-    for (int r = st; r + cnt < n; r++) for (int c = 0; c < 2; c++) mapSet(a, r, c, mapGet(a, r + cnt, c));
+    for (int r = st; r + cnt < n; r++) for (int c = 0; c < a->cols; c++) mapSet(a, r, c, mapGet(a, r + cnt, c));
     *a->n = n - cnt;
     for (int t = s2; t + 1 < DSTREETS_N; t++) for (int c = 0; c < 4; c++) dStreets[t][c] = dStreets[t + 1][c];
     DSTREETS_N_v--; for (int t = 0; t < DSTREETS_N; t++) if (dStreets[t][0] > st) dStreets[t][0] -= cnt;
@@ -86,11 +87,12 @@ static void edDeleteStreet(int j) {
 static void edNewStreet(Vector2 at) {   // a short new street at the cursor, ready to be dragged out
     if (!edNoPush) edPush();
     MapArr *a = mapArr("dStreetPts"); int n = mapRows(a); if (n + 2 >= a->cap || DSTREETS_N + 1 >= 676) { edSay("No room for more streets."); return; }
-    mapSet(a, n, 0, at.x); mapSet(a, n, 1, at.y); mapSet(a, n + 1, 0, at.x + 12); mapSet(a, n + 1, 1, at.y); *a->n = n + 2;
+    mapSet(a, n, 0, at.x); mapSet(a, n, 1, at.y); mapSet(a, n + 1, 0, at.x + 12); mapSet(a, n + 1, 1, at.y); mapSet(a, n, 2, 0); mapSet(a, n + 1, 2, 0); *a->n = n + 2;
     dStreets[DSTREETS_N][0] = n; dStreets[DSTREETS_N][1] = 2; dStreets[DSTREETS_N][2] = 80; dStreets[DSTREETS_N][3] = 0; DSTREETS_N_v++;
     edSel = n + 1; edDirty = true; edSay("New street: drag its end, Insert adds points.");
 }
 // ---- snapping and joining roads
+static float edWheelT = 0; static bool edWheelOn = false;   // (a width being set with the wheel: rebuilt once it stops)
 static bool edSnapOn = true; static bool edSnapHit = false; static Vector2 edSnapAt; static int edSnapStreet = -1, edSnapEnd = -1;   // what the dragged end has caught
 static bool edIsEnd(int L, int j) {
     if (edLayers[L].kind == 2) { int s2 = edStreetOf(j); return s2 >= 0 && (j == dStreets[s2][0] || j == dStreets[s2][0] + dStreets[s2][1] - 1); }
@@ -112,16 +114,18 @@ static bool edRoadNearest(int L, int j, Vector2 p, Vector2 *out, int *tStreet, i
             if (dist < best) { best = dist; if (!gotEnd) { *out = q; got = true; } } } }
     return got || gotEnd;
 }
+static float edWBuf[8192], *edAddW = NULL;   // per-point widths carried through joins and splits
 static void edStreetPts(int s2, Vector2 *buf, int *n) { *n = dStreets[s2][1]; for (int k = 0; k < *n; k++) buf[k] = edGet(1, dStreets[s2][0] + k); }
+static void edStreetW(int s2, float *w) { for (int k = 0; k < dStreets[s2][1]; k++) w[k] = dStreetPts[dStreets[s2][0] + k][2]; }
 static void edRemoveStreetRaw(int s2) {   // the points and the record, no undo step
     int st = dStreets[s2][0], cnt = dStreets[s2][1]; MapArr *a = mapArr("dStreetPts"); int n = mapRows(a);
-    for (int r = st; r + cnt < n; r++) for (int c = 0; c < 2; c++) mapSet(a, r, c, mapGet(a, r + cnt, c));
+    for (int r = st; r + cnt < n; r++) for (int c = 0; c < a->cols; c++) mapSet(a, r, c, mapGet(a, r + cnt, c));
     *a->n = n - cnt; for (int t = s2; t + 1 < DSTREETS_N; t++) for (int c = 0; c < 4; c++) dStreets[t][c] = dStreets[t + 1][c];
     DSTREETS_N_v--; for (int t = 0; t < DSTREETS_N; t++) if (dStreets[t][0] > st) dStreets[t][0] -= cnt;
 }
 static int edAddStreetRaw(const Vector2 *pts, int n, int w, int kind) {
     MapArr *a = mapArr("dStreetPts"); int base = mapRows(a); if (base + n >= a->cap || DSTREETS_N + 1 >= 676) return -1;
-    for (int k = 0; k < n; k++) { mapSet(a, base + k, 0, pts[k].x); mapSet(a, base + k, 1, pts[k].y); } *a->n = base + n;
+    for (int k = 0; k < n; k++) { mapSet(a, base + k, 0, pts[k].x); mapSet(a, base + k, 1, pts[k].y); mapSet(a, base + k, 2, edAddW ? edAddW[k] : 0); } *a->n = base + n;
     dStreets[DSTREETS_N][0] = base; dStreets[DSTREETS_N][1] = n; dStreets[DSTREETS_N][2] = w; dStreets[DSTREETS_N][3] = kind; DSTREETS_N_v++; return base;
 }
 static void edJoinStreets(int j, int other, int otherEnd) {   // street with end j and street "other" (end otherEnd) become one street
@@ -129,17 +133,18 @@ static void edJoinStreets(int j, int other, int otherEnd) {   // street with end
     static Vector2 A[4096], B[4096], C[8192]; int na, nb; edStreetPts(sa, A, &na); edStreetPts(other, B, &nb);
     if (na + nb > 4000) { edSay("Too long to join."); return; }
     bool aEndsHere = (j == dStreets[sa][0] + na - 1), bStartsHere = (otherEnd == dStreets[other][0]);
-    int n = 0; for (int k = 0; k < na; k++) C[n++] = aEndsHere ? A[k] : A[na - 1 - k];
-    for (int k = 1; k < nb; k++) C[n++] = bStartsHere ? B[k] : B[nb - 1 - k];
+    static float WA[4096], WB[4096]; edStreetW(sa, WA); edStreetW(other, WB);
+    int n = 0; for (int k = 0; k < na; k++) { edWBuf[n] = aEndsHere ? WA[k] : WA[na - 1 - k]; C[n++] = aEndsHere ? A[k] : A[na - 1 - k]; }
+    for (int k = 1; k < nb; k++) { edWBuf[n] = bStartsHere ? WB[k] : WB[nb - 1 - k]; C[n++] = bStartsHere ? B[k] : B[nb - 1 - k]; }
     int w = dStreets[sa][2], kind = dStreets[sa][3];
     if (sa > other) { edRemoveStreetRaw(sa); edRemoveStreetRaw(other); } else { edRemoveStreetRaw(other); edRemoveStreetRaw(sa); }
-    int base = edAddStreetRaw(C, n, w, kind); edSel = base >= 0 ? base + (aEndsHere ? na - 1 : na - 1) : -1; edDirty = true;
+    edAddW = edWBuf; int base = edAddStreetRaw(C, n, w, kind); edAddW = NULL; edSel = base >= 0 ? base + (aEndsHere ? na - 1 : na - 1) : -1; edDirty = true;
     edSay("Streets joined into one.");
 }
 static void edSplitStreet(int j) {   // one street becomes two at point j
     int s2 = edStreetOf(j); if (s2 < 0 || edIsEnd(1, j)) { edSay("Pick a point in the middle of a street."); return; } edPush();
     static Vector2 P[4096]; int n; edStreetPts(s2, P, &n); int at = j - dStreets[s2][0], w = dStreets[s2][2], kind = dStreets[s2][3];
-    edRemoveStreetRaw(s2); edAddStreetRaw(P, at + 1, w, kind); int b = edAddStreetRaw(P + at, n - at, w, kind); edSel = b; edDirty = true; edSay("Street split in two.");
+    edStreetW(s2, edWBuf); edRemoveStreetRaw(s2); edAddW = edWBuf; edAddStreetRaw(P, at + 1, w, kind); edAddW = edWBuf + at; int b = edAddStreetRaw(P + at, n - at, w, kind); edAddW = NULL; edSel = b; edDirty = true; edSay("Street split in two.");
 }
 // ---- files
 static void edPath(char *out, int n, const char *rel) { snprintf(out, n, "%s/%s", edDir, rel); }
@@ -227,7 +232,7 @@ static void boDraw(void) {   // the parts, drawn live while they are edited
     for (int i = 0; i < nMobj; i++) { MObj *o = &mobj[i];
         if (o->type == MO_BUILDING) continue;
         if (o->type == MO_BLOCK) drawM(&cube[o->tex], boM(o), o->col);
-        else { Color pc = o->type == MO_VENDING ? (Color){90, 140, 200, 255} : o->type == MO_CAR ? (Color){170, 60, 50, 255} : o->type == MO_LAMP ? (Color){160, 160, 150, 255} : (Color){70, 130, 70, 255}; drawM(&cube[T_PLAIN], boM(o), pc); } }
+        else { Color pc = o->type == MO_DOORWAY ? (Color){240, 150, 40, 255} : o->type == MO_VENDING ? (Color){90, 140, 200, 255} : o->type == MO_CAR ? (Color){170, 60, 50, 255} : o->type == MO_LAMP ? (Color){160, 160, 150, 255} : (Color){70, 130, 70, 255}; drawM(&cube[T_PLAIN], boM(o), pc); } }
 }
 static void boHandles(MObj *o, Vector3 *O, Vector3 *E, float *len) {
     Vector3 z = boShowSize(o); *O = V3(o->p.x, o->p.y + z.y / 2, o->p.z);
@@ -436,7 +441,15 @@ static int editorMain(void) {
         // camera: hold the right mouse button to look, WASD to fly, Q/E down/up, Shift faster, wheel sets the speed
         if (edTab == 0 || edTab == 4 || edTab == 6 || edTab == 7) {
             if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && inView) { Vector2 d = GetMouseDelta(); edYaw -= d.x * 0.004f; edPitch = clampf(edPitch - d.y * 0.004f, -1.5f, 1.5f); }
-            if (inView) edSpeed = clampf(edSpeed * (1 + GetMouseWheelMove() * 0.15f), 4, 300);
+            int wNode = -1; if (edTab == 0 && edLayers[edLayer].kind == 2 && inView && !IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) { int nn = edCount(edLayer); float bd = 14; Vector2 mm = GetMousePosition();
+                for (int j = 0; j < nn; j++) { Vector2 p = edGet(edLayer, j); Vector3 w = V3(p.x, edGroundY(p.x, p.y) + 0.4f, p.y); if (Vector3DotProduct(Vector3Subtract(w, edPos), Vector3Subtract(cam.target, edPos)) <= 0) continue;
+                    float d = Vector2Distance(GetWorldToScreen(w, cam), mm); if (d < bd) { bd = d; wNode = j; } } }
+            if (wNode >= 0 && GetMouseWheelMove() != 0) {   // the wheel over a street point: the road's width there (Shift: finer)
+                int s2 = edStreetOf(wNode); if (s2 >= 0) { if (!edWheelOn) edPush(); edWheelOn = true; float cur = dStreetPts[wNode][2] > 0.05f ? dStreetPts[wNode][2] : dStreets[s2][2] / 10.0f;
+                    cur = clampf(cur + GetMouseWheelMove() * (IsKeyDown(KEY_LEFT_SHIFT) ? 0.1f : 0.5f), 2.0f, 40.0f); dStreetPts[wNode][2] = cur; edWheelT = 0.7f; edDirty = true;
+                    char b[96]; snprintf(b, sizeof b, "Road width at this point: %.1f m", cur); edSay(b); } }
+            else if (inView) edSpeed = clampf(edSpeed * (1 + GetMouseWheelMove() * 0.15f), 4, 300);
+            if (edWheelT > 0) { edWheelT -= dt; if (edWheelT <= 0) { edWheelOn = false; if (boAuto) edRebuild(); } }
             if (!typing) { Vector3 f = {sinf(edYaw) * cosf(edPitch), sinf(edPitch), cosf(edYaw) * cosf(edPitch)}, r = {-cosf(edYaw), 0, sinf(edYaw)};
                 float sp = edSpeed * dt * (IsKeyDown(KEY_LEFT_SHIFT) ? 4 : 1); Vector3 v = {0};
                 if (IsKeyDown(KEY_W)) v = Vector3Add(v, f); if (IsKeyDown(KEY_S)) v = Vector3Subtract(v, f); if (IsKeyDown(KEY_D)) v = Vector3Add(v, r); if (IsKeyDown(KEY_A)) v = Vector3Subtract(v, r);
@@ -551,6 +564,10 @@ static int editorMain(void) {
                 for (int j = 0; j < c; j++) { Vector2 p = edGet(L, j); Vector3 a = V3(p.x, edGroundY(p.x, p.y) + 0.4f, p.y);
                     bool link = (e->kind <= 2 && j + 1 < c && edSameGroup(L, j, j + 1)) || (e->kind == 4 && j % 2 == 0);
                     if (link) { Vector2 q = edGet(L, j + 1); DrawLine3D(a, V3(q.x, edGroundY(q.x, q.y) + 0.4f, q.y), lc); }
+                    if (link && e->kind == 2 && act) { Vector2 q = edGet(L, j + 1); int s2 = edStreetOf(j); float w0 = s2 >= 0 ? dStreets[s2][2] / 10.0f : 7, wa = dStreetPts[j][2] > 0.05f ? dStreetPts[j][2] : w0, wb = dStreetPts[j + 1][2] > 0.05f ? dStreetPts[j + 1][2] : w0;   // the road's edges at their widths
+                        Vector2 d = Vector2Normalize(Vector2Subtract(q, p)), nrm = {-d.y, d.x}; float ya = a.y - 0.2f, yb = edGroundY(q.x, q.y) + 0.2f;
+                        for (int sd = -1; sd <= 1; sd += 2) { Vector3 e0 = {0}, e1 = {0}; for (int k = 0; k <= 10; k++) { float u = k / 10.0f, sm = clampf((u - 0.3f) / 0.4f, 0, 1), hw = Lerp(wa, wb, sm) / 2; Vector2 c2 = Vector2Lerp(p, q, u);
+                                e1 = V3(c2.x + nrm.x * hw * sd, Lerp(ya, yb, u), c2.y + nrm.y * hw * sd); if (k) DrawLine3D(e0, e1, aA(lc, 200)); e0 = e1; } } }
                     if (e->kind == 1 && j == c - 1 && c > 2) { Vector2 q = edGet(L, 0); DrawLine3D(a, V3(q.x, edGroundY(q.x, q.y) + 0.4f, q.y), lc); }
                     if (act && Vector3DistanceSqr(a, edPos) < 260 * 260) { float r = j == edSel ? 0.9f : j == hover ? 0.7f : 0.35f; DrawCube(a, r, r, r, j == edSel ? WHITE : lc); } } }
             if (edSnapHit && edDragging) { float gy = edGroundY(edSnapAt.x, edSnapAt.y) + 0.6f; Color sc = edSnapEnd >= 0 ? (Color){120, 255, 140, 255} : (Color){111, 214, 208, 255}; for (int k = 0; k < 3; k++) DrawCircle3D(V3(edSnapAt.x, gy, edSnapAt.y), 1.2f + k * 0.5f, V3(1, 0, 0), 90, sc); }
@@ -597,6 +614,7 @@ static int editorMain(void) {
             boSnap = aToggle(18 * s, y, "Snap to the steps (right panel)", boSnap); y += 32 * s;
             aText("Insert", 18 * s, y, 15, C_BONE2, true); y += 22 * s;
             for (int t = 0; t < MO_BUILDING; t++) { if (aButton((Rectangle){(14 + (t % 2) * 152) * s, y, 148 * s, 25 * s}, moNames[t], true)) boInsert(t); if (t % 2) y += 28 * s; }   // buildings come from the Buildings tab
+            if (aButton((Rectangle){14 * s, y, 300 * s, 25 * s}, "Doorway (within 1 m of a room wall)", true)) boInsert(MO_DOORWAY); y += 28 * s;
             y += 10 * s;
             if (boSel >= 0 && boSel < nMobj) { MObj *o = &mobj[boSel]; char b[128];
                 snprintf(b, sizeof b, "%s  %.2f x %.2f x %.2f m, %.0f deg", moNames[o->type], o->s.x, o->s.y, o->s.z, o->yaw); aText(b, 18 * s, y, 13, C_BONE, true); y += 24 * s;

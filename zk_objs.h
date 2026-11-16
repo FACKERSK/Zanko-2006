@@ -1,8 +1,8 @@
 // zk_objs.h — placed objects (the Mod Maker's Build tab): blocks with any texture and colour, turned and sized freely,
 // and ready-made props. Stored in Data/objects.zobj (a mod's wins), one object per line:
 //   type x y z sizeX sizeY sizeZ yawDegrees texture r g b solid      (x, z: centre; y: bottom)
-enum { MO_BLOCK, MO_TREE, MO_CHERRY, MO_PINE, MO_CEDAR, MO_VENDING, MO_CAR, MO_LAMP, MO_BUILDING, MO_N };   // a building: tex = preset, solid = storeys (0: the preset's), col = wall colour (black: the preset's)
-static const char *moNames[MO_N] = {"Block", "Tree", "Cherry tree", "Garden pine", "Cedar", "Vending machine", "Car", "Lamp post", "Building"};
+enum { MO_BLOCK, MO_TREE, MO_CHERRY, MO_PINE, MO_CEDAR, MO_VENDING, MO_CAR, MO_LAMP, MO_BUILDING, MO_DOORWAY, MO_N };   // a doorway: a marker; the room wall nearest it (within 1 m, on its storey) gets a doorway there   // a building: tex = preset, solid = storeys (0: the preset's), col = wall colour (black: the preset's)
+static const char *moNames[MO_N] = {"Block", "Tree", "Cherry tree", "Garden pine", "Cedar", "Vending machine", "Car", "Lamp post", "Building", "Doorway"};
 typedef struct { int type; Vector3 p, s; float yaw; int tex; Color col; int solid; float pitch, roll; } MObj;   // angles in degrees; pitch and roll tilt blocks
 #define MAX_MOBJ 4096
 static MObj mobj[MAX_MOBJ]; static int nMobj = 0;
@@ -10,7 +10,7 @@ static bool mobjLive = false;
 static void mobjClear(void) { nMobj = 0; }   // the Mod Maker draws objects itself while they are being edited
 static Vector3 moDefaultSize(int type) {
     switch (type) { case MO_BLOCK: return V3(4, 1, 2); case MO_VENDING: return V3(1.1f, 1.9f, 0.8f); case MO_CAR: return V3(1.8f, 1.4f, 4.2f);
-    case MO_LAMP: return V3(0.3f, 6, 0.3f); case MO_CEDAR: return V3(3, 10, 3); case MO_BUILDING: return V3(8, 7, 7); default: return V3(3, 5, 3); }
+    case MO_LAMP: return V3(0.3f, 6, 0.3f); case MO_DOORWAY: return V3(0.8f, 2.0f, 0.2f); case MO_CEDAR: return V3(3, 10, 3); case MO_BUILDING: return V3(8, 7, 7); default: return V3(3, 5, 3); }
 }
 static bool mobjLoadFile(const char *path) {
     FILE *f = fopen(path, "r"); if (!f) return false; nMobj = 0; char line[256];
@@ -44,6 +44,7 @@ static void tiltedBlock(const MObj *o) {   // a block with pitch or roll: six tu
             Vector3 w = Vector3Add(V3(o->p.x, c.y, o->p.z), Vector3Transform(lp, T)); mn = Vector3Min(mn, w); mx = Vector3Max(mx, w); }
         addSolidF(mn, mx, f); }
 }
+static void handDoorsCollect(void) { nHandDoor = 0; for (int i = 0; i < nMobj && nHandDoor < 512; i++) if (mobj[i].type == MO_DOORWAY) handDoor[nHandDoor++] = mobj[i].p; }
 static void genObjs(void) {   // into the world, at the end of the town
     for (int i = 0; i < nMobj; i++) { MObj *o = &mobj[i]; float y = o->p.y; if (mobjLive && o->type != MO_BUILDING) continue;   // buildings are always built for real (the Mod Maker shows them as they are)
         switch (o->type) {

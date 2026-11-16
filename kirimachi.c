@@ -16,7 +16,8 @@
 #define ROADW 10.0f
 #define PITCH (BLOCK + ROADW)
 #define CITY (NB * PITCH + ROADW)
-#define SIDEH 0.22f   // sidewalk and kerb height above the road
+#define SIDEH 0.22f   // the town ground: pavements, building floors
+#define ROADY (SIDEH - 0.15f)   // the streets and roads: a kerb below the town (0.9.7)
 #define GH 3.35f
 #define MAX_SOLID 240000
 #define MAX_OPEN 20000
@@ -26,7 +27,7 @@
 #define MAX_LAMP 900
 #define MAX_ITEM 2600
 #define MAX_CR 160
-#define MAX_PART 420
+#define MAX_PART 1100
 #define MAX_BUILD 220
 #define MAX_CRATE 140
 #define MAX_ASH 220
@@ -430,6 +431,8 @@ static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, C
         if (y1 - y0 > 0.35f && y0 < SIDEH + 0.6f && y1 > SIDEH + 0.3f) { Vector3 m = xfP(curXf, Vector3Scale(Vector3Add(Vector3Add(a, b), Vector3Add(c, d)), 0.25f));
             if (roadCentreAt(m.x, m.z)) { if (wallAuditN < 24) { wallAuditP[wallAuditN] = m; wallAuditT[wallAuditN] = t; wallAuditW[wallAuditN] = sqrtf((a.x - c.x) * (a.x - c.x) + (a.z - c.z) * (a.z - c.z)); wallAuditH[wallAuditN] = y1 - y0; } wallAuditN++; } } }
     Vector3 w[6]; for (int i = 0; i < 6; i++) w[i] = curXf ? xfP(curXf, q[i]) : q[i];
+    { static float qx = 1e9f, qz, qr; static int qi = 0; if (!qi) { qi = 1; if (getenv("KIRI_QUADAT")) sscanf(getenv("KIRI_QUADAT"), "%f %f %f", &qx, &qz, &qr); }
+      if (qx < 1e8f) { Vector3 m = Vector3Scale(Vector3Add(w[0], w[2]), 0.5f); if (fabsf(m.x - qx) < qr && fabsf(m.z - qz) < qr && m.y > ROADY + 0.035f && m.y < SIDEH + 0.4f && Vector3Distance(w[0], w[2]) > 0.8f) TraceLog(LOG_INFO, "QUADAT t %d at %.1f %.1f y %.2f..%.2f n %.1f %.1f %.1f len %.2f", t, m.x, m.z, fminf(w[0].y, w[2].y), fmaxf(w[0].y, w[2].y), n.x, n.y, n.z, Vector3Distance(w[0], w[2])); } }
     if (cover && n.y > 0.7f) { coverTri(w[0], w[1], w[2]); coverTri(w[3], w[4], w[5]); }
     int ch = chunkOf((w[0].x + w[2].x) * 0.5f, (w[0].z + w[2].z) * 0.5f);
     if (!chAny[ch]) { chAny[ch] = true; chMn[ch] = w[0]; chMx[ch] = w[0]; }
@@ -493,6 +496,8 @@ static FILE *furnDump;   // (KIRI_PLANDUMP: every piece set down while a room is
 static void furnDumpBox(const char *tag, int k, Vector3 mn, Vector3 mx, float yaw);
 static int box(int t, Vector3 mn, Vector3 mx, Color c, bool solid, int mask) {
     if (furnDump && mx.y - mn.y > 0.05f) furnDumpBox("F", t, mn, mx, 0);
+    { static float bx = 1e9f, bz, br; static int bi = 0; if (!bi) { bi = 1; if (getenv("KIRI_BOXAT")) sscanf(getenv("KIRI_BOXAT"), "%f %f %f", &bx, &bz, &br); }
+      if (bx < 1e8f) { Vector3 w = xfP(curXf, Vector3Scale(Vector3Add(mn, mx), 0.5f)); if (fabsf(w.x - bx) < br && fabsf(w.z - bz) < br && mn.y < SIDEH + 0.4f && mx.y > ROADY) TraceLog(LOG_INFO, "BOXAT t %d at %.1f %.1f y %.2f..%.2f size %.2f x %.2f solid %d mask %d", t, w.x, w.z, mn.y, mx.y, mx.x - mn.x, mx.z - mn.z, solid, mask); } }
     meshBox(t, mn, mx, c, mask);
     return solid ? addSolid(mn, mx) : -1;
 }
@@ -529,6 +534,18 @@ typedef struct { Vector3 pos; float yaw, hp, maxhp, spd, t, atkCd, wind, hurt, d
     Vector3 kb, lastKnown; float stun, losT, seeT, scream, losCheck, lunge, flinch; int var; bool hanging, seen; float calm, chaseT, dashT; } Cr;
 enum { CS_WANDER, CS_CHASE, CS_DEAD };
 static Cr crs[MAX_CR]; static int nCr;
+// ---- gore (0.9.7): severed parts, wounds, death falls. Kept beside crs[] (not in it) so saves stay as they were; all cosmetic.
+enum { GB_HEAD = 1, GB_ARM0 = 2, GB_ARM1 = 4, GB_LEG0 = 8, GB_LEG1 = 16 };
+typedef struct { float a, h, s; } Wound;   // a: angle round the body (local), h: height, s: size
+typedef struct { int lost, pend; float severT[5]; Wound w[8]; int nw; int dStyle; float dSide; float twK; } Gore;
+static Gore gore[MAX_CR], goreNone;
+static Gore *goreOf(const Cr *c) { long i = c - crs; return i >= 0 && i < MAX_CR ? &gore[i] : &goreNone; }
+static struct { int weapon; bool head, gun; } goreCtx = {-1, false, false};   // set by the hit code just before impactFX
+#define MAX_GIB 40
+typedef struct { int a; Matrix R; Vector3 pos, vel, axis; float ang, angV, life; Color tint; bool rest; } Gib;
+static Gib gibs[MAX_GIB]; static int gibI; static Vector3 gCrVel;
+static int goreBitIdx(int b) { return b == GB_HEAD ? 0 : b == GB_ARM0 ? 1 : b == GB_ARM1 ? 2 : b == GB_LEG0 ? 3 : 4; }
+static void goreSever(int ci, int bit) { Gore *g = &gore[ci]; if (g->lost & bit) return; g->lost |= bit; g->pend |= bit; g->severT[goreBitIdx(bit)] = 0.0001f; }
 typedef struct { Vector3 pos, vel; float life, size, floor; int t; Color tint; } Part;
 #define MAX_SPLAT 120
 typedef struct { Vector3 p; float r, life; } Splat;
@@ -1165,7 +1182,8 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
 static void genWorld(unsigned int seed) {
     freeWorld();
     if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
-    raRooms = raBad = 0; raList[0] = 0; jpDoorsAdded = jpRoomsShut = 0; memset(raHist, 0, sizeof raHist);
+    handDoorsCollect(); jpDoorsHand = 0;
+    raRooms = raBad = 0; raList[0] = 0; jpDoorsAdded = jpRoomsShut = jpDoorsPruned = 0; memset(raHist, 0, sizeof raHist);
     free(cover); cover = calloc((size_t)CV_W * CV_H, 1);
     hfReady = false; layoutInit();
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
@@ -1238,16 +1256,20 @@ static void genWorld(unsigned int seed) {
     genWilds();
     genWater();
     worldSolids = nSol; worldLights = nLight;
+    if (nHandDoor) TraceLog(LOG_INFO, "HANDDOORS %d doorway markers, %d doorways cut", nHandDoor, jpDoorsHand);
+    TraceLog(LOG_INFO, "HOUSEDETAILS %d wall details left off (they reached into another building's lot)", bdSkipped); bdSkipped = 0;
     TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings, %d basements, %d lights, %d signs, %d frames", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot, nPit, nLight, nSign, nXf);
     for (int i = 0; i < nPit && i < 3; i++) { Vector3 c = xfP(pits[i].f, V3(pits[i].r.x + pits[i].r.width / 2, 0, pits[i].r.y + pits[i].r.height / 2)); TraceLog(LOG_INFO, "PIT %d at %.1f %.1f", i, c.x, c.z); }
+    #define GFRD(x_, z_) ({ float r_ = roadRastAt((x_), (z_)); r_ > ROADY - 0.05f && r_ < SIDEH - 0.06f; })
+    #define gfRoadNear(x_, z_) (paveD(x_, z_) < 0.5f)   // (a drawn street there or at a corner of the cell: the clipped paving meets it)
     {   // town ground that has collision but nothing drawn on it: paving, laid in strips along x, a hair under the surfaces round it
         int filled = 0;
         for (int j = 0; j < CV_H; j++) for (int i = 0; i < CV_W;) {
-            #define CVNEED(ii) ({ float x_ = CV_X0 + ((ii) + 0.5f) * 0.5f, z_ = CV_Z0 + (j + 0.5f) * 0.5f; !cover[j * CV_W + (ii)] && cityLand(x_, z_) && !inHole(x_, z_) && !inPit(x_, z_) && fabsf(baseGroundY(x_, z_, SIDEH + 1) - SIDEH) < 0.05f && ceilAt(V3(x_, SIDEH + 0.05f, z_), 0.01f) > SIDEH + 0.3f; })
+            #define CVNEED(ii) ({ float x_ = CV_X0 + ((ii) + 0.5f) * 0.5f, z_ = CV_Z0 + (j + 0.5f) * 0.5f; !cover[j * CV_W + (ii)] && cityLand(x_, z_) && !gfRoadNear(x_, z_) && !inHole(x_, z_) && !inPit(x_, z_) && fabsf(baseGroundY(x_, z_, SIDEH + 1) - SIDEH) < 0.05f && ceilAt(V3(x_, SIDEH + 0.05f, z_), 0.01f) > SIDEH + 0.3f; })
             if (!CVNEED(i)) { i++; continue; } int i2 = i; while (i2 + 1 < CV_W && CVNEED(i2 + 1)) i2++;
             #undef CVNEED
             float x0 = CV_X0 + i * 0.5f, x1 = CV_X0 + (i2 + 1) * 0.5f, z0 = CV_Z0 + j * 0.5f, z1 = z0 + 0.5f, y = SIDEH - 0.012f;
-            quad(T_SIDEWALK, V3(x0, y, z1), V3(x1, y, z1), V3(x1, y, z0), V3(x0, y, z0), V3(0, 1, 0), rgb(205, 202, 194)); filled += i2 - i + 1; i = i2 + 1; }
+            quad(T_SIDEWALK, V3(x0, y, z1), V3(x1, y, z1), V3(x1, y, z0), V3(x0, y, z0), V3(0, 1, 0), WHITE); filled += i2 - i + 1; i = i2 + 1; }
         TraceLog(LOG_INFO, "GROUNDFILL %d half-metre cells of bare town ground paved", filled);
         free(cover); cover = NULL; }
     finalizeMeshes();
@@ -1632,8 +1654,34 @@ static int assetGet(const char *id, const ABox *bx, int n) {
     return nAsset++;
 }
 static void assetDraw(int a, Matrix F, Color tint) { if (a >= 0) drawM(&assets[a].m, F, tint); }
-#define ADRAW(id, F, tint, ...) do { static int _a = -2; if (_a == -2) { ABox _b[] = {__VA_ARGS__}; _a = assetGet(id, _b, (int)(sizeof _b / sizeof _b[0])); } assetDraw(_a, (F), (tint)); } while (0)
+static int gCrDraw = -1, gArmN, gLegN;   // the creature being drawn (gore), and its parts counted as they are drawn
+static bool goreSkip(const char *id, int a, Matrix F, Color tint);
+#define ADRAW(id, F, tint, ...) do { static int _a = -2; if (_a == -2) { ABox _b[] = {__VA_ARGS__}; _a = assetGet(id, _b, (int)(sizeof _b / sizeof _b[0])); } if (gCrDraw >= 0 && goreSkip(id, _a, (F), (tint))) break; assetDraw(_a, (F), (tint)); } while (0)
 #define BX(t, ox, oy, oz, sx, sy, sz, c) {(t), {(ox), (oy), (oz)}, {(sx), (sy), (sz)}, c}
+static void gibSpawn(int a, Matrix F, Color tint, Vector3 vel) {
+    if (a < 0) return; Gib *g = &gibs[gibI]; gibI = (gibI + 1) % MAX_GIB;
+    g->a = a; g->R = F; g->R.m12 = g->R.m13 = g->R.m14 = 0; g->pos = V3(F.m12, F.m13, F.m14); g->vel = vel; g->tint = tint; g->rest = false;
+    g->axis = Vector3Normalize(V3(fr(-1, 1), fr(-0.3f, 0.3f), fr(-1, 1))); g->ang = 0; g->angV = fr(6, 14) * (ri(2) ? 1 : -1); g->life = 90;
+}
+static bool goreSkip(const char *id, int a, Matrix F, Color tint) {
+    Gore *g = &gore[gCrDraw]; if (!g->lost) return false;
+    const char *nm = strrchr(id, '/'); nm = nm ? nm + 1 : id;
+    int bit = 0; bool main = false;
+    if (!strcmp(nm, "head")) { bit = GB_HEAD; main = true; }
+    else if (!strcmp(nm, "jaw") || !strcmp(nm, "tooth") || !strcmp(nm, "maw") || !strcmp(nm, "mouth") || !strcmp(nm, "mask") || !strcmp(nm, "face") || !strcmp(nm, "helmet") || !strcmp(nm, "eye_l") || !strcmp(nm, "eye_r")) bit = GB_HEAD;
+    else if (!strcmp(nm, "arm") || !strcmp(nm, "limb_a") || !strcmp(nm, "limb_b") || !strcmp(nm, "limb") || !strcmp(nm, "shield_arm") || !strcmp(nm, "baton_arm")) { bit = gArmN++ ? GB_ARM1 : GB_ARM0; main = true; }
+    else if (!strcmp(nm, "scissors") || !strcmp(nm, "scalpel")) bit = GB_ARM1;
+    else if (!strcmp(nm, "leg") || !strcmp(nm, "leg_a") || !strcmp(nm, "leg_b")) { bit = gLegN++ ? GB_LEG1 : GB_LEG0; main = true; }
+    if (!bit || !(g->lost & bit)) return false;
+    if (main) {
+        if (g->pend & bit) { g->pend &= ~bit; gibSpawn(a, F, tint, Vector3Add(gCrVel, V3(fr(-1.5f, 1.5f), fr(2.5f, 5.0f), fr(-1.5f, 1.5f)))); }
+        ADRAW("gore/stump", F, WHITE, BX(T_GORE, 0, bit == GB_HEAD ? 0.03f : -0.03f, 0, 0.15f, 0.08f, 0.15f, ((Color){120, 14, 12, 255})), BX(T_GORE, 0, bit == GB_HEAD ? 0.08f : -0.08f, 0, 0.05f, 0.06f, 0.05f, ((Color){225, 215, 200, 255})));
+        float st = g->severT[goreBitIdx(bit)]; Vector3 sp = V3(F.m12, F.m13, F.m14);   // the stump pumps blood for a few seconds
+        if (st > 0 && st < 4.0f && fr(0, 1) < GetFrameTime() * (40 - st * 9)) for (int i = 0; i < MAX_PART; i++) if (parts[i].life <= 0) {
+            Vector3 up = Vector3Normalize(V3(F.m4, F.m5, F.m6)); if (bit != GB_HEAD) up = Vector3Negate(up);
+            parts[i] = (Part){sp, Vector3Add(Vector3Scale(up, fr(1.0f, 2.6f)), V3(fr(-0.6f, 0.6f), fr(0.3f, 1.2f), fr(-0.6f, 0.6f))), fr(0.5f, 1.1f), fr(0.025f, 0.06f), sp.y - 3, T_FLESH, rgb(fr(90, 150), 6, 6)}; break; } }
+    return true;
+}
 static Matrix TRS(Vector3 p, float yaw, Vector3 sc) { return MatrixMultiply(MatrixMultiply(MatrixScale(sc.x, sc.y, sc.z), MatrixRotateY(yaw)), MatrixTranslate(p.x, p.y, p.z)); }
 #define CFL {205, 190, 185, 255}
 #define CDK {120, 100, 95, 255}
@@ -1647,15 +1695,39 @@ static float crLook(Cr *c) {   // heads turn to follow you: slowly while they wa
 }
 #include "zk_draw.h"
 #include "zk_anim.h"
-static void drawCreature(Cr *c) {
-    float fall = c->state == CS_DEAD ? fminf(c->deadT / 0.5f, 1) * PI * 0.5f : 0;
+static void drawCreatureBody(Cr *c);
+static float dt_twitch(float t) { return GetFrameTime() * (t < 1.0f ? 9.0f : 4.0f); }
+static void drawCreature(Cr *c) {   // (gore: which parts are gone, wounds, the death fall)
+    int ci = (int)(c - crs); if (ci < 0 || ci >= MAX_CR) { gCrDraw = -1; drawCreatureBody(c); return; } Gore *g = &gore[ci]; float dt = GetFrameTime();
+    for (int k = 0; k < 5; k++) if (g->severT[k] > 0) g->severT[k] += dt;
+    gCrDraw = ci; gArmN = gLegN = 0;
+    drawCreatureBody(c);
+    gCrDraw = -1;
+}
+static Matrix creatureBase(Cr *c, float sink) {   // the body's frame: standing, or falling the way the last blow sent it
+    if (c->state != CS_DEAD) return MatrixMultiply(MatrixRotateY(c->yaw), MatrixTranslate(c->pos.x, c->pos.y - sink, c->pos.z));
+    Gore *g = goreOf(c); float t = c->deadT, drop = 0;
+    float f = t < 0.55f ? t / 0.55f : 1; f = f * f * (3 - 2 * f); float ang = f * PI * 0.5f;   // eased fall to the ground
+    if (t > 0.55f && t < 0.9f) ang -= sinf((t - 0.55f) / 0.35f * PI) * 0.09f;   // a small bounce as it hits
+    if (g->dStyle == 4) {   // the knees go first: it sinks, then pitches forward
+        float k = clampf(t / 0.35f, 0, 1); drop = k * crHeight(c->type) * 0.32f; float f2 = clampf((t - 0.3f) / 0.5f, 0, 1); f2 = f2 * f2 * (3 - 2 * f2); ang = f2 * PI * 0.5f;
+        if (t > 0.8f && t < 1.1f) ang -= sinf((t - 0.8f) / 0.3f * PI) * 0.08f; }
+    Matrix R = g->dStyle == 0 ? MatrixRotateX(-ang) : g->dStyle == 1 || g->dStyle == 4 ? MatrixRotateX(ang) : MatrixRotateZ(-g->dSide * ang);
+    if (t < 2.5f && fr(0, 1) < dt_twitch(t)) for (int k = 0; k < 6; k++) c->tw[k] += fr(-0.6f, 0.6f) * g->twK * (1 - t / 2.5f);   // death twitches
+    return MatrixMultiply(MatrixMultiply(R, MatrixRotateY(c->yaw)), MatrixTranslate(c->pos.x, c->pos.y - sink - drop * (1 - fminf(ang / (PI * 0.5f), 1)), c->pos.z));
+}
+static void drawCreatureBody(Cr *c) {
+    float fall = 0; (void)fall;
     float sink = c->state == CS_DEAD && c->deadT > 10 ? (c->deadT - 10) * 0.25f : 0;
-    Matrix base = MatrixMultiply(MatrixMultiply(MatrixRotateZ(fall), MatrixRotateY(c->yaw)), MatrixTranslate(c->pos.x, c->pos.y - sink, c->pos.z));
+    Matrix base = creatureBase(c, sink);
+    {   Gore *g = goreOf(c); for (int k = 0; k < g->nw; k++) { Wound *w = &g->w[k]; float r = c->type == 3 ? 0.2f : 0.19f;   // the wounds: dark wet patches on the body where it was struck
+            Matrix M = MatrixMultiply(MatrixMultiply(MatrixScale(w->s, w->s * 1.3f, 0.02f), MatrixMultiply(MatrixRotateY(w->a), MatrixTranslate(sinf(w->a) * r, w->h, cosf(w->a) * r))), base);
+            ADRAW("gore/wound", M, WHITE, BX(T_GORE, 0, 0, 0, 1.0f, 1.0f, 1.0f, ((Color){95, 8, 8, 255}))); } }
     float a = c->t * (c->type == 2 ? 12 : 7);
     float *w = c->tw; bool alive = c->state != CS_DEAD;
     if (!alive) for (int k = 0; k < 6; k++) w[k] *= 0.9f;
     Color tn = c->hurt > 0.12f ? (Color){255, 255, 255, 255} : c->hurt > 0 ? (Color){255, 70, 60, 255} : WHITE;
-    if (c->flinch > 0.01f) base = MatrixMultiply(MatrixMultiply(MatrixRotateX(-c->flinch * 0.55f), MatrixRotateY(c->yaw)), MatrixTranslate(c->pos.x, c->pos.y - sink, c->pos.z));
+    if (c->flinch > 0.01f && c->state != CS_DEAD) base = MatrixMultiply(MatrixMultiply(MatrixRotateX(-c->flinch * 0.55f), MatrixRotateY(c->yaw)), MatrixTranslate(c->pos.x, c->pos.y - sink, c->pos.z));
     float wind = c->wind > 0 ? 1 - c->wind / 0.38f : 0;
     if (c->type >= 5) { drawCreature2(c, base, tn, w, a, wind); return; }
     if (c->type == 0) {   // bound, faceless
@@ -1891,6 +1963,7 @@ static void drawWorld(Vector3 eye, float t) {
         }
         drawCreature(c);
     }
+    for (int i = 0; i < MAX_GIB; i++) { Gib *g = &gibs[i]; if (g->life <= 0) continue; Matrix M = MatrixMultiply(MatrixMultiply(g->R, MatrixRotate(g->axis, g->ang)), MatrixTranslate(g->pos.x, g->pos.y, g->pos.z)); assetDraw(g->a, M, g->tint); }
     drawRemotePlayers(GetFrameTime());
     drawExtras(eye, t);
     for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0) { Part *p = &parts[i]; float s = p->size;
@@ -1929,9 +2002,15 @@ static void prewarmAssets(void) {
     UnloadRenderTexture(d);
 }
 static void updateFX(float dt, Vector3 eye) {
+    for (int i = 0; i < MAX_GIB; i++) { Gib *g = &gibs[i]; if (g->life <= 0) continue; g->life -= dt;   // severed parts: fly, tumble, land, leak
+        if (!g->rest) { g->vel.y -= 9.8f * dt; g->pos = Vector3Add(g->pos, Vector3Scale(g->vel, dt)); g->ang += g->angV * dt;
+            float gy = groundAt(V3(g->pos.x, g->pos.y + 0.4f, g->pos.z), 0.05f, 3.0f) + 0.06f;
+            if (g->pos.y < gy) { g->pos.y = gy; if (fabsf(g->vel.y) > 1.6f) { g->vel.y *= -0.3f; g->vel.x *= 0.5f; g->vel.z *= 0.5f; g->angV *= 0.5f; addSplat(V3(g->pos.x, gy - 0.04f, g->pos.z), fr(0.3f, 0.55f)); play(sSplat, 0.35f); }
+                else { g->rest = true; g->ang = roundf(g->ang / (PI * 0.5f)) * PI * 0.5f; addSplat(V3(g->pos.x, gy - 0.04f, g->pos.z), fr(0.35f, 0.6f)); } } }
+        if (g->life < 4) g->pos.y -= dt * 0.08f; }
     for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0) {
         Part *p = &parts[i]; p->life -= dt; p->vel.y -= 9.8f * dt; p->pos = Vector3Add(p->pos, Vector3Scale(p->vel, dt));
-        if (p->pos.y < 0.02f) { p->pos.y = 0.02f; p->vel = Vector3Scale(p->vel, 0.3f); }
+        { float fl = p->t == T_FLESH ? p->floor : 0.02f; if (p->pos.y < fl) { p->pos.y = fl; p->vel = Vector3Scale(p->vel, 0.3f); if (p->t == T_FLESH && p->size > 0.05f && fr(0, 1) < 0.3f) addSplat(V3(p->pos.x, fl + 0.001f, p->pos.z), p->size * 3); } }
     }
     static bool init = false;
     for (int i = 0; i < MAX_ASH; i++) {
@@ -2424,6 +2503,11 @@ int main(int argc, char **argv) {
                   for (float o = 0; o <= 30; o += 2) { float x = c_.x + d_.x * o, z = c_.z + d_.z * o; TraceLog(LOG_INFO, "LOOK sw o %.0f guard %d mr %d h %.2f cd %.1f cs %.1f seaw %d sea %d city %d town %d", o, ribbonGuard(coastP, x, z, 5.2f), mainRoadAt(x, z, 0.3f), terrainH(x, z), coast_d(x, z), coastSigned(x, z), coastSeaward(x, z), seaSide(x, z), cityLand(x, z), inTownRaw(x, z)); } }
                 if (getenv("KIRI_CRSHOT")) { cht.on[CH_PEACE] = false; for (int i = 0; i < nCr; i++) crs[i].on = false; float bx, bz; if (sscanf(getenv("KIRI_CRSHOT"), "%f %f", &bx, &bz) == 2)
                     for (int t = 10; t < 18; t++) { int s2 = spawnAt(V3(bx + (t - 13.5f) * 2.2f, SIDEH, bz), t, false); if (s2 >= 0) { crs[s2].yaw = PI; crs[s2].t = 0; } } }
+                if (getenv("KIRI_GORESHOT")) { int k = 0; static const int pat[8] = {GB_HEAD, GB_ARM0, GB_ARM1 | GB_LEG0, GB_HEAD | GB_ARM1, GB_LEG1, GB_ARM0 | GB_ARM1, GB_HEAD, 0};
+                    for (int i = 0; i < nCr; i++) { if (!crs[i].on) continue; Gore *g = &gore[i]; g->lost = g->pend = pat[k % 8]; for (int q = 0; q < 5; q++) g->severT[q] = 0.0001f;
+                        for (int w2 = 0; w2 < 4; w2++) g->w[g->nw++] = (Wound){fr(-1.2f, 1.2f), crHeight(crs[i].type) * fr(0.5f, 1.0f), fr(0.08f, 0.16f)};
+                        if (k % 2 == 1 || getenv("KIRI_GOREDEAD")) { crs[i].state = CS_DEAD; crs[i].deadT = 0.001f; g->dStyle = (k / 2) % 5; g->dSide = 1; g->twK = 1; }
+                        k++; } }
                 if (getenv("KIRI_MAPSHOT")) { pl.mapOpen = true; EnableCursor(); float zx, tx, tz; if (sscanf(getenv("KIRI_MAPSHOT"), "%f %f %f", &zx, &tx, &tz) == 3) { mapZoom = zx; mapTgt = (Vector2){tx, tz}; } }
                 if (getenv("KIRI_INVSHOT")) { invAdd(IT_COAT, 1); invAdd(IT_HARDHAT, 1); invAdd(IT_BOOTS, 1); invAdd(IT_WORKPANTS, 1); invAdd(IT_STABVEST, 1); invAdd(IT_NAGINATA, 1); invAdd(IT_TETSUBO, 1); invAdd(IT_BEANIE, 1);
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
@@ -2436,6 +2520,7 @@ int main(int argc, char **argv) {
                 if (getenv("KIRI_SOLNEAR")) { float kx, ky, kz, kr; if (sscanf(getenv("KIRI_SOLNEAR"), "%f %f %f %f", &kx, &ky, &kz, &kr) == 4) { query(kx - kr, kz - kr, kx + kr, kz + kr); for (int k = 0; k < qn; k++) { Solid *s2 = &sol[qb[k]]; if (s2->mx.y <= ky + 0.42f || s2->mn.y >= ky + 1.7f) continue; { Vector3 L = solL(s2, V3(kx, 0, kz)); if (L.x < s2->mn.x - kr || L.x > s2->mx.x + kr || L.z < s2->mn.z - kr || L.z > s2->mx.z + kr) continue; TraceLog(LOG_INFO, "SOLNEAR local pt %.2f,%.2f box %.2f..%.2f x %.2f..%.2f z %.2f..%.2f", L.x, L.z, s2->mn.y, s2->mx.y, s2->mn.x, s2->mx.x, s2->mn.z, s2->mx.z); }
                     Vector3 c0 = xfP(s2->f, s2->mn), c1 = xfP(s2->f, s2->mx); TraceLog(LOG_INFO, "SOLNEAR f%d y %.2f..%.2f world %.2f,%.2f .. %.2f,%.2f  size %.2f x %.2f", s2->f, s2->mn.y, s2->mx.y, c0.x, c0.z, c1.x, c1.z, s2->mx.x - s2->mn.x, s2->mx.z - s2->mn.z); } } }
                 if (getenv("KIRI_STANDAT")) { float kx, kz, ky; if (sscanf(getenv("KIRI_STANDAT"), "%f %f %f", &kx, &kz, &ky) == 3) { int kf = curXf; curXf = 0; for (int j = -10; j <= 10; j++) { char row[64]; int n = 0; for (int i = -15; i <= 15; i++) row[n++] = (i == 0 && j == 0) ? '@' : standFree(kx + i * 0.1f, kz + j * 0.1f, ky) ? '.' : '#'; row[n] = 0; TraceLog(LOG_INFO, "STANDAT %s", row); } curXf = kf; } }
+                if (getenv("KIRI_NETDUMP")) TraceLog(LOG_INFO, "STATIONAT %.1f %.1f", stationCenter.x, stationCenter.z);
                 if (getenv("KIRI_PROFILE")) { float x0, z0, x1, z1; if (sscanf(getenv("KIRI_PROFILE"), "%f %f %f %f", &x0, &z0, &x1, &z1) == 4) for (int k = 0; k <= 40; k++) { float u = k / 40.0f, x = Lerp(x0, x1, u), z = Lerp(z0, z1, u);
                     TraceLog(LOG_INFO, "PROFILE %.2f %.2f ground %.3f street %d city %d terrain %.2f", x, z, groundAt(V3(x, 50, z), 0.05f, 100), mainRoadAt(x, z, 0), cityLand(x, z), terrainH(x, z)); } }
                 if (getenv("KIRI_MANGATEST")) { pl.watchKind = 2; pl.watchT = MANGA_T; mangaStep = 0; }
@@ -2473,7 +2558,7 @@ int main(int argc, char **argv) {
         {   // viewmodel stills: KIRI_VM=1 holds each animation at fixed points and takes a picture (vm_*.png), then quits
             static int vm = -1; if (vm < 0) vm = getenv("KIRI_VM") ? 1 : 0;
             struct { int it, anim; float at, shot; int mag; bool torch; const char *nm; } V[] = {
-                {IT_REVOLVER, -1, 0, -1, 4, false, "vm_rev_idle"}, {IT_REVOLVER, ANIM_EQUIP, 0.22f, -1, 4, false, "vm_rev_draw"}, {IT_REVOLVER, ANIM_EQUIP, 0.58f, -1, 4, false, "vm_rev_cock"},
+                {IT_FOOD, ANIM_EAT, 0.5f, -1, 0, true, "vm_eat_food_torch"}, {IT_WATER, ANIM_DRINK, 0.5f, -1, 0, true, "vm_drink_water_torch"}, {IT_KATANA, ANIM_EAT, 0.5f, -1, 0, true, "vm_eat_with_katana"}, {IT_REVOLVER, -1, 0, -1, 4, false, "vm_rev_idle"}, {IT_REVOLVER, ANIM_EQUIP, 0.22f, -1, 4, false, "vm_rev_draw"}, {IT_REVOLVER, ANIM_EQUIP, 0.58f, -1, 4, false, "vm_rev_cock"},
                 {IT_REVOLVER, -1, 0, 0.02f, 4, false, "vm_rev_fire"}, {IT_REVOLVER, -1, 0, 0.16f, 3, false, "vm_rev_recock"},
                 {IT_REVOLVER, ANIM_RELOAD, 0.14f, -1, 2, false, "vm_rev_reload1_open"}, {IT_REVOLVER, ANIM_RELOAD, 0.275f, -1, 2, false, "vm_rev_reload2_eject"},
                 {IT_REVOLVER, ANIM_RELOAD, 0.44f, -1, 2, false, "vm_rev_reload3_loader"}, {IT_REVOLVER, ANIM_RELOAD, 0.55f, -1, 2, false, "vm_rev_reload4_insert"},
@@ -2546,7 +2631,7 @@ int main(int argc, char **argv) {
                     if (V[q].anim == 101) { pl.umbOpen = true; pl.umbK = 1; }
                     if (V[q].anim == 102) vmSpray = true;
                     if (V[q].anim == 104) { if (mangaVol != V[q].mag) mangaRegen(V[q].mag); pl.watchKind = 2; pl.watchT = MANGA_T - V[q].at; } }
-                if (!vSkip && k == 3 && V[q].anim < 100) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; }
+                if (!vSkip && k == 3 && V[q].anim < 100) { if (V[q].anim >= 0) { animPlay(V[q].anim); animT = animDur * V[q].at; if (V[q].anim == ANIM_EAT || V[q].anim == ANIM_DRINK) animItem = V[q].anim == ANIM_EAT ? IT_FOOD : IT_WATER; }
                     if (!strcmp(V[q].nm, "vm_hitmarker")) { hitMarkT = 0.3f; hitMarkKind = 2; }
                     if (V[q].shot >= 0) { revShotT = V[q].shot; pl.kick = fmaxf(0, 1 - V[q].shot * 6); pl.muzzle = V[q].shot < 0.07f ? 0.2f : 0; } }
                 if (!vSkip && k == 4) { char nm[64]; snprintf(nm, sizeof nm, "%s.png", V[q].nm); TakeScreenshot(nm); } } }
@@ -3195,7 +3280,7 @@ int main(int argc, char **argv) {
                         bool side = false; for (int sg = -1; sg <= 1 && !side; sg += 2) for (float o = 0.6f; o <= 1.6f && !side; o += 0.2f) if (standFree(t.x - dv.y * sg * o, t.z + dv.x * sg * o, t.y) && standFree(t.x - dv.y * sg * (o - 0.3f), t.z + dv.x * sg * (o - 0.3f), t.y)) side = true;   // or off to one side of the landing
                         if (!standFree(t.x, t.z, t.y) || (okN < 3 && !side)) { tight++; if (strlen(tb) < 440) { char q[96]; snprintf(q, 96, " (%.1f,%.1f y%.1f from %.1f,%.1f ok%d)", t.x, t.z, t.y, b.x, b.z, okN); strcat(tb, q); } } }
                     curXf = keepF; TraceLog(LOG_INFO, "STAIRTOP %d flight tops: %d without room to step off%s", tops, tight, tb); }
-                TraceLog(LOG_INFO, "ROOMAUDIT %d rooms on planned floors: %d cannot be walked into%s", raRooms, raBad, raList); TraceLog(LOG_INFO, "ROOMAUDIT doorways added %d, rooms with no wall to put one in %d", jpDoorsAdded, jpRoomsShut); for (int u = 0; u < 2; u++) { char hb[400] = ""; for (int p = 0; p < 20; p++) if (raHist[u][0][p] + raHist[u][1][p]) { char t[40]; snprintf(t, 40, " p%d:%d/%d", p, raHist[u][1][p], raHist[u][0][p] + raHist[u][1][p]); strcat(hb, t); } TraceLog(LOG_INFO, "ROOMAUDIT %s (plan: bad/all)%s", u ? "upstairs" : "ground", hb); } }
+                TraceLog(LOG_INFO, "ROOMAUDIT %d rooms on planned floors: %d cannot be walked into%s", raRooms, raBad, raList); TraceLog(LOG_INFO, "ROOMAUDIT doorways added %d, leading nowhere removed %d, rooms with no wall to put one in %d", jpDoorsAdded, jpDoorsPruned, jpRoomsShut); for (int u = 0; u < 2; u++) { char hb[400] = ""; for (int p = 0; p < 20; p++) if (raHist[u][0][p] + raHist[u][1][p]) { char t[40]; snprintf(t, 40, " p%d:%d/%d", p, raHist[u][1][p], raHist[u][0][p] + raHist[u][1][p]); strcat(hb, t); } TraceLog(LOG_INFO, "ROOMAUDIT %s (plan: bad/all)%s", u ? "upstairs" : "ground", hb); } }
             if (frame == 1149) TraceLog(LOG_INFO, "FEAT parks %d at %.1f %.1f mirror %.1f %.1f", nFeatPark, featPark.x, featPark.z, featMirror.x, featMirror.z);
             if (frame == 1191 || frame == 1197) { state = ST_PLAY; pl.hp = 100; cht.menu = false; pl.invOpen = pl.mapOpen = false; gameActive = true; }
             if (frame == 1191) { Vector3 c = Vector3Add(featPark, Vector3Scale(featParkFace, 13)); pl.pos = V3(c.x, SIDEH + 0.1f, c.z); pl.vy = 0; Vector3 d = Vector3Subtract(featPark, c); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.18f; pl.tod = 13; pl.flash = false; for (int i = 0; i < nCr; i++) crs[i].on = false; }

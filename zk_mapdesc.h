@@ -10,7 +10,7 @@ static MapArr mapArrs[] = {
     {"dRiver", 0, (void *)dRiver, &DRIVER_N_v, 2, 512},
     {"dRiverLine", 0, (void *)dRiverLine, &DRIVERLINE_N_v, 2, 640},
     {"dCoast", 0, (void *)dCoast, &DCOAST_N_v, 2, 1348},
-    {"dStreetPts", 0, (void *)dStreetPts, &DSTREETPTS_N_v, 2, 10040},
+    {"dStreetPts", 0, (void *)dStreetPts, &DSTREETPTS_N_v, 3, 10040},   // x, z, road width at the point (0: the street's own)
     {"dStreets", 1, (void *)dStreets, &DSTREETS_N_v, 4, 676},
     {"dBridges", 0, (void *)dBridges, &DBRIDGES_N_v, 5, 512},
     {"dRail", 0, (void *)dRail, &DRAIL_N_v, 2, 1008},

@@ -48,6 +48,7 @@ static bool mapLoadFile(const char *path) {
         if (cur && r < rows) {   // a row of the open table
             char *p = line;
             for (int c = 0; c < cols; c++) { char *e; double v = strtod(p, &e); if (e == p) break; p = e; if (r < cur->cap && c < cur->cols) mapSet(cur, r, c, v); }
+            for (int c = cols; c < cur->cols; c++) if (r < cur->cap) mapSet(cur, r, c, 0);   // (a file from before a column was added: it is 0)
             if (++r >= rows) cur = NULL; continue; }
         if (!strncmp(line, "val ", 4)) { double v; if (sscanf(line + 4, "%63s %lf", nm, &v) == 2) for (int i = 0; i < MAP_NVAL; i++) if (!strcmp(mapVals[i].name, nm)) { if (mapVals[i].isInt) *(int *)mapVals[i].p = (int)v; else *(float *)mapVals[i].p = (float)v; } }
         else if (!strncmp(line, "arr ", 4)) { if (sscanf(line + 4, "%63s %d %d", nm, &rows, &cols) == 3) { cur = mapArr(nm); r = 0;

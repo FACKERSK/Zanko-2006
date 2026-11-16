@@ -1,4 +1,49 @@
-ZANKO 2006 - Afterglow  (v0.9.6, rooms, stairs, accounts)
+ZANKO 2006 - Afterglow  (v0.9.7, a planned town, gore)
+
+- 0.9.7: a planned town, and bodies that come apart.
+  * The town is laid out by zones from its streets: shops and
+    flats in rows by the station, shops and flats along the
+    avenues, houses with a front garden or a car space, a gap
+    to each neighbour and a walled back yard everywhere else.
+  * What is left inside a block is a shared green: a raised
+    lawn with trees and benches, its edge a smooth curve.
+    Street trees and shrubs stand in raised beds, not in the
+    paving.
+  * The town is built in layers: one pavement over all of it,
+    the roads cut out of it with a kerb all round, and the
+    houses and greens on top. Every kerb corner is round and
+    no edge is stepped.
+  * Gore: blows leave wounds where they land; blades take off
+    arms, legs and heads (the part flies and stays where it
+    falls, the stump bleeds); heavy blows and shots burst
+    heads. Bodies fall away from the blow, some buckling at
+    the knees first, and twitch.
+  * Mod Maker: the mouse wheel over a street point sets the
+    road's width there (Shift: finer); the road keeps each
+    node's width near it and tapers straight between them.
+    A Doorway marker (Build tab) cuts a doorway in the room
+    wall it stands by.
+  * Balconies, air conditioners and other things on house
+    walls are solid and no longer reach into the next house.
+  * Every room can be walked into (a closet holds one box).
+  * Every street and road lies 15 cm below the town: the
+    pavements, the paving and the building floors are one
+    even level (no more steps down between pavement and
+    paving), with a kerb face and kerbstone along every
+    street edge.
+  * Streets the plan drew as several pieces end to end (the
+    road in front of the station, among others) are one road:
+    their corners turn on a curve, with no crossings painted
+    where nothing meets them and no gap of paving between the
+    pieces; where a wide and a narrow street meet at a corner
+    the corner closes square.
+  * Doorways that led nowhere (onto the flights of stairs,
+    into a gap, between two parts of one room) are gone;
+    doors keep half a metre clear of the walls that meet
+    theirs.
+  * Eating and drinking use the free right hand: the left
+    keeps the phone light where it is (with a weapon in the
+    right hand, the left hand eats as before).
 
 - 0.9.6: rooms you can walk into, room at the stairs.
   * Every room in a house, flat, shop or office can be

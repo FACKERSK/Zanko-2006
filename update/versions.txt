@@ -1,4 +1,5 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.9.7|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.7.zip|2026-11-16|Planned town, layered pavement with round kerbs, gore, per-node road widths, doorway markers
 0.9.6|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.6.zip|2026-11-15|Every room has a way in, room at the stairs, inventory card fix, remember-me login
 0.9.5|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.5.zip|2026-11-15|Online accounts: register on the website, log in from the launcher
 0.9.4|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.4.zip|2026-11-14|Rounded corners, river walls, furnished rooms, wall finishes, overhead swings

@@ -178,6 +178,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     setEmis(0);
     int ht = pl.hands.t; bool melee = ht >= 0 && idef[ht].cat == CAT_MELEE, gun = ht == IT_REVOLVER;
     bool gun2 = ht == IT_PISTOL || ht == IT_SHOTGUN, thr = ht >= 0 && idef[ht].cat == CAT_THROW;   // the pistol and shotgun; rocks, firecrackers, molotovs
+    bool eatRight = ht < 0 || isConsumable(ht);   // eating and drinking: the right hand when it is free or holds the food itself
     int st0 = ht >= 0 ? idef[ht].style : 0;
     float u2 = animDur > 0 ? clampf(animT / animDur, 0, 1) : 1; int A = animId != ANIM_NONE && animT < animDur ? animId : ANIM_NONE;
     HandP R = {V3(0.22f, -0.25f, -0.44f), V3(-0.95f, 0.12f, -0.3f), 0, true}, L = {V3(-0.22f, -0.32f, -0.42f), V3(-0.3f, 0, 0.2f), 1, false};
@@ -411,10 +412,14 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         break;
     case ANIM_EAT: case ANIM_PILL: case ANIM_DRINK: {
         float lift = A == ANIM_PILL ? bell(u2, 0, 1) : ph(u2, 0, 0.28f) * (1 - ph(u2, 0.8f, 1));
-        L.vis = true; L.grip = 0; L.p = Vector3Lerp(V3(-0.2f, -0.45f, -0.38f), V3(-0.01f, -0.1f, -0.17f), lift);
-        L.r = V3(Lerp(-0.3f, A == ANIM_DRINK ? -1.35f : 0.2f, lift), Lerp(0, 0.9f, lift), 0);
-        if (A == ANIM_EAT) L.p.y += sinf(u2 * 22) * 0.012f * lift;
-        R.p.y -= lift * 0.12f;
+        if (eatRight) {   // the right hand brings it up (the left keeps the phone / light where it is)
+            R.p = Vector3Lerp(R.p, V3(0.01f, -0.1f, -0.17f), lift); R.r = V3(Lerp(R.r.x, A == ANIM_DRINK ? -1.35f : 0.2f, lift), Lerp(R.r.y, -0.9f, lift), R.r.z * (1 - lift)); R.grip = 2;
+            if (A == ANIM_EAT) R.p.y += sinf(u2 * 22) * 0.012f * lift;
+        } else {   // a weapon in the right hand: the left hand eats
+            L.vis = true; L.grip = 0; L.p = Vector3Lerp(V3(-0.2f, -0.45f, -0.38f), V3(-0.01f, -0.1f, -0.17f), lift);
+            L.r = V3(Lerp(-0.3f, A == ANIM_DRINK ? -1.35f : 0.2f, lift), Lerp(0, 0.9f, lift), 0);
+            if (A == ANIM_EAT) L.p.y += sinf(u2 * 22) * 0.012f * lift;
+            R.p.y -= lift * 0.12f; }
         break; }
     case ANIM_BANDAGE: {
         float in = ph(u2, 0, 0.18f) * (1 - ph(u2, 0.86f, 1)), ang = ph(u2, 0.15f, 0.85f) * 4 * PI;
@@ -634,7 +639,8 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         Vector3 wrist = Vector3Transform(V3(0.04f, -0.06f, 0.06f), MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixRotateZ(R.r.z), MatrixRotateX(R.r.x)), MatrixRotateY(R.r.y)), MatrixTranslate(R.p.x, R.p.y, R.p.z)));
         drawArm(B, wrist, V3(0.36f, -0.8f, 0.2f));
     }
-    bool showTorch = torch && L.vis && L.grip == 0 && pl.searchC < 0 && pl.climbT <= 0 && A != ANIM_EAT && A != ANIM_DRINK && A != ANIM_PILL && A != ANIM_BANDAGE && A != ANIM_RELOAD;
+    bool eating = A == ANIM_EAT || A == ANIM_DRINK || A == ANIM_PILL;
+    bool showTorch = torch && L.vis && L.grip == 0 && pl.searchC < 0 && pl.climbT <= 0 && !(eating && !eatRight) && A != ANIM_BANDAGE && A != ANIM_RELOAD;
     if (L.vis) {
         drawHand(B, L, false);
         if (showTorch) {   // a 2006 flip phone (keitai): keypad half in the hand, screen half open above it; the back LED is the light
@@ -647,12 +653,13 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             if (pl.batt > 0) ADRAW("viewmodels/keitai_led", Top, WHITE, BX(T_PLAIN, 0, 0.083f, -0.0058f, 0.01f, 0.01f, 0.002f, ((Color){255, 250, 230, 255})));
             setEmis(0);
         }
-        if ((A == ANIM_EAT || A == ANIM_DRINK || A == ANIM_PILL) && animItem >= 0) {   // the food or bottle in the left hand
+        if (eating && !eatRight && animItem >= 0) {   // the food or bottle in the left hand
             Matrix Hl = handM(B, L); float bite = A == ANIM_EAT ? 1 - 0.5f * ph(u2, 0.35f, 0.8f) : 1;
             drawItemType(animItem, MatrixMultiply(MatrixMultiply(MatrixScale(bite, bite, bite), MatrixTranslate(0, -0.05f, -0.01f)), Hl));
         }
     }
     if (A == ANIM_BANDAGE && animItem >= 0) drawItemType(animItem, MatrixMultiply(MatrixTranslate(0, -0.03f, -0.02f), handM(B, R)));
+    if (eating && eatRight && animItem >= 0) { float bite = A == ANIM_EAT ? 1 - 0.5f * ph(u2, 0.35f, 0.8f) : 1; drawItemType(animItem, MatrixMultiply(MatrixMultiply(MatrixScale(bite, bite, bite), MatrixTranslate(0, -0.05f, -0.01f)), handM(B, R))); }
     if (cyFallT < 1.2f) for (int i = 0; i < 6; i++) if (cyFallMask >> i & 1) {
         cyFallV[i].y -= 9.8f * vdt; cyFallP[i] = Vector3Add(cyFallP[i], Vector3Scale(cyFallV[i], vdt));
         Matrix M = MatrixMultiply(MatrixRotateXYZ(V3(cyFallT * 17 + i, cyFallT * 11, i * 0.7f)), MatrixTranslate(cyFallP[i].x, cyFallP[i].y, cyFallP[i].z));
