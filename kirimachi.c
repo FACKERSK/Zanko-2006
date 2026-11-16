@@ -356,6 +356,7 @@ static Model stat[NCH * NCH][T_COUNT]; static bool statOk[NCH * NCH][T_COUNT];
 static Vector3 chMn[NCH * NCH], chMx[NCH * NCH]; static bool chAny[NCH * NCH];
 static Model chLod[NCH * NCH]; static bool chLodOk[NCH * NCH];
 static float gFogD = 0;   // the fog density in use: sets how far full detail and the block models reach
+static float gFogSight = 1e9f;   // 0.9.8: how far the fog lets anything be seen (90% fogged), from the scene's fog without the player's fog setting: the creatures see no further than you
 static int chunkOf(float x, float z) { int i = (int)floorf((x - CH_X0) / CH_SZ), j = (int)floorf((z - CH_Z0) / CH_SZ); i = i < 0 ? 0 : i >= NCH ? NCH - 1 : i; j = j < 0 ? 0 : j >= NCH ? NCH - 1 : j; return j * NCH + i; }
 static void statSetTex(int t, Texture2D tx) { for (int c = 0; c < NCH * NCH; c++) if (statOk[c][t]) stat[c][t].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tx; }
 static void mbPush(MB *b, Vector3 p, Vector2 uv, Vector3 n, Color c) {
@@ -605,7 +606,7 @@ static float gLockShare = 0.25f, gBasementK = 1.0f, gBodyK = 1.0f, gRainK = 1.0f
 // ============================================================ audio
 #define SR 22050
 static Sound sJingle;
-static Sound sImpact, sSplat, sBone, sStinger, sBreath, sScream;
+static Sound sImpact, sSplat, sBone, sStinger, sBreath, sScream, sScare[3], sBreathNear;   // sScare: jump-scare stabs (0.9.7)
 static Sound sStep, sSwing, sHit, sClang, sGlass, sShot, sClick, sHurt, sScreech, sGroan[2], sStatic, sDrone, sHeart, sPick, sWood, sPlace, sPhone, sReload, sTick;
 static Sound sCock, sCylOpen, sCylClose, sEject, sShell, sLoader, sSpin, sBlade, sJump, sLand, sEat, sDrink, sPill, sBandage, sCloth, sPaper, sRummage, sSigh, sTV, sTape;
 static Sound groanPool[8];
@@ -636,7 +637,7 @@ static void genSounds(void) {
     n = SR * 9 / 10; lp = 0; for (int i = 0; i < n; i++) { float f = 900 + 500 * sinf(T * 23) + 300 * nz(); float s = sinf(T * 2 * PI * f * (1 + 0.3f * sinf(T * 51))); lp += (nz() - lp) * 0.4f; b[i] = (s * 0.5f + lp * 0.6f) * sinf(fminf(T / 0.9f, 1) * PI) * 0.9f; } sScreech = mkS(b, n);
     for (int g = 0; g < 2; g++) { n = SR * 3 / 2; lp = 0; float ph = 0; for (int i = 0; i < n; i++) { float f = (g ? 55 : 75) + 18 * sinf(T * (g ? 4.3f : 6.1f)) + 8 * nz(); ph += f / SR; float saw = 2 * (ph - floorf(ph)) - 1; lp += (saw + nz() * 0.6f - lp) * 0.06f; b[i] = lp * 2.2f * sinf(T / 1.5f * PI) * (0.7f + 0.3f * sinf(T * 31)); } sGroan[g] = mkS(b, n); }
     n = SR * 2; lp = 0; for (int i = 0; i < n; i++) { float x = nz(); lp += (x - lp) * 0.5f; float crackle = (hash2(i / 40, 0, 3) > 0.92f) ? nz() : 0; b[i] = ((x - lp) * 0.6f + crackle * 0.5f) * (0.8f + 0.2f * sinf(T * 2 * PI * 50)); } sStatic = mkS(b, n);
-    n = SR * 6; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.01f; float hum = sinf(T * 2 * PI * 41) * 0.25f + sinf(T * 2 * PI * 41.7f) * 0.2f + sinf(T * 2 * PI * 82.3f) * 0.08f; float env = fminf(fminf(T, 6 - T) / 0.4f, 1); b[i] = (hum * (0.6f + 0.4f * sinf(T * 1.05f)) + lp * 3) * env * 0.7f; } sDrone = mkS(b, n);
+    n = SR * 6; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.01f; float hum = sinf(T * 2 * PI * 31) * 0.22f + sinf(T * 2 * PI * 46.5f) * 0.06f; /* a deep room tone: no beating, no buzz */ float env = fminf(fminf(T, 6 - T) / 0.4f, 1); b[i] = (hum * (0.6f + 0.4f * sinf(T * 1.05f)) + lp * 3) * env * 0.7f; } sDrone = mkS(b, n);
     n = SR * 7 / 10; for (int i = 0; i < n; i++) { float a = expf(-T * 30) * sinf(T * 2 * PI * 48); float t2 = T - 0.2f; float c = t2 > 0 ? expf(-t2 * 30) * sinf(t2 * 2 * PI * 44) : 0; b[i] = (a + c * 0.8f) * 1.2f; } sHeart = mkS(b, n);
     n = SR / 7; for (int i = 0; i < n; i++) { float f = T < 0.06f ? 880 : 1320; b[i] = (sinf(T * 2 * PI * f) > 0 ? 0.25f : -0.25f) * expf(-T * 12); } sPick = mkS(b, n);
     n = SR * 4 / 10; lp = 0; for (int i = 0; i < n; i++) { lp += (nz() - lp) * 0.25f; float crack = (hash2(i / 200, 1, 9) > 0.7f) ? nz() : 0; b[i] = (lp * 1.5f + crack * 0.7f + sinf(T * 2 * PI * 140) * 0.5f) * expf(-T * 12); } sWood = mkS(b, n);
@@ -654,6 +655,17 @@ static void genSounds(void) {
     n = SR * 18 / 10; { float p1 = 0, p2 = 0, p3 = 0; lp = 0; for (int i = 0; i < n; i++) { float rise = 1 + T * 0.35f; p1 += 233 * rise / SR; p2 += 247 * rise / SR; p3 += 349 * rise / SR;
         float saw = (2 * (p1 - floorf(p1)) - 1) + (2 * (p2 - floorf(p2)) - 1) * 0.8f + (2 * (p3 - floorf(p3)) - 1) * 0.6f; lp += (saw * 0.4f + nz() * 0.5f - lp) * 0.2f;
         b[i] = lp * fminf(T * 8, 1) * expf(-fmaxf(T - 0.9f, 0) * 3) * 1.3f; } } sStinger = mkS(b, n);
+    for (int v = 0; v < 3; v++) {   // jump scares: a slam of low brass and screeching strings, all at once, ringing out
+        n = SR * 26 / 10; static const float cl[3][5] = {{55, 58.3f, 82.4f, 1661, 1760}, {49, 51.9f, 73.4f, 1480, 1568}, {61.7f, 65.4f, 92.5f, 1865, 1976}};
+        float ph[5] = {0}; lp = 0; float lp2 = 0, rv[2205] = {0};
+        for (int i = 0; i < n; i++) { float a = 0; for (int k = 0; k < 5; k++) { float vib = k >= 3 ? 1 + 0.012f * sinf(T * 2 * PI * (6.5f + k)) : 1; ph[k] += cl[v][k] * vib / SR; float saw = 2 * (ph[k] - floorf(ph[k])) - 1; a += saw * (k < 3 ? 0.55f : 0.32f); }
+            lp += (a - lp) * 0.32f; lp2 += (nz() - lp2) * 0.5f;
+            float hit = (T < 0.09f ? nz() * (1 - T / 0.09f) * 1.4f : 0) + sinf(T * 2 * PI * (42 + 60 * expf(-T * 18))) * expf(-T * 3.5f) * 1.5f;
+            float env = fminf(T * 160, 1) * (T < 0.45f ? 1 : expf(-(T - 0.45f) * 2.2f));
+            float x = lp * env * 1.1f + hit + lp2 * 0.25f * expf(-T * 6);
+            float r = rv[i % 2205]; rv[i % 2205] = x * 0.5f + r * 0.55f; b[i] = tanhf((x + r * 0.6f) * 1.2f); }
+        sScare[v] = mkS(b, n); }
+    n = SR * 3; lp = 0; for (int i = 0; i < n; i++) { float cyc = fmodf(T, 1.5f); float env = cyc < 0.7f ? sinf(cyc / 0.7f * PI) : sinf((cyc - 0.7f) / 0.8f * PI) * 0.6f; float rasp = 0.6f + 0.4f * sinf(T * 2 * PI * 38) * sinf(T * 2 * PI * 3); lp += (nz() - lp) * 0.09f; b[i] = lp * 3.4f * env * env * rasp; } sBreathNear = mkS(b, n);   // breathing, wet and close: something right behind you
     n = SR * 2; lp = 0; for (int i = 0; i < n; i++) { float cyc = fmodf(T, 1.0f); float env = cyc < 0.45f ? sinf(cyc / 0.45f * PI) : sinf((cyc - 0.45f) / 0.55f * PI) * 0.7f; lp += (nz() - lp) * 0.06f; b[i] = lp * 3.0f * env; } sBreath = mkS(b, n);
     n = SR * 16 / 10; { float ph = 0; lp = 0; for (int i = 0; i < n; i++) { float f = 520 + 300 * sinf(T * 37) + 180 * nz(); ph += f / SR; float sq = sinf(ph * 2 * PI) > 0 ? 1 : -1; lp += (sq * 0.6f + nz() * 0.6f - lp) * 0.45f; b[i] = lp * sinf(fminf(T / 1.6f, 1) * PI) * 0.95f; } } sScream = mkS(b, n);
     {   // public-broadcast jingle: cheerful arpeggio on a worn tape (wow/flutter + bitcrush)
@@ -766,8 +778,10 @@ static int randomLoot(int kind) {   // kind 0 house 1 apartment 2 shop 3 konbini
     return r < 0.20f ? IT_FOOD : r < 0.36f ? IT_DRINK : r < 0.48f ? IT_BANDAGE : r < 0.57f ? IT_BATTERY : r < 0.70f ? IT_PLANKS : r < 0.76f ? IT_OFUDA : r < 0.80f ? IT_SALT : r < 0.88f ? IT_MANGA : r < 0.93f ? IT_VHS : IT_RAMEN;
 }
 static int lootAmount(int t) { return t == IT_PLANKS ? 2 + ri(3) : t == IT_AMMO ? 2 + ri(2) : t == IT_OFUDA ? 1 + ri(2) : 1; }
+static Rectangle subRes[4]; static int nSubRes;   // 0.9.8: the subway stair mouths, kept clear of everything placed later
 static bool pointFree(float x, float z, float r, float yTop) {   // (x, z) in the current building frame while generating
     Vector3 W = xfP(curXf, (Vector3){x, 0, z});
+    for (int i = 0; i < nSubRes; i++) if (yTop > SIDEH - 0.5f && W.x + r > subRes[i].x && W.x - r < subRes[i].x + subRes[i].width && W.z + r > subRes[i].y && W.z - r < subRes[i].y + subRes[i].height) return false;
     query(W.x - r * 1.5f, W.z - r * 1.5f, W.x + r * 1.5f, W.z + r * 1.5f);
     for (int k = 0; k < qn; k++) {
         Solid *s = &sol[qb[k]];
@@ -1112,7 +1126,7 @@ static void freeWorld(void) {
         if (chLodOk[c]) { UnloadModel(chLod[c]); chLodOk[c] = false; } chAny[c] = false; }
     for (int c = 0; c < GN * GN; c++) cellN[c] = 0;
     nSol = nOps = nVend = nLight = nSign = nLamp = nCrate = nBuild = nItem = nCr = nWard = nScreen = nFire = nTV = nCar = 0;
-    nCont = nDeb = nStair = nHole = 0; nPit = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
+    nCont = nDeb = nStair = nHole = 0; nPit = 0; nSubRes = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
     memset(parts, 0, sizeof parts);
 }
 static Model mbModel(MB *b, int t) {
@@ -1256,6 +1270,7 @@ static void genWorld(unsigned int seed) {
     genWilds();
     genWater();
     worldSolids = nSol; worldLights = nLight;
+    TraceLog(LOG_INFO, "WINFILL %d windows walled up where an inner wall meets them", jpWinFilled); jpWinFilled = 0;
     if (nHandDoor) TraceLog(LOG_INFO, "HANDDOORS %d doorway markers, %d doorways cut", nHandDoor, jpDoorsHand);
     TraceLog(LOG_INFO, "HOUSEDETAILS %d wall details left off (they reached into another building's lot)", bdSkipped); bdSkipped = 0;
     TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings, %d basements, %d lights, %d signs, %d frames", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot, nPit, nLight, nSign, nXf);
@@ -1451,7 +1466,7 @@ static void updateSanity(float dt, Vector3 aim) {
         Cr *c = &crs[i]; if (!c->on || c->state == CS_DEAD) continue;
         Vector3 d = Vector3Subtract(crCenter(c), eye); float L = Vector3Length(d);
         if (L < nearest) nearest = L;
-        if (L < 30 && Vector3DotProduct(Vector3Scale(d, 1 / L), aim) > 0.75f && (L < 12 || pl.flash)) visible++;
+        if (L < 30 && Vector3DotProduct(Vector3Scale(d, 1 / L), aim) > 0.75f && (L < 12 || pl.flash) && L < gFogSight && lineOfSight(eye, crCenter(c))) visible++;   // (only what you can actually see wears on you)
     }
     pl.peaceT = nearest > 25 ? pl.peaceT + dt : 0;
     float g = 0, l = 0;
@@ -1726,8 +1741,18 @@ static void drawCreatureBody(Cr *c) {
     float a = c->t * (c->type == 2 ? 12 : 7);
     float *w = c->tw; bool alive = c->state != CS_DEAD;
     if (!alive) for (int k = 0; k < 6; k++) w[k] *= 0.9f;
-    Color tn = c->hurt > 0.12f ? (Color){255, 255, 255, 255} : c->hurt > 0 ? (Color){255, 70, 60, 255} : WHITE;
+    Color tn = c->hurt > 0.12f ? (Color){255, 255, 255, 255} : c->hurt > 0 ? (Color){255, 70, 60, 255} : (Color){172, 164, 162, 255};   // 0.9.8: greyer, darker skin and cloth
     if (c->flinch > 0.01f && c->state != CS_DEAD) base = MatrixMultiply(MatrixMultiply(MatrixRotateX(-c->flinch * 0.55f), MatrixRotateY(c->yaw)), MatrixTranslate(c->pos.x, c->pos.y - sink, c->pos.z));
+    {   // 0.9.8: the people-shaped ones are drawn too tall and too thin, hunch forward when they run, and now and then skip a frame
+        int ty = c->type; bool hum = ty == 0 || ty == 1 || ty == 5 || ty == 6 || ty == 9 || ty == 10 || ty == 14 || ty == 15 || ty == 16 || ty == 17;
+        int ci = (int)(c - crs); static float glitchT[MAX_CR]; static Vector3 glitchO[MAX_CR];
+        if (hum) base = MatrixMultiply(MatrixScale(0.86f, 1.1f, 0.86f), base);
+        if (alive && c->state == CS_CHASE && ty != 7) base = MatrixMultiply(MatrixRotateX(0.2f + 0.05f * sinf(c->t * 9)), base);
+        if (alive && ci >= 0 && ci < MAX_CR) { float dt = GetFrameTime();
+            if (glitchT[ci] > 0) glitchT[ci] -= dt;
+            else if (Vector3Distance(c->pos, pl.pos) < 16 && fr(0, 1) < dt * 0.25f) { glitchT[ci] = fr(0.06f, 0.16f); glitchO[ci] = V3(fr(-0.3f, 0.3f), 0, fr(-0.3f, 0.3f)); w[0] += fr(-1.2f, 1.2f); w[5] += fr(-0.8f, 0.8f); }
+            if (glitchT[ci] > 0) base = MatrixMultiply(base, MatrixTranslate(glitchO[ci].x, 0, glitchO[ci].z)); }
+    }
     float wind = c->wind > 0 ? 1 - c->wind / 0.38f : 0;
     if (c->type >= 5) { drawCreature2(c, base, tn, w, a, wind); return; }
     if (c->type == 0) {   // bound, faceless
@@ -2485,11 +2510,11 @@ int main(int argc, char **argv) {
                 if (bf == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; DisableCursor();
                     for (int i = 0; i < nCr; i++) crs[i].on = false;
                     bp = nPit > 5 ? 5 : nPit - 1;
-                    if (bp >= 0) { Pit *q = &pits[bp]; bool rx = q->r.width > q->r.height; Vector3 L0 = rx ? V3(q->r.x + 0.25f, 0, q->r.y + q->r.height / 2) : V3(q->r.x + q->r.width / 2, 0, q->r.y + 0.25f);
-                        Vector3 L1 = Vector3Add(L0, rx ? V3(1, 0, 0) : V3(0, 0, 1)); Vector3 a = xfP(q->f, L0), b = xfP(q->f, L1); bdir = Vector3Subtract(b, a);
+                    if (bp >= 0) { Pit *q = &pits[bp]; bool rx = q->r.width > q->r.height; Vector3 L0 = rx ? V3(q->r.x + q->r.width + 0.3f, 0, q->r.y + q->r.height / 2) : V3(q->r.x + q->r.width / 2, 0, q->r.y + q->r.height + 0.3f);   /* 0.9.7: the flight down starts at the far end */
+                        Vector3 L1 = Vector3Add(L0, rx ? V3(-1, 0, 0) : V3(0, 0, -1)); Vector3 a = xfP(q->f, L0), b = xfP(q->f, L1); bdir = Vector3Subtract(b, a);
                         pl.pos = V3(a.x, SIDEH + 0.02f, a.z); pl.vy = 0; pl.tyaw = pl.yaw = atan2f(bdir.x, bdir.z); pl.tpitch = pl.pitch = -0.3f; pl.flash = true; pl.batt = 100;
                         vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_W] = 1; TraceLog(LOG_INFO, "BASETEST pit %d of %d at %.1f %.1f", bp, nPit, a.x, a.z); } }
-                if (bf > 5 && bf < 100 && bf % 10 == 0) TraceLog(LOG_INFO, "BASEDBG f%d y %.2f", bf, pl.pos.y);
+                if (bf > 5 && bf < 180 && bf % 10 == 0) TraceLog(LOG_INFO, "BASEDBG f%d y %.2f at %.2f %.2f", bf, pl.pos.y, pl.pos.x, pl.pos.z);
                 if (bf == 100) { TraceLog(LOG_INFO, "BASETEST down: reached y %.2f (basement floor %.2f)", pl.pos.y, SIDEH - FH); TakeScreenshot("base_bottom.png"); pl.tyaw = pl.yaw = atan2f(-bdir.x, -bdir.z); pl.tpitch = pl.pitch = 0.2f; }
                 if (bf == 104) TakeScreenshot("base_look_up.png");
                 if (bf == 180) { TraceLog(LOG_INFO, "BASETEST up: reached y %.2f", pl.pos.y); vin.on = false; break; } } }
@@ -2501,8 +2526,8 @@ int main(int argc, char **argv) {
                 { Vector3 w_ = seaSidePt(nCoast / 2, 30); Vector3 c_ = coastP[nCoast / 2 + 3]; Vector3 d_ = Vector3Normalize(V3(w_.x - coastP[nCoast / 2].x, 0, w_.z - coastP[nCoast / 2].z));
                   TraceLog(LOG_INFO, "LOOK sw c %.1f %.1f d %.3f %.3f", c_.x, c_.z, d_.x, d_.z);
                   for (float o = 0; o <= 30; o += 2) { float x = c_.x + d_.x * o, z = c_.z + d_.z * o; TraceLog(LOG_INFO, "LOOK sw o %.0f guard %d mr %d h %.2f cd %.1f cs %.1f seaw %d sea %d city %d town %d", o, ribbonGuard(coastP, x, z, 5.2f), mainRoadAt(x, z, 0.3f), terrainH(x, z), coast_d(x, z), coastSigned(x, z), coastSeaward(x, z), seaSide(x, z), cityLand(x, z), inTownRaw(x, z)); } }
-                if (getenv("KIRI_CRSHOT")) { cht.on[CH_PEACE] = false; for (int i = 0; i < nCr; i++) crs[i].on = false; float bx, bz; if (sscanf(getenv("KIRI_CRSHOT"), "%f %f", &bx, &bz) == 2)
-                    for (int t = 10; t < 18; t++) { int s2 = spawnAt(V3(bx + (t - 13.5f) * 2.2f, SIDEH, bz), t, false); if (s2 >= 0) { crs[s2].yaw = PI; crs[s2].t = 0; } } }
+                if (getenv("KIRI_CRSHOT")) { cht.on[CH_PEACE] = false; for (int i = 0; i < nCr; i++) crs[i].on = false; float bx, bz; int t0 = 10; if (sscanf(getenv("KIRI_CRSHOT"), "%f %f %d", &bx, &bz, &t0) >= 2)
+                    for (int t = t0; t < t0 + 8; t++) { int s2 = spawnAt(V3(bx + (t - t0 - 3.5f) * 2.2f, SIDEH, bz), t, false); if (s2 >= 0) { crs[s2].yaw = PI; crs[s2].t = 0; } } }
                 if (getenv("KIRI_GORESHOT")) { int k = 0; static const int pat[8] = {GB_HEAD, GB_ARM0, GB_ARM1 | GB_LEG0, GB_HEAD | GB_ARM1, GB_LEG1, GB_ARM0 | GB_ARM1, GB_HEAD, 0};
                     for (int i = 0; i < nCr; i++) { if (!crs[i].on) continue; Gore *g = &gore[i]; g->lost = g->pend = pat[k % 8]; for (int q = 0; q < 5; q++) g->severT[q] = 0.0001f;
                         for (int w2 = 0; w2 < 4; w2++) g->w[g->nw++] = (Wound){fr(-1.2f, 1.2f), crHeight(crs[i].type) * fr(0.5f, 1.0f), fr(0.08f, 0.16f)};
@@ -2894,15 +2919,15 @@ int main(int argc, char **argv) {
         // ---- render 3D low-res
         float flash = (pl.flash && (state == ST_PLAY || gameActive)) ? (pl.batt < 15 ? (hash2((int)(t * 15), 0, 1) > 0.3f ? 1 : 0.1f) : 1) : 0;
         if (!gameActive && state != ST_PLAY) flash = 0;
-        float muzzle = pl.muzzle > 0 ? 1 : 0, amb = 0.30f, fogD = 0.040f, snap[2] = {(float)rtW * 2, (float)rtH * 2};   // (vertices snap to whole render pixels: the PS1 look without walls swimming a pixel wider and back)
+        float muzzle = pl.muzzle > 0 ? 1 : 0, amb = 0.30f, fogD = 0.055f, snap[2] = {(float)rtW * 2, (float)rtH * 2};   // (vertices snap to whole render pixels: the PS1 look without walls swimming a pixel wider and back)
         {   // the wilds are bright, clear and wrong; the subway is darker than the street
             float wk = (state == ST_PLAY || gameActive) ? wildK(cam.position) : 0;
             Vector3 dark = {0.075f, 0.08f, 0.095f}, sky = {0.46f, 0.70f, 0.94f};
-            if (cam.position.y < -40 || inBore(cam.position.x, cam.position.z, cam.position.y)) { amb = 0.16f; fogD = 0.055f; dark = (Vector3){0.03f, 0.035f, 0.035f}; }
+            if (cam.position.y < -40 || inBore(cam.position.x, cam.position.z, cam.position.y)) { amb = 0.16f; fogD = 0.07f; dark = (Vector3){0.03f, 0.035f, 0.035f}; }
             else if (gameActive) {   // day: flat grey overcast over the dead city; night: the old darkness
                 float dk = dayK(); float dusk = (pl.tod > 16 && pl.tod < 20.5f) ? sinf((pl.tod - 16) / 4.5f * PI) : 0;
                 dark = Vector3Lerp(dark, (Vector3){0.47f, 0.50f, 0.53f}, dk); dark = Vector3Lerp(dark, (Vector3){0.42f, 0.27f, 0.22f}, dusk * 0.45f);
-                amb = Lerp(amb, 0.82f, dk); fogD = Lerp(fogD, 0.017f, dk);
+                amb = Lerp(amb, 0.82f, dk); fogD = Lerp(fogD, 0.028f, dk);   // 0.9.8: thicker: about 54 m by day, 28 m by night
             }
             Vector3 fc = Vector3Lerp(dark, sky, wk);
             amb = Lerp(amb, 0.95f, wk); fogD = Lerp(fogD, 0.009f, wk);
@@ -2923,7 +2948,7 @@ int main(int argc, char **argv) {
         SetShaderValue(sh, locMuzzle, &muzzle, SHADER_UNIFORM_FLOAT);
         { static int clr = -1; if (clr < 0) clr = getenv("KIRI_CLEAR") != NULL; if (clr) { amb = 1.0f; fogD = 0.002f; } }   // test shots: clear daylight
         SetShaderValue(sh, locAmb, &amb, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT); gFogD = fogD;
+        SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT); gFogD = fogD; if (gameActive) gFogSight = fogD > 1e-4f ? 1.52f / (fogD / fmaxf(gs.fog, 0.1f)) : 1e9f;
         if (!gs.wobble) { snap[0] = snap[1] = 16384; }
         SetShaderValue(sh, locSnap, snap, SHADER_UNIFORM_VEC2);
         float desat = (state == ST_PLAY || gameActive) ? (pl.stage == 1 ? 0.35f : pl.stage >= 2 ? 0.65f : 0) + (pl.sanity < 30 ? (30 - pl.sanity) / 60.0f : 0) : 0;
@@ -3059,7 +3084,7 @@ int main(int argc, char **argv) {
             if (frame == 199) { pl.invOpen = false; pl.openC = -1;
                 for (int i = 0; i < nStair; i++) if (stairs[i].top.y > 5 && stairs[i].top.y < 8) { pl.pos = stairs[i].top; Vector3 d = Vector3Subtract(stairs[i].top, stairs[i].bot); pl.tyaw = pl.yaw = atan2f(-d.x, -d.z); pl.tpitch = pl.pitch = -0.35f; pl.vy = 0; break; } }
             if (frame == 205) TakeScreenshot("shot_floor.png");
-            if (frame == 206) { pl.pos = V3(ROADW + 2 * PITCH + 30, SUBY + 0.9f, TUN_Z1 - 1.7f); pl.tyaw = pl.yaw = PI / 2 + 0.25f; pl.tpitch = pl.pitch = 0; pl.flash = true; pl.batt = 100; spawnUnderground(); }
+            if (frame == 206) { pl.pos = V3(subX0 + 30, SUBY + 0.9f, TUN_Z1 - 1.7f); pl.tyaw = pl.yaw = PI / 2 + 0.25f; pl.tpitch = pl.pitch = 0; pl.flash = true; pl.batt = 100; spawnUnderground(); }
             if (frame == 212) TakeScreenshot("shot_subway.png");
             if (frame == 213) { for (int i = 0; i < nCr; i++) crs[i].on = false; pl.pos = V3(-70, 0, CITY / 2); pl.pos.y = terrainH(pl.pos.x, pl.pos.z); pl.tyaw = pl.yaw = -PI / 2 - 0.4f; pl.tpitch = pl.pitch = 0.05f; }
             if (frame == 220) TakeScreenshot("shot_wild.png");

@@ -5,6 +5,9 @@ static void glowEyes(Matrix H, Vector3 a, Vector3 b, float s, Color c) {   // tw
     ADRAW("creatures/common/eye_l", MatrixMultiply(MatrixTranslate(a.x, a.y, a.z), H), c, BX(T_PLAIN, 0, 0, 0, 0.035f, 0.025f, 0.02f, CWH));
     ADRAW("creatures/common/eye_r", MatrixMultiply(MatrixTranslate(b.x, b.y, b.z), H), c, BX(T_PLAIN, 0, 0, 0, 0.035f, 0.025f, 0.02f, CWH));
     setEmis(0); (void)s;
+    // 0.9.8: black streaks run down from both eyes
+    ADRAW("creatures/common/tear", MatrixMultiply(MatrixTranslate(a.x, a.y - 0.07f, a.z + 0.003f), H), WHITE, BX(T_PLAIN, 0, 0, 0, 0.022f, 0.12f, 0.012f, ((Color){12, 6, 6, 255})));
+    ADRAW("creatures/common/tear", MatrixMultiply(MatrixTranslate(b.x, b.y - 0.08f, b.z + 0.003f), H), WHITE, BX(T_PLAIN, 0, 0, 0, 0.022f, 0.12f, 0.012f, ((Color){12, 6, 6, 255})));
 }
 // ---- creatures 10..17 (0.9.0)
 #define CRC(r, g, b) ((Color){r, g, b, 255})

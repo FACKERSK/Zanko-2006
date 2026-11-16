@@ -1737,6 +1737,42 @@ static void genDistrict(void) {
     for (float x = DX0 + 8; x < DIST_TUN_X - 8; x += 24) { box(T_METAL, V3(x - 0.1f, SIDEH, DZ1 - 0.6f), V3(x + 0.1f, SIDEH + 6, DZ1 - 0.4f), rgb(150, 150, 150), true, ALL);
         addLight(V3(x, SIDEH + 5.6f, DZ1 - 1.5f), V3(1.0f, 0.8f, 0.55f), 12, ri(3) ? 0 : 1); }
 }
+// 0.9.8: the subway line, laid where the planned town leaves room for it: a straight band along x with no building over it
+// (under streets and greens), and two or three stair mouths on open pavement beside it.
+static void subwayPlace(void) {
+    nSubEx = 0; nSubEnt = 0; subX0 = subX1 = 0;
+    const int X0 = 10, Z0 = 10, NX = (int)CITY - 20, NZ = (int)CITY - 20;
+    unsigned char *ok = calloc((size_t)NX * NZ, 1);
+    for (int j = 0; j < NZ; j++) for (int i = 0; i < NX; i++) { float x = X0 + i + 0.5f, z = Z0 + j + 0.5f;
+        ok[j * NX + i] = cityLand(x, z) && !lotAt(x, z) && !inRiverRaw(x, z) && !inPit(x, z) && coast_d(x, z) > 5; }
+    int bestZ = -1, bestA = 0, bestB = 0; float bestS = 0;
+    for (int j = 0; j + 11 < NZ; j++) {   // band rows j .. j+10 (the tunnel and its walls)
+        int run = 0;
+        for (int i = 0; i <= NX; i++) {
+            bool c = i < NX; for (int k = 0; k <= 10 && c; k++) c = ok[(j + k) * NX + i];
+            if (c) { run++; continue; }
+            if (run > 70) { float sc = fminf((float)run, 220); if (sc > bestS) { bestS = sc; bestZ = j; bestA = i - run; bestB = i; } }
+            run = 0; } }
+    free(ok);
+    if (bestZ < 0) { TraceLog(LOG_INFO, "SUBWAY no room for a line"); return; }
+    if (bestB - bestA > 220) { int m = (bestA + bestB) / 2; bestA = m - 110; bestB = m + 110; }
+    SUB_Z = Z0 + bestZ + 0.2f;   // (the stair mouths land on the pavement's half-metre grid)
+    float LX0 = (float)(X0 + bestA + 1), LX1 = (float)(X0 + bestB - 1);
+    float zM0 = SUB_Z + ROADW + 0.3f;   // the shaft's near side
+    for (int e = 0; e < 3 && nSubEx < 3; e++) {   // a mouth near each third of the line
+        float want = LX0 + (LX1 - LX0) * (0.17f + e * 0.33f) - 19; bool got = false;
+        for (int d = 0; d < 40 && !got; d++) for (int sg = -1; sg <= 1 && !got; sg += 2) {
+            float x0 = floorf(want) + d * sg; if (x0 + 14 - 1.5f < LX0 + 1 || x0 + 24 + 1 > LX1) continue;
+            if (nSubEx > 0 && x0 < subEx[nSubEx - 1] + 26) continue;
+            bool fit = true; float hx0 = x0 + 14, hx1 = x0 + 24;
+            for (float x = hx0 - 1.4f; x <= hx1 + 0.6f && fit; x += 0.5f) for (float z = zM0 - 0.5f; z <= zM0 + 3.1f && fit; z += 0.5f)
+                fit = cityLand(x, z) && !lotAt(x, z) && !mainRoadAt(x, z, 0.4f) && !inRiverRaw(x, z) && !inPit(x, z) && coast_d(x, z) > 6 && pointFree(x, z, 0.2f, SIDEH + 0.05f);
+            if (fit) { subEx[nSubEx++] = x0; got = true; } } }
+    if (nSubEx == 0) { TraceLog(LOG_INFO, "SUBWAY line at z %.1f has no open pavement for a stair", SUB_Z); return; }
+    subX0 = LX0; subX1 = LX1;
+    genSubway();
+    TraceLog(LOG_INFO, "SUBWAY line x %.0f..%.0f at z %.1f, %d entrances", LX0, LX1, SUB_Z, nSubEx);
+}
 static void genLayoutWorld(void) {
     // coast road: two lanes, pavement on the land side, seawall on the sea side
     Color asp = rgb(255, 255, 255);
@@ -2138,6 +2174,7 @@ static void genLayoutWorld(void) {
         curXf = 0;
     }
     bdOwn = -1;
+    subwayPlace();
     blockGreens();
     genDistrict();
     townSurface();   // the pavement over the whole town, the roads cut out of it, kerbs along every cut

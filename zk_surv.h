@@ -317,6 +317,9 @@ static void renderMapScene(float t) {
         Vector3 k1 = Vector3Scale(Vector3Add(dd, sd), 4.2f), k2 = Vector3Scale(Vector3Subtract(dd, sd), 4.2f);
         DrawCylinderEx(Vector3Subtract(e, k1), Vector3Add(e, k1), 1.1f, 1.1f, 4, MP_X); DrawCylinderEx(Vector3Subtract(e, k2), Vector3Add(e, k2), 1.1f, 1.1f, 4, MP_X); }
     for (int i = 0; i < nHole; i++) { Vector3 c = V3(holes[i].x + holes[i].width / 2, 2.0f, holes[i].y + holes[i].height / 2); DrawCylinder(c, 3.2f, 3.2f, 1.6f, 12, MP_EDGE); DrawCylinder(V3(c.x, c.y + 0.2f, c.z), 2.5f, 2.5f, 1.6f, 12, MP_SUB); }
+    for (int i = 0; i < nSubEnt; i++) { Vector3 c = V3(subEnt[i].x, 2.0f, subEnt[i].y);   // subway entrances: green disc with a white post
+        DrawCylinder(c, 5.0f, 5.0f, 1.8f, 16, MP_EDGE); DrawCylinder(V3(c.x, c.y + 0.2f, c.z), 4.2f, 4.2f, 1.8f, 16, (Color){70, 190, 110, 255});
+        DrawCube(V3(c.x, c.y + 2.6f, c.z), 1.4f, 1.4f, 4.6f, (Color){236, 240, 236, 255}); DrawCube(V3(c.x, c.y + 2.6f, c.z), 4.6f, 1.4f, 1.4f, (Color){236, 240, 236, 255}); }
     for (int i = 0; i < nWs; i++) DrawSphere(V3(wsrc[i].pos.x, fmaxf(0, wsrc[i].pos.y * 0.5f) + 1.5f, wsrc[i].pos.z), 1.6f, MP_CYAN);
     if (baseShrine >= 0 && builds[baseShrine].alive) { Vector3 c = builds[baseShrine].mn; mapPin(V3(c.x, fmaxf(0, c.y * 0.5f), c.z), (Color){220, 60, 50, 255}, 1.2f); }
     for (int i = 0; i < nMark; i++) mapPin(V3(marks[i].x, terrainH(marks[i].x, marks[i].y) > 0 ? terrainH(marks[i].x, marks[i].y) * 0.5f : 0, marks[i].y), MP_TUN, 1.2f);
@@ -350,8 +353,8 @@ static void drawMap(float W, float H) {
     DrawRectangleLinesEx(mr, 2 * s, (Color){8, 10, 10, 255});
     float ly = mr.y + mr.height + 10 * s, lx = mr.x;
     struct { Color c; const char *t; } leg[] = {{MP_BLD, "Buildings"}, {MP_OLD, "Old houses"}, {MP_SEA, "Bay"}, {MP_HILL_LO, "Hills"}, {MP_ROAD, "Roads"}, {{70, 88, 91, 255}, "Railway"},
-        {MP_TUN, "Road tunnel"}, {MP_X, "Collapse"}, {MP_CYAN, "Water"}, {MP_TUN, "Markers"}};
-    for (int i = 0; i < 10; i++) { DrawRectangle((int)lx, (int)(ly + 3 * s), (int)(12 * s), (int)(12 * s), leg[i].c); aText(leg[i].t, lx + 16 * s, ly, 12, C_BONE2, false); lx += (aMeasure(leg[i].t, 12, false).x + 34 * s); }
+        {MP_TUN, "Road tunnel"}, {MP_X, "Collapse"}, {MP_CYAN, "Water"}, {{70, 190, 110, 255}, "Subway"}, {MP_TUN, "Markers"}};
+    for (int i = 0; i < 11; i++) { DrawRectangle((int)lx, (int)(ly + 3 * s), (int)(12 * s), (int)(12 * s), leg[i].c); aText(leg[i].t, lx + 16 * s, ly, 12, C_BONE2, false); lx += (aMeasure(leg[i].t, 12, false).x + 24 * s); }
     aText(padActive ? "A marker   X remove nearest   Left stick pan   Right stick rotate   RT / LT zoom   B close" : TextFormat("LMB marker   RMB drag rotate / click remove   WASD pan   Wheel zoom   %s / Esc close", actKey(A_MAP)), mr.x, ly + 20 * s, 12, C_BONE2, false);
     Vector2 m = aMousePos(); bool over = CheckCollisionPointRec(m, mr);
     if (over) {

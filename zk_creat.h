@@ -30,6 +30,8 @@ static bool lineOfSight(Vector3 a, Vector3 b) {
     return true;
 }
 static float stingCd = 0;
+static float scareCd = 0, breathCd = 0, crUnseen[MAX_CR];   // jump scares (0.9.7): one stab at most every 30 s
+static void scare(void) { if (scareCd > 0 || !audioOk) return; Sound sn = sScare[ri(3)]; SetSoundVolume(sn, 0.95f * gs.sfx); SetSoundPitch(sn, fr(0.94f, 1.05f)); PlaySound(sn); scareCd = 30; stingCd = 9; pl.shake = fmaxf(pl.shake, 0.4f); pl.sanity -= 4; }
 static void sting(Vector3 p) { if (stingCd <= 0 && audioOk) { SetSoundVolume(sStinger, 0.75f * gs.sfx); SetSoundPitch(sStinger, fr(0.9f, 1.1f)); PlaySound(sStinger); stingCd = 9; } (void)p; }
 static int crDamageOf(int type) { switch (type) { case 1: return 18; case 2: return 7; case 3: return 9; case 5: return 22; case 6: return 14; case 7: return 15; case 8: return 12; case 9: return 26; case 10: return 20; case 11: return 9; case 12: return 10; case 13: return 24; case 14: return 13; case 15: return 19; case 16: return 6; case 17: return 14; default: return 11; } }
 static float crBleedOf(int type) { switch (type) { case 2: return 0.6f; case 3: return 0.7f; case 5: return 0.6f; case 8: return 0.7f; case 6: return 0.3f; case 10: return 0.85f; case 11: return 0.6f; case 13: return 0.75f; case 14: return 0.9f; case 15: return 0.15f; case 16: return 0.5f; case 17: return 0.35f; default: return 0.45f; } }
@@ -95,7 +97,7 @@ static float wildK(Vector3 p);
 static void updateCreatures(float dt, Vector3 aim) {
     float nearest = 1e9f;
     int aliveTop = 0, spirits = 0, stalkers = 0, chasing = 0;
-    stingCd -= dt;
+    stingCd -= dt; scareCd -= dt; breathCd -= dt;
     Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
     float stealth = (1 - 0.08f * skLvl(SK_STEALTH)) * (actHeld(A_CROUCH) ? 0.55f : 1.0f) * (1 - 0.25f * rainK);   // rain hides you a little
     for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0) { wards[w].life -= dt; if (wards[w].life <= 0) wards[w].on = false; }
@@ -128,6 +130,10 @@ static void updateCreatures(float dt, Vector3 aim) {
         Vector3 to = V3(tp.x - c->pos.x, 0, tp.z - c->pos.z);
         float dist = Vector3Length(to), dist3 = Vector3Distance(c->pos, tp);
         bool lookedAt = Vector3DotProduct(Vector3Normalize(Vector3Subtract(crCenter(c), teye)), taim) > 0.8f && (tfl || dist < 12);
+        if (tgt < 0 && !c->phantom && c->type != 4) {   // the scares: turning round onto one close up; breathing at your back
+            bool inView = Vector3DotProduct(Vector3Normalize(Vector3Subtract(crCenter(c), teye)), taim) > 0.6f && dist3 < 14;
+            if (inView && c->seen) { if (crUnseen[i] > 3.0f && dist3 < 4.5f) scare(); crUnseen[i] = 0; } else crUnseen[i] += dt;
+            if (!inView && dist3 < 5.0f && breathCd <= 0) { playAt(sBreathNear, crCenter(c), 9, 0.9f); breathCd = fr(4, 7); } }
         // ---- line of sight, checked a few times a second
         c->losCheck -= dt;
         if (c->losCheck <= 0) { c->losCheck = fr(0.18f, 0.3f); c->seen = dist3 < 45 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.3f, 0)), teye); }
@@ -135,14 +141,14 @@ static void updateCreatures(float dt, Vector3 aim) {
             spirits++;
             if (dist < nearest) nearest = dist;
             Vector3 fwdS = V3(sinf(c->yaw), 0, cosf(c->yaw));
-            bool sees = c->seen && dist < 24 * tstealth && (Vector3DotProduct(fwdS, Vector3Scale(to, 1 / fmaxf(dist, 0.01f))) > -0.2f || dist < 5);
+            bool sees = c->seen && dist < fminf(24 * tstealth, gFogSight) && (Vector3DotProduct(fwdS, Vector3Scale(to, 1 / fmaxf(dist, 0.01f))) > -0.2f || dist < 5);
             // after giving up it leaves: heads away from you, ignores you for a while, and fades out once far enough
             c->calm -= dt;
             if (c->calm > 0 && dist > 2.5f) sees = false;
             if (c->state == CS_CHASE) c->chaseT += dt;
             bool giveUp = false;
-            if (sees) { c->losT = 0; c->lastKnown = tp; if (c->state != CS_CHASE) { c->state = CS_CHASE; c->chaseT = 0; sting(c->pos); } }
-            else if (c->state == CS_CHASE) { c->losT += dt; if (c->losT > 3.0f) giveUp = true; }
+            if (sees) { c->losT = 0; c->lastKnown = tp; if (c->state != CS_CHASE) { c->state = CS_CHASE; c->chaseT = 0; if (dist3 < 9 && lookedAt && tgt < 0) scare(); else sting(c->pos); } }
+            else if (c->state == CS_CHASE) { c->losT += dt; if (c->losT > 5.0f) giveUp = true; }
             if (c->state == CS_CHASE && c->chaseT > 40) giveUp = true;   // no spirit hunts forever
             if (inWard(tp, 0) && c->state == CS_CHASE) giveUp = true;
             if (giveUp) { Vector3 away = dist > 0.1f ? Vector3Scale(to, -1 / dist) : V3(1, 0, 0);
@@ -197,7 +203,8 @@ static void updateCreatures(float dt, Vector3 aim) {
         }
         // ---- perception
         float sight = crSightOf(c->type) * tstealth * (tfl ? 1.25f : 1.0f);
-        bool sees = c->seen && (dist3 < sight || (tfl && dist3 < sight * 1.8f && lookedAt)) && fabsf(tp.y - c->pos.y) < 6;
+        float fogR = gFogSight * (tfl ? 1.5f : 1.0f);   // 0.9.8: no further than the fog lets you see (a lit torch shows a little further)
+        bool sees = c->seen && (dist3 < fminf(sight, fogR) || (tfl && dist3 < fminf(sight * 1.8f, fogR) && lookedAt)) && fabsf(tp.y - c->pos.y) < 6;
         if (c->type == 7 && dist3 > 13) sees = false;
         if (sees) { c->losT = 0; c->lastKnown = tp; }
         if (c->state == CS_WANDER) {
@@ -205,12 +212,12 @@ static void updateCreatures(float dt, Vector3 aim) {
                 c->state = CS_CHASE; c->lastKnown = tp;
                 if (c->type >= 10 && c->type <= 17) { SetSoundPitch(sCrV[c->type - 10], 1.15f); playAt(sCrV[c->type - 10], c->pos, 45, 1.0f); }
                 else if (c->type != 5 && c->type != 7) playAt(sScreech, c->pos, 35, 0.5f);
-                if (dist < 18) sting(c->pos);
+                if (dist < 9 && lookedAt && tgt < 0) scare(); else if (dist < 18) sting(c->pos);
                 if (c->type == 6) c->scream = 0;
                 c->chaseT = 0;   // (the kuchisake stares first)
             }
         } else {
-            if (!sees) { c->losT += dt; if (c->losT > (c->type == 9 ? 14 : 8) && Vector3Distance(c->pos, c->lastKnown) < 2.5f) { c->state = CS_WANDER; c->tgt = c->pos; } }
+            if (!sees) { c->losT += dt; if (c->losT > 5.0f) { c->state = CS_WANDER; c->tgt = c->lastKnown; } }   // out of sight for 5 s: lost (it goes to look where you were last)
             if (dist > 90 && !evacOn) c->state = CS_WANDER;
         }
         if (c->state == CS_CHASE && dist < 20) chasing++;
@@ -235,6 +242,8 @@ static void updateCreatures(float dt, Vector3 aim) {
             if (c->sideT > 0) { c->sideT -= dt; goal = c->tgt; }
             if (c->type == 1 && dist < 4.5f && dist > 1.6f) spd = 6.2f;                 // long-neck lunge
             if (c->type == 10) { c->chaseT += dt; if (c->chaseT < 1.1f) spd = 0; else spd = 7.2f; }   // kuchisake: a long stare, then she runs
+            else if (c->chaseT < 0.9f && dist > 6) { spd = 0; c->chaseT += dt; for (int k = 0; k < 6; k++) c->tw[k] = (k == 0 ? fr(-0.9f, 0.9f) : c->tw[k] * 0.5f); }   // 0.9.7: every one stops and stares first, its head jerking, then comes
+            if (c->state == CS_CHASE && fr(0, 1) < dt * 1.5f) c->tw[0] = fr(-1.1f, 1.1f);   // the head snaps about as it comes
             if (c->type == 11 && dist < 7) spd = 6.0f;                                   // crawler: scuttles in close
             if (c->type == 13 && dist < 9 && dist > 2.0f) spd = 5.8f;                    // tsuchigumo: closes fast
             if (c->type == 14 && fr(0, 1) < dt * 2.5f) c->sideT = 0.25f;                  // nurse: jerks aside
@@ -260,7 +269,8 @@ static void updateCreatures(float dt, Vector3 aim) {
         if (c->wind > 0) {   // attack wind-up
             c->wind -= dt;
             if (c->wind <= 0) {
-                if (dist < 2.1f && fabsf(tp.y - c->pos.y) < 1.6f && tclimb <= 0 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.2f, 0)), teye)) { if (tgt < 0) hurtPlayer((float)crDamageOf(c->type), crBleedOf(c->type)); else netPlayerDamage(tgt, (float)crDamageOf(c->type), crBleedOf(c->type)); c->revealT = 3.0f; }
+                if (dist < 2.1f && fabsf(tp.y - c->pos.y) < 1.6f && tclimb <= 0 && lineOfSight(Vector3Add(crCenter(c), V3(0, 0.2f, 0)), teye)) { if (tgt < 0 && Vector3DotProduct(Vector3Normalize(Vector3Subtract(crCenter(c), teye)), taim) < 0.3f) scare();   /* struck from where you were not looking */
+                  if (tgt < 0) hurtPlayer((float)crDamageOf(c->type), crBleedOf(c->type)); else netPlayerDamage(tgt, (float)crDamageOf(c->type), crBleedOf(c->type)); c->revealT = 3.0f; }
                 c->atkCd = c->type == 9 ? 1.8f : 1.2f;
             }
         } else if (!frozen && dl > 0.05f && spd > 0) {
@@ -302,9 +312,8 @@ static void updateCreatures(float dt, Vector3 aim) {
     static float heartT = 0; heartT -= dt;
     if (chasing > 0 && heartT <= 0) { play(sHeart, 0.55f); heartT = chasing > 2 ? 0.55f : 0.85f; }
     if (audioOk) {
-        float v = nearest < 28 ? powf(1 - nearest / 28, 1.3f) * 0.55f : 0;
-        if (!IsSoundPlaying(sStatic)) PlaySound(sStatic);
-        SetSoundVolume(sStatic, v * gs.amb); SetSoundVolume(sDrone, 0.35f * gs.amb);
+        (void)nearest; SetSoundVolume(sStatic, 0); if (IsSoundPlaying(sStatic)) StopSound(sStatic);   // (no buzz near them: 0.9.7)
+        SetSoundVolume(sDrone, 0.35f * gs.amb);
         if (!IsSoundPlaying(sDrone)) PlaySound(sDrone);
     }
     // ---- population upkeep
@@ -313,10 +322,25 @@ static void updateCreatures(float dt, Vector3 aim) {
     static float spawnT = 0, spiritT = 40, ugT = 20; spawnT -= dt; spiritT -= dt; ugT -= dt;
     { bool dist = inDistrict(pl.pos.x, pl.pos.z);   // the high-rise district draws more of them, and faster
       if (pl.pos.y > -40 && wk < 0.2f && aliveTop < (dayK() > 0.5f ? 32 : 44) * (dist ? 1.7f : 1.0f) && spawnT <= 0) { if (fr(0, 1) < (dist ? 0.5f : 0.35f)) spawnIndoor(pl.pos, 35); else spawnCreature(pl.pos, 45, 0, false); spawnT = dist ? 1.4f : 3.0f; } }
+    {   // 0.9.8: city houses are not safe: something is already inside with you, out of sight in another room or downstairs
+        static float ambT = 25; ambT -= dt;
+        if (pl.roof && pl.pos.y > -6 && wk < 0.2f && ambT <= 0 && netMode != NM_CLIENT) {
+            int near = 0; for (int j = 0; j < nCr; j++) if (crs[j].on && crs[j].state != CS_DEAD && Vector3Distance(crs[j].pos, pl.pos) < 22) near++;
+            bool base = pl.pos.y < SIDEH - 1.5f;   // a basement: worse
+            ambT = base ? fr(9, 16) : fr(16, 30);
+            if (near < (base ? 3 : 2)) { Vector3 eye = Vector3Add(pl.pos, V3(0, 1.6f, 0));
+                for (int tries = 0; tries < 40; tries++) { Cont *c = &conts[ri(nCont > 0 ? nCont : 1)]; if (nCont == 0) break;
+                    if (!c->on || c->kind == CK_PILE || c->kind == CK_BODY) continue;
+                    float d = Vector3Distance(c->pos, pl.pos); if (d < 7 || d > 22 || fabsf(c->pos.y - pl.pos.y) > 7) continue;
+                    Vector3 p = Vector3Add(c->pos, V3(sinf(c->yaw) * 1.1f, 0, cosf(c->yaw) * 1.1f));
+                    if (!pointFree(p.x, p.z, 0.35f, p.y + 0.05f) || lineOfSight(eye, Vector3Add(p, V3(0, 1.2f, 0)))) continue;   // never where you can see it appear
+                    float r = fr(0, 1); int t = r < 0.35f ? 0 : r < 0.5f ? 2 : r < 0.65f ? 7 : r < 0.8f ? 11 : r < 0.9f ? 14 : 6;
+                    int sl = spawnAt(p, t, false); if (sl >= 0) { crs[sl].state = CS_WANDER; crs[sl].tgt = pl.pos; }   // it heard you come in
+                    break; } } } }
     if (stalkers < 1 && pl.time > 240 && fr(0, 1) < dt * 0.004f) spawnCreatureT(pl.pos, 40, 60, false, 5);
     int maxSpirits = wk > 0.3f ? 4 + (int)(wk * 4) : dayK() > 0.5f ? 0 : (pl.time > 300 ? 3 : 2);   // the city's spirits walk at night
     if (spiritT <= 0) { if (spirits < maxSpirits) spawnCreatureT(pl.pos, wk > 0.3f ? 14 : 30, wk > 0.3f ? 30 : 45, wk > 0.5f, 4); spiritT = wk > 0.3f ? fr(4, 8) : fr(35, 70); }
-    if (pl.pos.y < -40 && ugT <= 0) { int ug = 0; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state != CS_DEAD && crs[i].pos.y < -40) ug++; if (ug < 12) spawnUnderground(); ugT = 45; }
+    if ((pl.pos.y < -40 || (nSubEx > 0 && pl.pos.y < SUBY + 2.5f)) && ugT <= 0) { int ug = 0; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state != CS_DEAD && crs[i].pos.y < -5) ug++; if (ug < 12) spawnUnderground(); ugT = 45; }
     static float hallT = 5; hallT -= dt;
     if ((pl.stage == 3 || wk > 0.4f) && hallT <= 0) {   // things that aren't there
         int before = nCr; int freeSlot = -1; for (int i = 0; i < nCr; i++) if (!crs[i].on) { freeSlot = i; break; }

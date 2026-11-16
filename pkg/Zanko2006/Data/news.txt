@@ -1,4 +1,36 @@
-ZANKO 2006 - Afterglow  (v0.9.7, a planned town, gore)
+ZANKO 2006 - Afterglow  (v0.9.8, stairwells, basements, fear)
+
+- 0.9.8: stairwells, basements, and things that wait for you.
+  * City buildings: the stairs climb in their own stairwell,
+    up one side and back down the other floor after floor,
+    with a doorway onto each landing; the corridor beside
+    them stays clear.
+  * City buildings have a basement: the stairs down run under
+    the stairs up, into a corridor with a boiler room and
+    store rooms. Most of the bulbs are dead; the rest flicker,
+    and a red lamp burns in the corridor.
+  * The subway is back: the line runs under the town where no
+    building stands over it, with stairs down from the
+    pavement, each marked by a tall green lit post. The map
+    marks every entrance (green). Things wait on the platform.
+  * City houses: more of the dead, blood on the floors, more
+    dead bulbs, and something is often already inside, out of
+    sight in another room or downstairs. Basements are worse.
+  * The creatures: no buzzing; a breath close by when one is
+    near and unseen; jump scare stings when one appears close,
+    starts a chase near you or strikes from outside your view.
+    One that spots you from afar stares before it runs; heads
+    snap while they chase.
+  * Thicker fog: about 54 m of sight by day, 28 m by night,
+    22 m in road tunnels.
+  * The creatures see no further than the fog lets you see
+    (a lit torch carries a little further); they lose you
+    after 5 seconds out of their sight.
+  * The people-shaped ones are drawn taller and thinner and
+    greyer, hunch forward when they run, now and then jerk a
+    frame out of place, and black streaks run from their eyes.
+  * They wear down your mind only while you can see them.
+  * A window an inner wall runs into is walled up.
 
 - 0.9.7: a planned town, and bodies that come apart.
   * The town is laid out by zones from its streets: shops and
