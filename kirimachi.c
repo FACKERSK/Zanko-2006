@@ -1194,14 +1194,100 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
     if (nCoast > 1 && pathDist(coastP, nCoast, x, z, NULL) < 2.7f) return true;
     for (int s2 = 0; s2 < nStreet; s2++) { float w = stW10[s2] / 10.0f; if (w < 3) continue; if (pathDist(ST_P(s2), ST_N(s2), x, z, NULL) < w / 2 - 1.0f) return true; }
     return false; }
+static bool lineOfSight(Vector3 a, Vector3 b); static float groundAt(Vector3 p, float r, float step);
+static void worldPrint(const char *tag) {   // 0.9.12: what the world answers when asked (a built world and a baked one must match)
+    if (!getenv("KIRI_FPRINT")) return; {   // 0.9.12: what the world answers when asked (a built world and a baked one must match)
+                unsigned int h[10] = {0}; const char *nm[10] = {"groundAt", "baseGround", "cityLand", "mainRoad", "river", "sea", "pit", "roadRast", "bore/touge/coast", "los"};
+                #define FH_(k_, v_) do { float f_ = (v_); unsigned int u_; memcpy(&u_, &f_, 4); h[k_] = (h[k_] ^ u_) * 16777619u; } while (0)
+                for (float z = -440; z < 740; z += 2.7f) for (float x = -440; x < 740; x += 2.7f) {
+                    FH_(0, groundAt(V3(x, 60, z), 0.3f, 0)); FH_(1, baseGroundY(x, z, 60)); FH_(2, cityLand(x, z)); FH_(3, mainRoadAt(x, z, 0.2f)); FH_(4, inRiverRaw(x, z)); FH_(5, seaDepth(x, z)); FH_(6, inPit(x, z) + 2 * inHole(x, z)); FH_(7, roadRastAt(x, z));
+                    FH_(8, inBore(x, z, 0) * 7 + (touge_d(x, z) < 40) * 3 + (coast_d(x, z) < 30)); }
+                for (int k = 0; k < 4000; k++) { float x = -300 + (k * 37 % 900), z = -300 + (k * 53 % 900); FH_(9, lineOfSight(V3(x, 1.6f, z), V3(x + 13, 1.2f, z + 7))); }
+                #undef FH_
+                for (int k = 0; k < 10; k++) TraceLog(LOG_INFO, "FPRINT %s %s %08x", tag, nm[k], h[k]); }
+}
+// ============================================================ the baked world (0.9.12)
+// The town is built once, like a compiled map: the generator's output (geometry, collision, doors, furniture, lights, stairs, ...)
+// is written to Data/world.bake and every later start loads it instead of building again. It belongs to one map, one set of
+// placed objects and one game version (the key); anything else builds and bakes anew. KIRI_NOBAKE=1 always builds.
+#define BAKE_VER 2
+static unsigned int bakeKey(void) { unsigned int h = mapHash() ^ (BAKE_VER * 0x9E3779B9u); for (const char *c = GAME_VERSION; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; } return h; }
+typedef struct { unsigned char *p; size_t n, cap; } BkBuf;
+static void bkPut(BkBuf *b, const void *d, size_t n) { if (b->n + n > b->cap) { b->cap = (b->n + n) * 2 + 65536; b->p = realloc(b->p, b->cap); } memcpy(b->p + b->n, d, n); b->n += n; }
+#define BKW(v_) bkPut(&B, &(v_), sizeof(v_))
+#define BKA(a_, n_) do { int n__ = (n_); BKW(n__); bkPut(&B, (a_), (size_t)n__ * sizeof((a_)[0])); } while (0)
+typedef struct { const unsigned char *p; size_t n, at; bool bad; } BkRd;
+static void bkGet(BkRd *r, void *d, size_t n) { if (r->bad || r->at + n > r->n) { r->bad = true; memset(d, 0, n); return; } memcpy(d, r->p + r->at, n); r->at += n; }
+#define BKR(v_) bkGet(&R, &(v_), sizeof(v_))
+#define BKRA(a_, cnt_, max_) do { int n__ = 0; BKR(n__); if (n__ < 0 || n__ > (max_)) { R.bad = true; break; } bkGet(&R, (a_), (size_t)n__ * sizeof((a_)[0])); (cnt_) = n__; } while (0)
+static void bakeSave(void) {
+    if (getenv("KIRI_NOBAKE") && !getenv("KIRI_BAKE")) return;
+    BkBuf B = {0}; unsigned int key = bakeKey(), magic = 0x454B4142u; BKW(magic); BKW(key);
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) { MB *m = &mb[c][t]; BKW(m->cnt); if (m->cnt) { bkPut(&B, m->v, (size_t)m->cnt * 12); bkPut(&B, m->t, (size_t)m->cnt * 8); bkPut(&B, m->n, (size_t)m->cnt * 12); bkPut(&B, m->c, (size_t)m->cnt * 4); } }
+    bkPut(&B, chMn, sizeof chMn); bkPut(&B, chMx, sizeof chMx); bkPut(&B, chAny, sizeof chAny);
+    BKA(sol, nSol); bkPut(&B, cellN, sizeof cellN); for (int c = 0; c < GN * GN; c++) if (cellN[c]) bkPut(&B, cellL[c], (size_t)cellN[c] * sizeof(int));
+    BKA(ops, nOps); BKA(vends, nVend); BKA(lights, nLight); BKA(signs, nSign); BKA(lamps, nLamp); BKA(crates, nCrate); BKA(items, nItem); BKA(wards, nWard);
+    BKA(screens, nScreen); BKA(fires, nFire); BKA(tvs, nTV); BKA(cars, nCar); BKA(conts, nCont); BKA(debs, nDeb); BKA(stairs, nStair); BKA(holes, nHole); BKA(pits, nPit);
+    BKA(mapFoot, nMapFoot); bkPut(&B, mapFootH, sizeof(float) * nMapFoot); bkPut(&B, mapFootY, sizeof(float) * nMapFoot); bkPut(&B, mapFootF, sizeof(short) * nMapFoot);
+    BKA(wsrc, nWs); BKA(xfs, nXf); BKA(bores, nBore); BKW(baseShrine); BKW(worldSolids); BKW(worldLights);
+    BKA(subEnt, nSubEnt); BKA(subEx, nSubEx); BKW(SUB_Z); BKW(subX0); BKW(subX1);
+    bkPut(&B, roadRast, sizeof(float) * RR_W * RR_H);
+    bkPut(&B, hf, sizeof(float) * HF_N * HF_N); bkPut(&B, hfd, sizeof(float) * HF_N * HF_N);   // the ground heights as the build left them
+    unsigned int end = 0x444E45u; BKW(end);
+    // deflated in 16 MB pieces (the inflater's limit is 64 MB a call)
+    BkBuf Z = {0}; const size_t PIECE = 16u << 20; int pieces = (int)((B.n + PIECE - 1) / PIECE); bkPut(&Z, &pieces, 4);
+    for (int k = 0; k < pieces; k++) { size_t o = (size_t)k * PIECE; int rn = (int)(B.n - o < PIECE ? B.n - o : PIECE), zn = 0; unsigned char *z = CompressData(B.p + o, rn, &zn); if (!z) { free(B.p); free(Z.p); return; }
+        bkPut(&Z, &rn, 4); bkPut(&Z, &zn, 4); bkPut(&Z, z, (size_t)zn); MemFree(z); }
+    free(B.p);
+    char path[800]; if (getenv("KIRI_BAKE") || !FileExists(P("Data/world.bake"))) snprintf(path, sizeof path, "%s", P("Data/world.bake")); else { ensureDir("Data/Userdata"); snprintf(path, sizeof path, "%s", P(TextFormat("Data/Userdata/world_%08x.bake", key))); }   // a mod's map or edited town: its own bake beside the shipped one
+    bool ok = SaveFileData(path, Z.p, (int)Z.n);
+    TraceLog(LOG_INFO, "BAKE saved%s (%d KB, raw %d KB, key %08x)", ok ? "" : " FAILED", (int)(Z.n / 1024), (int)(B.n / 1024), key); free(Z.p);
+}
+static bool bakeLoad(void) {
+    if (getenv("KIRI_NOBAKE")) return false;
+    char path[800]; snprintf(path, sizeof path, "%s", P(TextFormat("Data/Userdata/world_%08x.bake", bakeKey())));
+    if (!FileExists(path)) snprintf(path, sizeof path, "%s", P("Data/world.bake"));
+    if (!FileExists(path)) return false;
+    int zn = 0; unsigned char *z = LoadFileData(path, &zn); if (!z) return false;
+    unsigned char *raw = NULL; size_t n = 0; { int pieces = 0, at = 0; if (zn >= 4) memcpy(&pieces, z, 4); at = 4; bool bad = pieces <= 0 || pieces > 64;
+        for (int k = 0; k < pieces && !bad; k++) { int rn = 0, pn = 0; if (at + 8 > zn) { bad = true; break; } memcpy(&rn, z + at, 4); memcpy(&pn, z + at + 4, 4); at += 8; if (pn <= 0 || at + pn > zn) { bad = true; break; }
+            int got = 0; unsigned char *d = DecompressData(z + at, pn, &got); at += pn; if (!d || got != rn) { if (d) MemFree(d); bad = true; break; }
+            raw = realloc(raw, n + (size_t)got); memcpy(raw + n, d, (size_t)got); n += (size_t)got; MemFree(d); }
+        UnloadFileData(z); if (bad) { free(raw); TraceLog(LOG_WARNING, "BAKE unreadable: building"); return false; } }
+    BkRd R = {raw, (size_t)n, 0, false}; unsigned int magic = 0, key = 0; BKR(magic); BKR(key);
+    if (magic != 0x454B4142u || key != bakeKey()) { TraceLog(LOG_INFO, "BAKE out of date (key %08x, want %08x): building", key, bakeKey()); free(raw); return false; }
+    for (int c = 0; c < NCH * NCH && !R.bad; c++) for (int t = 0; t < T_COUNT && !R.bad; t++) { MB *m = &mb[c][t]; int cnt = 0; BKR(cnt); if (cnt <= 0) continue;
+        m->cap = cnt; m->cnt = cnt; m->v = malloc((size_t)cnt * 12); m->t = malloc((size_t)cnt * 8); m->n = malloc((size_t)cnt * 12); m->c = malloc((size_t)cnt * 4);
+        bkGet(&R, m->v, (size_t)cnt * 12); bkGet(&R, m->t, (size_t)cnt * 8); bkGet(&R, m->n, (size_t)cnt * 12); bkGet(&R, m->c, (size_t)cnt * 4); }
+    bkGet(&R, chMn, sizeof chMn); bkGet(&R, chMx, sizeof chMx); bkGet(&R, chAny, sizeof chAny);
+    BKRA(sol, nSol, MAX_SOLID); bkGet(&R, cellN, sizeof cellN);
+    for (int c = 0; c < GN * GN && !R.bad; c++) if (cellN[c]) { if (cellCap[c] < cellN[c]) { cellCap[c] = cellN[c]; cellL[c] = realloc(cellL[c], sizeof(int) * cellCap[c]); } bkGet(&R, cellL[c], (size_t)cellN[c] * sizeof(int)); }
+    BKRA(ops, nOps, MAX_OPEN); BKRA(vends, nVend, MAX_VEND); BKRA(lights, nLight, MAX_LIGHT); BKRA(signs, nSign, MAX_SIGN); BKRA(lamps, nLamp, MAX_LAMP); BKRA(crates, nCrate, MAX_CRATE); BKRA(items, nItem, MAX_ITEM); BKRA(wards, nWard, MAX_WARD);
+    BKRA(screens, nScreen, MAX_SCREEN); BKRA(fires, nFire, MAX_FIRE); BKRA(tvs, nTV, MAX_TV); BKRA(cars, nCar, MAX_CAR); BKRA(conts, nCont, MAX_CONT); BKRA(debs, nDeb, MAX_DEB); BKRA(stairs, nStair, MAX_STAIR); BKRA(holes, nHole, MAX_HOLE); BKRA(pits, nPit, MAX_PIT);
+    BKRA(mapFoot, nMapFoot, MAX_MAPFOOT); bkGet(&R, mapFootH, sizeof(float) * nMapFoot); bkGet(&R, mapFootY, sizeof(float) * nMapFoot); bkGet(&R, mapFootF, sizeof(short) * nMapFoot);
+    BKRA(wsrc, nWs, MAX_WS); BKRA(xfs, nXf, MAX_XF); BKRA(bores, nBore, MAX_BORE); BKR(baseShrine); BKR(worldSolids); BKR(worldLights);
+    BKRA(subEnt, nSubEnt, 4); BKRA(subEx, nSubEx, 3); BKR(SUB_Z); BKR(subX0); BKR(subX1);
+    if (!roadRast) roadRast = malloc(sizeof(float) * RR_W * RR_H);
+    bkGet(&R, roadRast, sizeof(float) * RR_W * RR_H);
+    bakeHeightfield(); bkGet(&R, hf, sizeof(float) * HF_N * HF_N); bkGet(&R, hfd, sizeof(float) * HF_N * HF_N);
+    unsigned int end = 0; BKR(end);
+    free(raw);
+    if (R.bad || end != 0x444E45u) { TraceLog(LOG_WARNING, "BAKE unreadable: building"); return false; }
+    TraceLog(LOG_INFO, "BAKE loaded: %d solids, %d containers, %d openings", nSol, nCont, nOps);
+    return true;
+}
 static void genWorld(unsigned int seed) {
+    double gwT0 = GetTime();
     freeWorld();
     if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
     handDoorsCollect(); jpDoorsHand = 0;
     raRooms = raBad = 0; raList[0] = 0; jpDoorsAdded = jpRoomsShut = jpDoorsPruned = 0; memset(raHist, 0, sizeof raHist);
     free(cover); cover = calloc((size_t)CV_W * CV_H, 1);
-    hfReady = false; layoutInit();
+    rs = 20031103u;   // 0.9.12: the town plan too comes out the same every time (it used whatever the generator was left at)
+    { static bool warm = false; bool haveBake = !getenv("KIRI_NOBAKE") && !getenv("KIRI_BAKE") && (FileExists(P("Data/world.bake")) || FileExists(P(TextFormat("Data/Userdata/world_%08x.bake", bakeKey())))); if (!warm && !haveBake) { warm = true; hfReady = false; layoutInit(); bakeHeightfield(); rs = 20031103u; } }   // 0.9.12: the plan reads masks its own first pass leaves behind: a first pass makes every build the same
+    hfReady = false; layoutInit(); TraceLog(LOG_INFO, "GENTIME layoutInit %.2f s rs %u", GetTime() - gwT0, rs);
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
+    if (bakeLoad()) { free(cover); cover = NULL; finalizeMeshes(); genTerrain(); rs = seed ? seed : 1; TraceLog(LOG_INFO, "GENTIME baked world %.2f s", GetTime() - gwT0); worldPrint("baked"); return; }   // 0.9.12: the baked world
     // subway stairwells cut holes into the ground; the city opens onto the wilds (no perimeter wall)
     nHole = 0;
     {   // road surface: tiles only where no sidewalk block covers it
@@ -1250,7 +1336,7 @@ static void genWorld(unsigned int seed) {
         }
     }
     bakeHeightfield();
-    genLayoutWorld();
+    genLayoutWorld(); TraceLog(LOG_INFO, "GENTIME after genLayoutWorld %.2f s rs %u nSol %d nCont %d", GetTime() - gwT0, rs, nSol, nCont);
     genObjs();   // placed objects (Mod Maker Build tab)
     // scarce extras: 2 axes, 1 katana, 3 ammo stashes
     int want[6] = {IT_AXE, IT_AXE, IT_KATANA, IT_AMMO, IT_AMMO, IT_AMMO};
@@ -1276,7 +1362,7 @@ static void genWorld(unsigned int seed) {
     TraceLog(LOG_INFO, "WINFILL %d windows walled up where an inner wall meets them", jpWinFilled); jpWinFilled = 0;
     if (nHandDoor) TraceLog(LOG_INFO, "HANDDOORS %d doorway markers, %d doorways cut", nHandDoor, jpDoorsHand);
     TraceLog(LOG_INFO, "HOUSEDETAILS %d wall details left off (they reached into another building's lot)", bdSkipped); bdSkipped = 0;
-    TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings, %d basements, %d lights, %d signs, %d frames", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot, nPit, nLight, nSign, nXf);
+    TraceLog(LOG_INFO, "GENTIME total %.2f s", GetTime() - gwT0); TraceLog(LOG_INFO, "WORLD: %d solids, %d containers, %d stairs, %d junk piles, %d openings, %d water sources, %d buildings, %d basements, %d lights, %d signs, %d frames", nSol, nCont, nStair, nDeb, nOps, nWs, nMapFoot, nPit, nLight, nSign, nXf);
     for (int i = 0; i < nPit && i < 3; i++) { Vector3 c = xfP(pits[i].f, V3(pits[i].r.x + pits[i].r.width / 2, 0, pits[i].r.y + pits[i].r.height / 2)); TraceLog(LOG_INFO, "PIT %d at %.1f %.1f", i, c.x, c.z); }
     #define GFRD(x_, z_) ({ float r_ = roadRastAt((x_), (z_)); r_ > ROADY - 0.05f && r_ < SIDEH - 0.06f; })
     #define gfRoadNear(x_, z_) (paveD(x_, z_) < 0.5f)   // (a drawn street there or at a corner of the cell: the clipped paving meets it)
@@ -1290,8 +1376,10 @@ static void genWorld(unsigned int seed) {
             quad(T_SIDEWALK, V3(x0, y, z1), V3(x1, y, z1), V3(x1, y, z0), V3(x0, y, z0), V3(0, 1, 0), WHITE); filled += i2 - i + 1; i = i2 + 1; }
         TraceLog(LOG_INFO, "GROUNDFILL %d half-metre cells of bare town ground paved", filled);
         free(cover); cover = NULL; }
+    bakeSave();
     finalizeMeshes();
     genTerrain();
+    worldPrint("built");
     rs = seed ? seed : 1;   // runs differ from here on: creatures, weather, events
 }
 
@@ -3299,6 +3387,12 @@ int main(int argc, char **argv) {
             if (frame > 1204 && frame < 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
             if (frame == 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
                 TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
+            if (frame == 6 && getenv("KIRI_FLOAT2")) { int n = 0;   // debug: street-level things over ground that is lower (river banks, slopes)
+                for (int i = 0; i < nSol; i++) { Solid *so = &sol[i]; if (so->off || so->f != 0) continue; if (so->mn.y < SIDEH - 0.25f || so->mn.y > SIDEH + 0.4f) continue;
+                    Vector3 sz = Vector3Subtract(so->mx, so->mn); if (sz.x > 8 || sz.z > 8) continue;
+                    float worst = 1e9f; for (int k = 0; k < 5; k++) { float x = k == 0 ? (so->mn.x + so->mx.x) / 2 : (k & 1) ? so->mn.x : so->mx.x, z = k == 0 ? (so->mn.z + so->mx.z) / 2 : (k & 2) ? so->mn.z : so->mx.z; float g = baseGroundY(x, z, so->mn.y + 0.5f); if (g < worst) worst = g; }
+                    if (worst < so->mn.y - 0.35f) { if (n < 60) TraceLog(LOG_INFO, "FLOAT2 %.1f %.1f y %.2f..%.2f size %.2f x %.2f ground %.2f", (so->mn.x + so->mx.x) / 2, (so->mn.z + so->mx.z) / 2, so->mn.y, so->mx.y, sz.x, sz.z, worst); n++; } }
+                TraceLog(LOG_INFO, "FLOAT2 %d in all", n); }
             if (frame == 6 && getenv("KIRI_FLOAT")) { int n = 0;   // debug: solid boxes with nothing under them and nothing beside them
                 for (int i = 0; i < nSol; i++) { Solid *so = &sol[i]; if (so->off) continue; Vector3 sz = Vector3Subtract(so->mx, so->mn);
                     if (sz.x < 0.2f || sz.z < 0.2f || sz.y < 0.05f || sz.x > 6 || sz.z > 6 || sz.y > 3) continue;

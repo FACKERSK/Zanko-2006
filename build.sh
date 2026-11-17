@@ -15,6 +15,9 @@ fi
 if [ "$1" = "installer" ]; then   # Windows binaries into pkg/Zanko2006/Root, then the NSIS installer into pkg/
 "$0" win
 cp Zanko.exe Launcher.exe ModMaker.exe pkg/Zanko2006/Root/
+# the baked world (0.9.12): built once here and shipped, so the game loads the town instead of building it at every start
+rm -f Data/world.bake; (cd test/Root && KIRI_BAKE=1 KIRI_LOOK="5 -600 50 0 0 bake_check" timeout 600 xvfb-run -a -s "-screen 0 640x480x24" ../../kirimachi_linux >/dev/null 2>&1 || true)
+test -f Data/world.bake && cp Data/world.bake pkg/Zanko2006/Data/world.bake
 V=$(cat pkg/Zanko2006/Data/version.txt)
 (cd installer && makensis -V2 -DVER="$V" zanko2006.nsi)
 (cd pkg && rm -f "Zanko2006_v$V.zip" && zip -qr "Zanko2006_v$V.zip" Zanko2006 -x "Zanko2006/Data/Userdata/*")   # the version selector downloads this

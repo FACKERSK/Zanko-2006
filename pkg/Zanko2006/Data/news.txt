@@ -1,4 +1,17 @@
-ZANKO 2006 - Afterglow  (v0.9.11, fixes)
+ZANKO 2006 - Afterglow  (v0.9.12, prebuilt world)
+
+- 0.9.12: the world is prebuilt.
+  * The town, its buildings and their floor plans are built
+    once when the game is packaged and shipped as a file
+    (Data/world.bake). Starting a game loads it instead of
+    building everything from scratch, the way a fixed map is.
+  * Signs, trees, bicycles and utility poles are only placed
+    where the ground under them is solid: none stand in
+    rivers or float off the bank or sea edge.
+  * Bridge parapets follow the bridge and stop where another
+    street meets it.
+  * Rooms that could not be walked into (a doorway blocked by
+    a kitchen counter or a fixture) get a clear way in.
 
 - 0.9.11: fixes from play.
   * Doors and windows can only be used from their own floor

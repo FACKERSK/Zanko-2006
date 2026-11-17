@@ -1338,7 +1338,15 @@ static void curveMirror(float x, float z, float yaw) {   // the orange-posted ro
     box(T_PLAIN, V3(x + dx - 0.36f, SIDEH + 2.5f, z + dz - 0.36f), V3(x + dx + 0.36f, SIDEH + 3.22f, z + dz + 0.36f), rgb(230, 110, 30), false, ALLB);
     box(T_GLASS, V3(x + dx * 1.6f - 0.3f, SIDEH + 2.56f, z + dz * 1.6f - 0.3f), V3(x + dx * 1.6f + 0.3f, SIDEH + 3.16f, z + dz * 1.6f + 0.3f), rgb(190, 205, 215), false, ALLB);
 }
+// 0.9.12: is there ground at this height under (x, z) and round it (r)? Things on posts are not put where it drops away (river and sea edges)
+static float groundAt(Vector3 p, float r, float step);
+static bool groundOk(float x, float z, float y, float r) {
+    for (int k = 0; k < 5; k++) { float px = x + (k == 1 ? r : k == 2 ? -r : 0), pz = z + (k == 3 ? r : k == 4 ? -r : 0);
+        if (inRiverRaw(px, pz) || fabsf(groundAt(V3(px, y + 0.3f, pz), 0.02f, 0) - y) > 0.25f) return false; }
+    return true;
+}
 static void tsunamiSign(float x, float z) {   // the green evacuation-route board on a pole, all along the coast
+    if (!groundOk(x, z, SIDEH, 0.15f)) return;
     box(T_METAL, V3(x - 0.04f, SIDEH, z - 0.04f), V3(x + 0.04f, SIDEH + 2.7f, z + 0.04f), rgb(160, 160, 160), true, ALL);
     box(T_PLAIN, V3(x - 0.45f, SIDEH + 2.0f, z - 0.03f), V3(x + 0.45f, SIDEH + 2.75f, z + 0.03f), rgb(30, 140, 80), false, ALLB);
     box(T_PLAIN, V3(x - 0.38f, SIDEH + 2.1f, z - 0.04f), V3(x + 0.2f, SIDEH + 2.3f, z + 0.04f), rgb(240, 240, 235), false, ALLB);
@@ -1351,6 +1359,7 @@ static void postBox(float x, float z) {
 static void bikeRack(float x, float z, float yaw, int n) {   // bicycles left in a row
     float cx = cosf(yaw), sz = sinf(yaw);
     for (int k = 0; k < n; k++) { float bx = x + cx * k * 0.6f, bz = z - sz * k * 0.6f; float ax = sinf(yaw) * 0.85f, az = cosf(yaw) * 0.85f;
+        if (!groundOk(bx, bz, SIDEH, 0.8f)) continue;
         Color c = (Color[]){{40, 40, 44, 255}, {170, 30, 30, 255}, {220, 220, 210, 255}, {40, 80, 150, 255}}[ri(4)];
         box(T_METAL, V3(fminf(bx - ax, bx + ax) - 0.03f, SIDEH + 0.32f, fminf(bz - az, bz + az) - 0.03f), V3(fmaxf(bx - ax, bx + ax) + 0.03f, SIDEH + 0.38f, fmaxf(bz - az, bz + az) + 0.03f), c, false, ALLB);
         for (int w = -1; w <= 1; w += 2) box(T_PLAIN, V3(bx + ax * 0.75f * w - 0.03f, SIDEH, bz + az * 0.75f * w - 0.03f), V3(bx + ax * 0.75f * w + 0.03f, SIDEH + 0.66f, bz + az * 0.75f * w + 0.03f), rgb(30, 30, 30), false, ALLB);
@@ -1369,6 +1378,7 @@ static void potPlant(float x, float z, float y) {   // a potted plant at a front
     box(T_HEDGE, V3(x - s * 1.3f, y + h, z - s * 1.3f), V3(x + s * 1.3f, y + h + lh, z + s * 1.3f), k == 2 ? rgb(170, 90, 110) : rgb(70 + ri(30), 120 + ri(30), 70), false, ALLB);
 }
 static void townTree(float x, float z, float y, float h, int kind) {   // 0 broadleaf, 1 cherry, 2 clipped garden pine
+    if (!groundOk(x, z, y, 0.2f)) return;
     box(T_WOOD, V3(x - 0.13f, y, z - 0.13f), V3(x + 0.13f, y + h * 0.55f, z + 0.13f), rgb(95, 75, 60), true, ALL);
     Color c = kind == 1 ? rgb(232, 178, 196) : kind == 2 ? rgb(48, 88, 58) : rgb(72 + ri(20), 118 + ri(25), 66);
     if (kind == 2) { for (int k = 0; k < 3; k++) { float ox = fr(-0.8f, 0.8f), oz = fr(-0.8f, 0.8f), yy = y + h * (0.45f + k * 0.2f), r = fr(0.6f, 0.95f);
@@ -2005,7 +2015,7 @@ static void genLayoutWorld(void) {
             wallRibbon(T_CONCRETE, p, n, -w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); wallRibbon(T_CONCRETE, p, n, w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); }
         else for (int i = 3; i + 3 < n; i += 8) {   // utility poles on one side, a street lamp on every other one
             Vector2 nn = pnorm(p, n, i); float x = p[i].x + nn.x * (w / 2 + 0.9f), z = p[i].z + nn.y * (w / 2 + 0.9f);
-            if (!cityLand(x, z) || mainRoadAt(x, z, 0.3f) || !pointFree(x, z, 0.3f, SIDEH + 0.1f)) continue;   // never on another street
+            if (!cityLand(x, z) || mainRoadAt(x, z, 0.3f) || !pointFree(x, z, 0.3f, SIDEH + 0.1f) || !groundOk(x, z, SIDEH, 0.2f)) continue;   // never on another street, never off the edge
             box(T_CONCRETE, V3(x - 0.13f, 0, z - 0.13f), V3(x + 0.13f, 8.2f, z + 0.13f), rgb(150, 150, 140), true, ALL);
             if (nPoleT < 4000) { poleT[nPoleT] = V3(x, 7.45f, z); poleS[nPoleT++] = s2; }
             box(T_WOOD, V3(x - 0.9f, 7.4f, z - 0.06f), V3(x + 0.9f, 7.55f, z + 0.06f), rgb(90, 80, 70), false, ALLB);

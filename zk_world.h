@@ -1126,8 +1126,8 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
                 if (e < nd) { float g0 = fmaxf(dl[e] - 0.4f, lo), g1 = fminf(dl[e] + 0.4f, hi); if (g1 - g0 > 0.3f) {
                         Rectangle l = ax == 0 ? jpRect(J, pos - 0.05f, g0, pos + 0.05f, g1) : jpRect(J, g0, pos - 0.05f, g1, pos + 0.05f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB); jpDumpRect("D", l);
                         if (g1 - g0 > 0.6f && !getenv("KIRI_NOHD")) { bool ax2 = l.width > l.height; innerDoor(ax2, ax2 ? l.x : l.y, ax2 ? l.x + l.width : l.y + l.height, ax2 ? l.y + l.height / 2 : l.x + l.width / 2, jpY0, fr(0, 1) < 0.4f); }   // 0.9.8: a door in it, shut more often than not
-                        if (ax == 0) keepAdd(jpRect(J, pos - 0.7f, dl[e] - 0.55f, pos + 0.7f, dl[e] + 0.55f), jpRect(J, pos - 0.42f, dl[e] - 0.4f, pos + 0.42f, dl[e] + 0.4f));
-                        else keepAdd(jpRect(J, dl[e] - 0.55f, pos - 0.7f, dl[e] + 0.55f, pos + 0.7f), jpRect(J, dl[e] - 0.4f, pos - 0.42f, dl[e] + 0.4f, pos + 0.42f)); }
+                        if (ax == 0) keepAdd(jpRect(J, pos - 1.0f, dl[e] - 0.75f, pos + 1.0f, dl[e] + 0.75f), jpRect(J, pos - 0.42f, dl[e] - 0.4f, pos + 0.42f, dl[e] + 0.4f));
+                        else keepAdd(jpRect(J, dl[e] - 0.75f, pos - 1.0f, dl[e] + 0.75f, pos + 1.0f), jpRect(J, dl[e] - 0.4f, pos - 0.42f, dl[e] + 0.4f, pos + 0.42f)); }
                     cur = fminf(dl[e] + 0.4f, hi); } } } }
 }
 // one zone beside the hall (u from a to b, d from 0 to Dr), its doors on the wall at u = hallU. living: the bigger side.
@@ -1263,7 +1263,7 @@ static void roomAudit(Rectangle in, float y0, int f, int kind, float sx, float s
         for (int j = 0; j < H && !got; j++) for (int i = 0; i < W && !got; i++) { float x = in.x + (i + 0.5f) * q, z = in.y + (j + 0.5f) * q; if (x < rm.x + 0.15f || x > rm.x + rm.width - 0.15f || z < rm.y + 0.15f || z > rm.y + rm.height - 0.15f) continue; if (g[j * W + i]) any = true; if (g[j * W + i] == 2) got = true; }
         if (!got && any && jpDump) jpDumpRect("U", rm);
         if (!got && any && getenv("KIRI_JGDUMP") && !(getenv("KIRI_JGSKIP6") && kind == 6)) { static int na = 0; if (na++ < 3) { FILE *fp = fopen(TextFormat("/tmp/claude-0/ag%d.txt", na), "w"); if (fp) { fprintf(fp, "in %.2f %.2f %.2f %.2f room %.2f %.2f %.2f %.2f start %.2f %.2f\n", in.x, in.y, in.width, in.height, rm.x, rm.y, rm.width, rm.height, sx, sz);
-            for (int j = 0; j < H; j += 2) { for (int i = 0; i < W; i += 2) { float x = in.x + (i + 0.5f) * q, z = in.y + (j + 0.5f) * q; bool inR = x > rm.x && x < rm.x + rm.width && z > rm.y && z < rm.y + rm.height; fputc(g[j * W + i] == 0 ? '#' : g[j * W + i] == 2 ? (inR ? 'R' : '.') : (inR ? 'x' : 'o'), fp); } fputc('\n', fp); }
+            int stp = getenv("KIRI_JGFULL") ? 1 : 2; for (int j = 0; j < H; j += stp) { for (int i = 0; i < W; i += stp) { float x = in.x + (i + 0.5f) * q, z = in.y + (j + 0.5f) * q; bool inR = x > rm.x && x < rm.x + rm.width && z > rm.y && z < rm.y + rm.height; fputc(g[j * W + i] == 0 ? '#' : g[j * W + i] == 2 ? (inR ? 'R' : '.') : (inR ? 'x' : 'o'), fp); } fputc('\n', fp); }
             float cx = rm.x + rm.width / 2, cz = rm.y + rm.height / 2; Vector3 wmn, wmx; xfBox(curXf, V3(cx - 2.5f, 0, cz - 2.5f), V3(cx + 2.5f, 0, cz + 2.5f), &wmn, &wmx); query(wmn.x, wmn.z, wmx.x, wmx.z);
             for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->off || s->mx.y <= y0 + 0.42f || s->mn.y >= y0 + 1.7f) continue; fprintf(fp, "S f%d same %d %.2f..%.2f x %.2f..%.2f z %.2f..%.2f\n", s->f, s->f == curXf, s->mn.y - y0, s->mx.y - y0, s->mn.x, s->mx.x, s->mn.z, s->mx.z); }
             fclose(fp); } } }
