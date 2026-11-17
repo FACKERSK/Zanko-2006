@@ -1,4 +1,11 @@
-ZANKO 2006 - Afterglow  (v0.9.9, stairwells, hands, doors)
+ZANKO 2006 - Afterglow  (v0.9.10, fixes)
+
+- 0.9.10: fixes after 0.9.9.
+  * No windows in a stairwell's outer wall where the flights
+    and half landings pass.
+  * The pistol hand has its thumb.
+  * Bridge railings no longer stand across the streets that
+    meet a bridge.
 
 - 0.9.9: proper stairwells, a rigged hand, doors everywhere.
   * Stairwells: a closed concrete shaft with one door per

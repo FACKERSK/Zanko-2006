@@ -1,3 +1,3 @@
-version=0.9.9
-installer=https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_Setup_v0.9.9.exe
+version=0.9.10
+installer=https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_Setup_v0.9.10.exe
 news=https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/pkg/Zanko2006/Data/news.txt

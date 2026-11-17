@@ -287,6 +287,7 @@ static void spawnIndoor(Vector3 nearP, float minD) {
 
 // ---------------------------------------------------------------- multi-floor building
 // kinds: 0 house 1 apartment 2 shop 3 konbini 4 koban 5 station 6 eco-tower
+static Rectangle gNoWinR = {0, 0, 0, 0};   // the stairwell shaft of the building being built (its outer wall gets no windows)
 static int gExtTex = T_PLASTER; static Color gExtCol = {230, 228, 220, 255}; static int jpWinFilled;   // (the outside finish of the building being built: a window an inner wall runs into is walled up in it)
 static void extFloor(Rectangle r, int kind, int street, float y0, float yTop, bool ground, int extTex, Color ec) {
     gExtTex = extTex; gExtCol = ec;
@@ -314,7 +315,8 @@ static void extFloor(Rectangle r, int kind, int street, float y0, float yTop, bo
             }
             if (storefront && kind == 2 && fr(0, 1) < 0.5f) { wallPiece(s, u0, u1, y0, yTop, T_SHUTTER, WHITE); continue; }
             float winP = kind == 1 ? 0.6f : kind == 0 ? 0.5f : 0.45f;
-            if (storefront || fr(0, 1) < winP) {
+            bool shaftWin = false; if (gNoWinR.width > 0) { Vector3 wmx, wmn = sideMn(s, u0, u1, y0, y0 + 1, &wmx, 0); shaftWin = wmn.x < gNoWinR.x + gNoWinR.width && wmx.x > gNoWinR.x && wmn.z < gNoWinR.y + gNoWinR.height && wmx.z > gNoWinR.y; }   // 0.9.8: no window where the stair flights run past it
+            if (!shaftWin && (storefront || fr(0, 1) < winP)) {
                 float p = storefront ? 0.15f : 0.4f;
                 float sill = storefront ? 0.35f : 0.9f, top = storefront ? 2.6f : 2.1f;
                 if (!storefront) {   // 0.9.8: windows of different sizes: standard, wide, narrow, a small high one, a long low strip
@@ -1390,6 +1392,7 @@ static void basementPlan(Rectangle r, Rectangle in, bool runX, float uStart, flo
     (void)r; (void)in; (void)kind; (void)uEnd;
 }
 static void building(Rectangle r, int kind, int floors, int street) {
+    gNoWinR = (Rectangle){0, 0, 0, 0};
     unsigned bfl = 0;   // details: a preset's, or a town lot's picked by its kind
     if (bP) bfl = bP->flags;
     else if (kind == 0) bfl = (ri(3) ? BD_AC : 0) | (ri(2) ? BD_MAIL : 0) | (floors <= 2 && ri(5) < 4 ? (ri(3) ? BD_HIP : BD_PITCH) : 0) | (ri(3) == 0 ? BD_BIKES : 0) | (ri(4) == 0 ? BD_PIPES : 0)
@@ -1490,6 +1493,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
         stairwellWalls(runX, uStart, uE, LEAD, bandLo, bandHi, stripHigh, uStart + runLen, BY, SIDEH, true, true);
         basementPlan(r, in, runX, uStart, runLen, cMin, cMax, stripHigh ? bandLo - 0.1f : bandHi + 0.1f, stripHigh, BY, kind);
     }
+    gNoWinR = acc > 1 ? (runX ? (Rectangle){uL - 0.1f, bandLo - 0.3f, uE - uL + 0.2f, bandHi - bandLo + 0.6f} : (Rectangle){bandLo - 0.3f, uL - 0.1f, bandHi - bandLo + 0.6f, uE - uL + 0.2f}) : (Rectangle){0, 0, 0, 0};
     for (int f = 0; f < acc; f++) {
         float y0 = SIDEH + f * FH, yTop = y0 + FH - SLAB;
         extFloor(r, kind, street, y0, yTop, f == 0, extTex, ec);

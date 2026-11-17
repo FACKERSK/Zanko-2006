@@ -691,6 +691,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
                       BX(T_WOOD, 0, 0.3f, -0.03f, 0.044f, 0.24f, 0.04f, ((Color){120, 78, 44, 255})), BX(T_METAL, 0, 0.115f, 0.016f, 0.024f, 0.012f, 0.024f, ((Color){190, 150, 70, 255})), BX(T_METAL, 0, 0.115f, -0.016f, 0.024f, 0.012f, 0.024f, ((Color){190, 150, 70, 255})));
             } else drawHeld(G, ht);
             drawHandAsset(H, true, 3);   // fingers round the grip, the finger by the trigger
+            if (ht == IT_PISTOL) { hBone(H, true, V3(0.03f, 0.04f, 0.032f), V3(0.002f, 0.05f, 0.016f), 0.022f); hBone(H, true, V3(0.002f, 0.05f, 0.016f), V3(-0.016f, 0.046f, -0.012f), 0.019f); }   // the thumb along the far side of the frame
             if (ht == IT_PISTOL && !torch && A != ANIM_RELOAD && A != ANIM_INSPECT) supportHand(B, H, R);
             if (ht == IT_SHOTGUN && !torch && A != ANIM_RELOAD) { Matrix L2 = MatrixMultiply(MatrixMultiply(MatrixRotateX(-PI / 2), MatrixTranslate(0, -0.036f, -0.33f)), H); drawHandAsset(L2, false, 0); }   // wrapped round the fore-end
             if (pl.muzzle > 0) drawMuzzleFlash(MatrixMultiply(MatrixMultiply(MatrixRotateX(PI / 2), MatrixTranslate(0, len, 0)), G), ht == IT_SHOTGUN ? 2 : 1, fminf(1, pl.muzzle / 0.07f), netShotN * 31u + 5u);

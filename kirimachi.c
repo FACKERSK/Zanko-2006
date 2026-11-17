@@ -1272,6 +1272,7 @@ static void genWorld(unsigned int seed) {
     genWater();
     worldSolids = nSol; worldLights = nLight;
     for (int i = 0; i < nDoorLate; i++) if (doorLate[i] >= 0) sol[doorLate[i]].off = false; nDoorLate = 0;   // 0.9.8: the shut inner doors
+    if (getenv("KIRI_SWLOG")) { int n = 0; for (int i = 0; i < nOps && n < 400; i++) if (opInner[i] && ops[i].fy < 1) { n++; if (n % 40) continue; Vector3 c = xfP(ops[i].f, Vector3Scale(Vector3Add(ops[i].mn, ops[i].mx), 0.5f)), a = xfD(ops[i].f, ops[i].axis == 1 ? V3(0, 0, 1) : V3(1, 0, 0)); TraceLog(LOG_INFO, "INDOOR %.2f %.2f n %.2f %.2f st %d", c.x, c.z, a.x, a.z, ops[i].state); } }
     TraceLog(LOG_INFO, "WINFILL %d windows walled up where an inner wall meets them", jpWinFilled); jpWinFilled = 0;
     if (nHandDoor) TraceLog(LOG_INFO, "HANDDOORS %d doorway markers, %d doorways cut", nHandDoor, jpDoorsHand);
     TraceLog(LOG_INFO, "HOUSEDETAILS %d wall details left off (they reached into another building's lot)", bdSkipped); bdSkipped = 0;
@@ -2523,21 +2524,21 @@ int main(int argc, char **argv) {
                 if (sf2 == 175 || sf2 == 190) { TakeScreenshot(TextFormat("stow_%03d.png", sf2)); TraceLog(LOG_INFO, "STOWTEST after f%d stow %.2f", sf2, vmStow); }
                 if (sf2 == 200) { pl.flash = true; } if (sf2 == 212 || sf2 == 230 || sf2 == 260) { TakeScreenshot(TextFormat("stow_torch_%03d.png", sf2)); TraceLog(LOG_INFO, "STOWTEST torch f%d K %.2f", sf2, vmTorchK); }
                 if (sf2 == 270) quitReq = true; } }
-        {   // basement test: KIRI_BASETEST=1 walks down a basement flight and back up with simulated input, then quits
-            static int bt = -1, bf = 0, bp = -1; static Vector3 bdir;
+        {   // basement test: KIRI_BASETEST=1 walks each half flight of a basement stair, down then up, with simulated input (0.9.8: half landings)
+            static int bt = -1, bf = 0, sA = -1, sB = -1;
             if (bt < 0) bt = getenv("KIRI_BASETEST") ? 1 : 0;
             if (bt == 1) { bf++;
                 if (bf == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; DisableCursor();
                     for (int i = 0; i < nCr; i++) crs[i].on = false;
-                    bp = nPit > 5 ? 5 : nPit - 1;
-                    if (bp >= 0) { Pit *q = &pits[bp]; bool rx = q->r.width > q->r.height; Vector3 L0 = rx ? V3(q->r.x + q->r.width + 0.3f, 0, q->r.y + q->r.height / 2) : V3(q->r.x + q->r.width / 2, 0, q->r.y + q->r.height + 0.3f);   /* 0.9.7: the flight down starts at the far end */
-                        Vector3 L1 = Vector3Add(L0, rx ? V3(-1, 0, 0) : V3(0, 0, -1)); Vector3 a = xfP(q->f, L0), b = xfP(q->f, L1); bdir = Vector3Subtract(b, a);
-                        pl.pos = V3(a.x, SIDEH + 0.02f, a.z); pl.vy = 0; pl.tyaw = pl.yaw = atan2f(bdir.x, bdir.z); pl.tpitch = pl.pitch = -0.3f; pl.flash = true; pl.batt = 100;
-                        vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_W] = 1; TraceLog(LOG_INFO, "BASETEST pit %d of %d at %.1f %.1f", bp, nPit, a.x, a.z); } }
-                if (bf > 5 && bf < 180 && bf % 10 == 0) TraceLog(LOG_INFO, "BASEDBG f%d y %.2f at %.2f %.2f", bf, pl.pos.y, pl.pos.x, pl.pos.z);
-                if (bf == 100) { TraceLog(LOG_INFO, "BASETEST down: reached y %.2f (basement floor %.2f)", pl.pos.y, SIDEH - FH); TakeScreenshot("base_bottom.png"); pl.tyaw = pl.yaw = atan2f(-bdir.x, -bdir.z); pl.tpitch = pl.pitch = 0.2f; }
-                if (bf == 104) TakeScreenshot("base_look_up.png");
-                if (bf == 180) { TraceLog(LOG_INFO, "BASETEST up: reached y %.2f", pl.pos.y); vin.on = false; break; } } }
+                    int seen = 0; for (int i = 0; i < nStair; i++) if (fabsf(stairs[i].top.y - SIDEH) < 0.05f && fabsf(stairs[i].bot.y - (SIDEH - FH / 2)) < 0.05f) { if (seen++ == 3) { sA = i; break; } }
+                    if (sA >= 0) for (int i = 0; i < nStair; i++) if (fabsf(stairs[i].top.y - (SIDEH - FH / 2)) < 0.05f && fabsf(stairs[i].bot.y - (SIDEH - FH)) < 0.05f && Vector3Distance(stairs[i].top, stairs[sA].bot) < 3) { sB = i; break; }
+                    TraceLog(LOG_INFO, "BASETEST flights %d %d", sA, sB); }
+                int leg = (bf - 10) / 70, lf = (bf - 10) % 70; int st = leg == 0 || leg == 3 ? sA : sB; bool down = leg < 2;
+                if (bf >= 10 && leg < 4 && st >= 0) { Stair *S2 = &stairs[st]; Vector3 from = down ? S2->top : S2->bot, to = down ? S2->bot : S2->top;
+                    if (lf == 0) { pl.pos = Vector3Add(from, V3(0, 0.02f, 0)); pl.vy = 0; Vector3 d = Vector3Subtract(to, from); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = down ? -0.3f : 0.1f; pl.flash = true; pl.batt = 100;
+                        vin.on = true; memset(vin.down, 0, sizeof vin.down); vin.down[KEY_W] = 1; }
+                    if (lf == 69) { TraceLog(LOG_INFO, "BASETEST %s half %d: from %.2f to %.2f reached y %.2f", down ? "down" : "up", leg == 0 || leg == 3 ? 1 : 2, from.y, to.y, pl.pos.y); if (leg == 1) TakeScreenshot("base_bottom.png"); } }
+                if (bf == 10 + 4 * 70) { vin.on = false; break; } } }
         {   // look test: KIRI_LOOK="x y z yaw pitch name;..." stands there at noon (y < -500: on the ground), waits, takes name.png, quits
             static const char *lk = NULL; static int li = 0, lf = 0; static char spec[2048]; if (frame == 1) { lk = getenv("KIRI_LOOK"); if (lk) snprintf(spec, sizeof spec, "%s", lk); }
             if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; if (getenv("KIRI_FLY")) cht.on[CH_NOCLIP] = true; pl.tod = 12; cht.frozenTod = 12; DisableCursor();
