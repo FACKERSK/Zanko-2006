@@ -1,4 +1,32 @@
-ZANKO 2006 - Afterglow  (v0.9.8, stairwells, basements, fear)
+ZANKO 2006 - Afterglow  (v0.9.9, stairwells, hands, doors)
+
+- 0.9.9: proper stairwells, a rigged hand, doors everywhere.
+  * Stairwells: a closed concrete shaft with one door per
+    floor. From the door landing a flight goes up and one
+    goes down side by side, each half a storey to a landing
+    at the far end where you turn. Handrails on the walls, a
+    railing along the well. The basement the same way down.
+  * Rooms in houses and flats have doors; most are shut.
+    Creatures break through shut ones.
+  * Windows come in five sizes. Where an inner wall meets
+    one, only that part is walled up.
+  * Bridge parapets stop where another street meets them.
+  * The hands are rebuilt: a palm and jointed fingers that
+    wrap the grip, and arms with an elbow that bends.
+  * Every change of what the hands do blends smoothly.
+  * Searching, opening doors and climbing: the weapon is put
+    away first and comes back after. Changing weapons puts
+    the old one away before drawing the new one.
+  * The light is the phone: out of the pocket, flipped open,
+    the light key pressed; it only lights once it is open.
+    With it in the left hand every weapon is one-handed
+    (less damage, guns wander more, heavy weapons swing
+    slower). Without it both hands hold the weapon: more
+    damage, steadier aim, less kick.
+  * Food lasts about 25 minutes, water 18, rest 33; warmth
+    changes slower. Sprinting tires you more slowly and
+    stamina comes back more slowly.
+  * The map shows where you are (bottom right).
 
 - 0.9.8: stairwells, basements, and things that wait for you.
   * City buildings: the stairs climb in their own stairwell,

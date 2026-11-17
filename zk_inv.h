@@ -49,23 +49,35 @@ static const ItemDef *weaponDef(void) {   // bare fists when nothing melee is he
     int t = handsType();
     return (t >= 0 && idef[t].cat == CAT_MELEE) ? &idef[t] : &fists;
 }
-static float meleeDmg(void) { float d = weaponDef()->dmg * (1 + 0.07f * skLvl(SK_STR)); return pl.stage == 3 ? d * 1.5f : d; }   // insanity: rage
-static float meleeCd(void) { return weaponDef()->cd * encSwing(); }
+static bool heavyHeld(void) { return pl.hands.t >= 0 && idef[pl.hands.t].weight >= 2.25f; }
+static float meleeDmg(void) { float d = weaponDef()->dmg * (1 + 0.07f * skLvl(SK_STR)); d *= twoHanded() ? 1.2f : (heavyHeld() ? 0.75f : 0.9f); return pl.stage == 3 ? d * 1.5f : d; }   // insanity: rage; 0.9.8: two hands hit harder, one hand on a heavy weapon much less
+static float meleeCd(void) { return weaponDef()->cd * encSwing() * (heavyHeld() && !twoHanded() ? 1.3f : 1.0f); }
 static float meleeRange(void) { return weaponDef()->range; }
 static const char *weaponName(void) { return pl.hands.t >= 0 ? idef[pl.hands.t].name : "Fists"; }
 // move hands <-> slot i (equip / swap)
 static bool isConsumable(int t) { if (t < 0) return false; int c = idef[t].cat; return c == CAT_FOOD || c == CAT_DRINK || c == CAT_MED; }   // eaten, drunk or applied from the hand only
-static void equipFromSlot(int i) {
+static void equipNow(int i) {
     Slot s = pl.sl[i];
     if (s.t < 0) return;
-    if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN || idef[s.t].cat == CAT_THROW || isConsumable(s.t))) return;
     pl.sl[i] = pl.hands; pl.hands = s; pl.swingT = 0; pl.reloadT = 0; pl.build = false; animPlay(ANIM_EQUIP);
     if (s.t == IT_KATANA) play(sBlade, 0.55f); else if (s.t == IT_REVOLVER) play(sCloth, 0.5f); else { play(sCloth, 0.4f); play(sClick, 0.3f); }
 }
-static void holster(void) {   // put the held weapon away (fists)
+static void equipFromSlot(int i) {   // 0.9.8: the held one goes away first (the holster animation), then the new one is drawn
+    Slot s = pl.sl[i];
+    if (s.t < 0) return;
+    if (!(idef[s.t].cat == CAT_MELEE || idef[s.t].cat == CAT_GUN || idef[s.t].cat == CAT_THROW || isConsumable(s.t))) return;
+    if (pl.hands.t >= 0 && animId != ANIM_HOLSTER) { swapPend = i; animPlay(ANIM_HOLSTER); play(sCloth, 0.35f); pl.swingT = 0; pl.reloadT = 0; return; }
+    if (animId == ANIM_HOLSTER) { swapPend = i; return; }
+    equipNow(i);
+}
+static void holsterNow(void) {
     if (pl.hands.t < 0) return;
     int left = slotsAdd(pl.sl, invNSlots(), pl.hands.t, pl.hands.n);
     if (left == 0) { pl.hands.t = -1; pl.hands.n = 0; play(sCloth, 0.45f); animPlay(ANIM_EQUIP); } else say("No room to put it away.");
+}
+static void holster(void) {   // put the held weapon away (fists): lowered first
+    if (pl.hands.t < 0) return;
+    if (animId != ANIM_HOLSTER) { swapPend = -1; animPlay(ANIM_HOLSTER); play(sCloth, 0.35f); pl.swingT = 0; pl.reloadT = 0; }
 }
 // ---- wounds and blood (pl.hp is blood, 0-100; there is no health bar)
 static void addWound(int n) { pl.wounds += n; if (pl.wounds > 6) pl.wounds = 6; }

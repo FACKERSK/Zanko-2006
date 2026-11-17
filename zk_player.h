@@ -260,8 +260,9 @@ static Vector3 spreadDir(Vector3 aim, float sp) {   // a direction within a cone
     return Vector3Normalize(Vector3Add(aim, Vector3Add(Vector3Scale(rt, cosf(a) * r), Vector3Scale(u2, sinf(a) * r)))); }
 static void shootGun(int t, Vector3 eye, Vector3 aim) {   // the pistol and the shotgun
     const ItemDef *g = &idef[t];
-    if (t == IT_SHOTGUN) { for (int k = 0; k < 9; k++) shootEx(eye, spreadDir(aim, 0.075f), g->dmg, g->range, k < 3); alertAll(pl.pos, 95); }
-    else { shootEx(eye, spreadDir(aim, 0.006f), g->dmg, g->range, true); alertAll(pl.pos, 55); }
+    float oh = twoHanded() ? 1.0f : 1.6f;   // 0.9.8: one-handed (the light in the other hand) it wanders more
+    if (t == IT_SHOTGUN) { for (int k = 0; k < 9; k++) shootEx(eye, spreadDir(aim, 0.065f * (oh > 1 ? 1.3f : 1)), g->dmg, g->range, k < 3); alertAll(pl.pos, 95); }
+    else { shootEx(eye, spreadDir(aim, 0.004f * oh * oh), g->dmg, g->range, true); alertAll(pl.pos, 55); }
 }
 
 // ============================================================ building
@@ -440,7 +441,12 @@ static void updatePlayer(float dt) {
         pl.tpitch += (0.02f - pl.tpitch) * fminf(1, dt * 2); pl.shake = fmaxf(pl.shake, 0.08f + 0.15f * clampf(animT / animDur, 0, 1));
         if (animT + dt >= animDur) { play(sShot, 1.0f); pl.muzzle = 0.07f; selfShot = true; pl.hp = 0; inputLocked = false; }
     }
-    if (animId != ANIM_NONE) { animT += dt; if (animT >= animDur) { if (animId == ANIM_HOLSTER) {} animId = ANIM_NONE; animItem = -1; } }
+    if (animId != ANIM_NONE) { animT += dt; if (animT >= animDur) { int was = animId; animId = ANIM_NONE; animItem = -1;
+        if (was == ANIM_HOLSTER && swapPend != -2) { int sp = swapPend; swapPend = -2; if (sp >= 0) equipNow(sp); else holsterNow(); } } }   // 0.9.8: the swap happens with the old one out of view
+    {   // 0.9.8: interactions want empty hands: the weapon goes down, the hands do the job, the weapon comes back up
+        vmStowHold -= dt; if (useQT > 0) useQT -= dt; else useQ = false;
+        bool want = pl.hands.t >= 0 && (pl.searchC >= 0 || useQ || vmStowHold > 0 || pl.climbT > 0 || (pl.invOpen && pl.openC >= 0));   // (and while looting what was searched)
+        vmStow = clampf(vmStow + (want ? 1.0f : -1.0f) * dt / 0.32f, 0, 1); if (pl.hands.t < 0) vmStow = 0; }
     { Vector2 m = (pl.invOpen || pl.mapOpen) ? (Vector2){0, 0} : MDel(); float tx = clampf(-m.x * 0.0007f, -0.05f, 0.05f), ty = clampf(m.y * 0.0007f, -0.04f, 0.04f);
       // springs, slightly under-damped: the weapon lags behind fast turns, overshoots a touch and settles
       const float K = 210, C = 2 * 0.58f * 14.5f;
@@ -532,8 +538,8 @@ static void updatePlayer(float dt) {
     pl.sprintK += ((sprint ? 1.0f : 0.0f) - pl.sprintK) * fminf(1, dt * 8);
     if (pl.sick > 40) spd *= 0.9f;
     float stamMul = encStam() * (1 - 0.07f * skLvl(SK_FIT)) * trMul(0);
-    if (sprint) { pl.stam -= 18 * dt * stamMul; if (pl.stam <= 0) { pl.stam = 0; pl.exhausted = true; } alertAll(pl.pos, 13 * (1 - 0.08f * skLvl(SK_STEALTH)) * trMul(6)); skGain(SK_FIT, dt * 0.25f); }
-    else pl.stam = fminf(100, pl.stam + (moving ? 8 : 15) * dt * (pl.stage >= 1 ? 0.75f : 1.0f) / encStam());
+    if (sprint) { pl.stam -= 10 * dt * stamMul;   /* 0.9.8: was 18 */ if (pl.stam <= 0) { pl.stam = 0; pl.exhausted = true; } alertAll(pl.pos, 13 * (1 - 0.08f * skLvl(SK_STEALTH)) * trMul(6)); skGain(SK_FIT, dt * 0.25f); }
+    else pl.stam = fminf(100, pl.stam + (moving ? 3.5f : 7) * dt * (pl.stage >= 1 ? 0.75f : 1.0f) / encStam());   // 0.9.8: slower back (was 8 / 15)
     if (sneak && moving) { bool near = false; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state == CS_WANDER && Vector3Distance(crs[i].pos, pl.pos) < 14) near = true; if (near) skGain(SK_STEALTH, dt * 0.35f); }
     if (pl.exhausted && pl.stam > 30) pl.exhausted = false;
     if (pl.food <= 0 || pl.water <= 0) spd *= 0.85f;
@@ -583,6 +589,7 @@ static void updatePlayer(float dt) {
         Cont *c = &conts[pl.searchC];
         if (!c->on || Vector3Distance(c->pos, pl.pos) > 2.8f || !actD(A_USE)) { pl.searchC = -1; pl.searchT = 0; }
         else {
+            if (pl.hands.t >= 0 && vmStow < 1) snprintf(prompt, sizeof prompt, "Putting %s away ...", idef[pl.hands.t].name); else
             { float before = pl.searchT; pl.searchT += dt; if ((int)(before / 0.45f) != (int)(pl.searchT / 0.45f) || before == 0) play(sRummage, 0.45f); }
             float need = searchTime(c->kind);
             snprintf(prompt, sizeof prompt, "Searching %s ...", ckName[c->kind]);
@@ -608,7 +615,11 @@ static void updatePlayer(float dt) {
         else if (useDoor >= 0) snprintf(prompt, sizeof prompt, "%s", ops[useDoor].state == 0 ? "[E] Close door" : ops[useDoor].locked ? (invHas(IT_KEY) ? "[E] Unlock with a spare key" : "Locked - strike it to force it open") : "[E] Open door");
         else { int w = facingOpening(pl.pos, aim, 1.6f, OP_WINDOW, 0); if (w >= 0) snprintf(prompt, sizeof prompt, "Glass window - strike to break"); }
     }
-    if (actP(A_USE) && !pl.invOpen && pl.searchC < 0) {
+    bool usePress = actP(A_USE);
+    if (usePress && !pl.invOpen && pl.searchC < 0 && pl.hands.t >= 0 && vmStow < 1 && (cont >= 0 || door >= 0 || useDoor >= 0)) { useQ = true; useQT = 0.9f; usePress = false; }   // 0.9.8: put the weapon away first
+    else if (useQ && vmStow >= 1 && !pl.invOpen && pl.searchC < 0) { useQ = false; useQT = 0; usePress = cont < 0 || actD(A_USE); }   // (a search goes on only while E is still held)
+    if (usePress && (door >= 0 || useDoor >= 0) && cont < 0) vmStowHold = 0.55f;
+    if (usePress && !pl.invOpen && pl.searchC < 0) {
         if (cont >= 0) { Cont *c = &conts[cont]; if (searchTime(c->kind) <= 0) { lootFill(c); openInventory(cont); } else { pl.searchC = cont; pl.searchT = 0; } }
         else if (facingBuild(eye, aim, 2.4f, BK_GENERATOR) >= 0) {}   // handled by extraPrompt
         else if (survPrompt(eye, aim, true)) {}
@@ -705,14 +716,14 @@ static void updatePlayer(float dt) {
             if (audioOk) { SetSoundPitch(sSwing, 1.25f - clampf(w->weight / 5.0f, 0, 0.6f)); SetSoundVolume(sSwing, 0.6f * gs.sfx); PlaySound(sSwing); } netSwingN++;
         } else if (pl.weapon == 1 && pl.shootCd <= 0 && pl.reloadT <= 0 && actP(A_ATTACK)) {
             if (pl.mag > 0) {
-                pl.mag--; revShotT = 0; netShotN++; pl.shootCd = 0.45f; pl.kick = 1; pl.muzzle = 0.07f; pl.tpitch += 0.05f; pl.shake = 0.2f; pl.punch = 0.5f;
-                play(sShot, 1.0f); shoot(eye, aim);
+                pl.mag--; revShotT = 0; netShotN++; pl.shootCd = 0.45f; pl.kick = twoHanded() ? 0.7f : 1.15f; pl.muzzle = 0.07f; pl.tpitch += 0.05f; pl.shake = 0.2f; pl.punch = 0.5f;
+                play(sShot, 1.0f); shoot(eye, spreadDir(aim, twoHanded() ? 0.002f : 0.012f));   // 0.9.8: one-handed it wanders
             } else { play(sClick, 0.7f); revShotT = 0; pl.shootCd = 0.3f; }
         } else if (pl.weapon >= 2 && pl.shootCd <= 0 && pl.reloadT <= 0 && actP(A_ATTACK)) {
             int *m = gunMag(); const ItemDef *g = &idef[pl.hands.t];
             if (*m > 0 || cht.on[CH_AMMO]) {
                 if (!cht.on[CH_AMMO]) (*m)--; revShotT = 0; netShotN++; pl.shootCd = g->cd; pl.muzzle = 0.07f;
-                bool sg = pl.weapon == 3; pl.kick = sg ? 1.6f : 0.7f; pl.tpitch += sg ? 0.11f : 0.03f; pl.shake = sg ? 0.45f : 0.12f; pl.punch = sg ? 1.0f : 0.35f;
+                bool sg = pl.weapon == 3; pl.kick = (sg ? 1.6f : 0.7f) * (twoHanded() ? 0.75f : 1.15f); pl.tpitch += sg ? 0.11f : 0.03f; pl.shake = sg ? 0.45f : 0.12f; pl.punch = sg ? 1.0f : 0.35f;
                 play(sg ? sShotgun : sPistol, 1.0f); shootGun(pl.hands.t, eye, aim); weaponWear(0.3f);
             } else { play(sClick, 0.7f); revShotT = 0; pl.shootCd = 0.3f; }
         }
@@ -725,7 +736,7 @@ survival_ui:
     pl.swingT = fmaxf(0, pl.swingT - dt);
 survival:
     // ---- survival: blood, wounds, hunger, thirst (harder than before)
-    { float sk = pl.sick > 0 ? 1.8f : 1.0f; pl.food -= dt * 100.0f / 480.0f * sk * trMul(3); pl.water -= dt * 100.0f / 360.0f * sk; }
+    { float sk = pl.sick > 0 ? 1.8f : 1.0f; pl.food -= dt * 100.0f / 1500.0f * sk * trMul(3); pl.water -= dt * 100.0f / 1100.0f * sk; }   // 0.9.8: a full stomach lasts 25 min, water 18 (was 8 and 6)
     pl.food = fmaxf(pl.food, 0); pl.water = fmaxf(pl.water, 0);
     for (int q = 0; q < 6; q++) if (pl.quick[q] >= 0 && invCount(pl.quick[q]) == 0 && pl.back.t != pl.quick[q]) pl.quick[q] = -1;   // used up: clear the slot
     if (pl.wounds > 0) {

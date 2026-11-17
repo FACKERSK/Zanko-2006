@@ -1994,8 +1994,14 @@ static void genLayoutWorld(void) {
                     box(T_PLAIN, V3(E.x + 0.9f, SIDEH + 1.4f, E.z + o - 0.31f * sd - 0.02f), V3(E.x + 1.9f, SIDEH + 1.9f, E.z + o - 0.31f * sd + 0.02f), rgb(70, 70, 72), false, ALL); }   // the name plate
                 curXf = keep; (void)nm; }
             Vector3 br2[2] = {p[0], p[n - 1]}; p = br2; n = 2;   // parapets run straight from bank to bank
-            wallRibbon(T_CONCRETE, p, n, -w / 2, SIDEH, SIDEH + 1.0f, rgb(200, 198, 190), NULL); wallRibbon(T_CONCRETE, p, n, w / 2, SIDEH, SIDEH + 1.0f, rgb(200, 198, 190), NULL);
-            railSolids(p, n, -w / 2, SIDEH + 1.0f, 0.12f); railSolids(p, n, w / 2, SIDEH + 1.0f, 0.12f);
+            {   // 0.9.8: the parapets in 0.5 m pieces, none where another street or road runs (a bridge end at a junction, a crossing beside the line)
+                Vector2 nb = pnorm(p, n, 0); float L = Vector3Distance(V3(p[0].x, 0, p[0].z), V3(p[1].x, 0, p[1].z)); int m = (int)ceilf(L / 0.5f); if (m < 1) m = 1;
+                for (int sd2 = -1; sd2 <= 1; sd2 += 2) { int k0 = -1;
+                    for (int q = 0; q <= m; q++) { bool ok = false;
+                        if (q < m) { Vector3 c = Vector3Lerp(p[0], p[1], (q + 0.5f) / m); float ox = c.x + nb.x * (w / 2) * sd2, oz = c.z + nb.y * (w / 2) * sd2; ok = !mainRoadAtEx(ox, oz, 0.3f, s2); }
+                        if (ok && k0 < 0) k0 = q;
+                        if (!ok && k0 >= 0) { Vector3 seg[2] = {Vector3Lerp(p[0], p[1], (float)k0 / m), Vector3Lerp(p[0], p[1], (float)q / m)};
+                            wallRibbon(T_CONCRETE, seg, 2, sd2 * w / 2, SIDEH, SIDEH + 1.0f, rgb(200, 198, 190), NULL); railSolids(seg, 2, sd2 * w / 2, SIDEH + 1.0f, 0.12f); k0 = -1; } } } }
             wallRibbon(T_CONCRETE, p, n, -w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); wallRibbon(T_CONCRETE, p, n, w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); }
         else for (int i = 3; i + 3 < n; i += 8) {   // utility poles on one side, a street lamp on every other one
             Vector2 nn = pnorm(p, n, i); float x = p[i].x + nn.x * (w / 2 + 0.9f), z = p[i].z + nn.y * (w / 2 + 0.9f);

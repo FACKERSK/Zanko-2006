@@ -355,6 +355,7 @@ static void drawMap(float W, float H) {
     struct { Color c; const char *t; } leg[] = {{MP_BLD, "Buildings"}, {MP_OLD, "Old houses"}, {MP_SEA, "Bay"}, {MP_HILL_LO, "Hills"}, {MP_ROAD, "Roads"}, {{70, 88, 91, 255}, "Railway"},
         {MP_TUN, "Road tunnel"}, {MP_X, "Collapse"}, {MP_CYAN, "Water"}, {{70, 190, 110, 255}, "Subway"}, {MP_TUN, "Markers"}};
     for (int i = 0; i < 11; i++) { DrawRectangle((int)lx, (int)(ly + 3 * s), (int)(12 * s), (int)(12 * s), leg[i].c); aText(leg[i].t, lx + 16 * s, ly, 12, C_BONE2, false); lx += (aMeasure(leg[i].t, 12, false).x + 24 * s); }
+    { char pc[64]; snprintf(pc, sizeof pc, "You: %.0f, %.0f", pl.pos.x, pl.pos.z); aText(pc, mr.x + mr.width - aMeasure(pc, 12, false).x, ly + 20 * s, 12, C_BONE2, false); }   // 0.9.8: where you are (for reports)
     aText(padActive ? "A marker   X remove nearest   Left stick pan   Right stick rotate   RT / LT zoom   B close" : TextFormat("LMB marker   RMB drag rotate / click remove   WASD pan   Wheel zoom   %s / Esc close", actKey(A_MAP)), mr.x, ly + 20 * s, 12, C_BONE2, false);
     Vector2 m = aMousePos(); bool over = CheckCollisionPointRec(m, mr);
     if (over) {

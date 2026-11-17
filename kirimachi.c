@@ -820,8 +820,9 @@ static void wallPiece(int s, float u0, float u1, float y0, float y1, int t, Colo
         box(t, mn, mx, c, true, ALL & ~inner[s & 3]); box(T_PLASTER, mn, mx, (Color){236, 232, 222, 255}, false, inner[s & 3]); return; }
     box(t, mn, mx, c, true, ALL);
 }
+static unsigned char opInner[MAX_OPEN];   // 0.9.8: a door leaf in an inner doorway
 static void addOpening(int s, float u0, float u1, float y0, float y1, int type, int stt) {
-    if (nOps >= MAX_OPEN) return;
+    if (nOps >= MAX_OPEN) return; opInner[nOps] = 0;
     Open *o = &ops[nOps];
     Vector3 mx, mn;
     if (type == OP_WINDOW) mn = sideMn(s, u0, u1, y0, y1, &mx, 0.04f);
@@ -1126,7 +1127,7 @@ static void freeWorld(void) {
         if (chLodOk[c]) { UnloadModel(chLod[c]); chLodOk[c] = false; } chAny[c] = false; }
     for (int c = 0; c < GN * GN; c++) cellN[c] = 0;
     nSol = nOps = nVend = nLight = nSign = nLamp = nCrate = nBuild = nItem = nCr = nWard = nScreen = nFire = nTV = nCar = 0;
-    nCont = nDeb = nStair = nHole = 0; nPit = 0; nSubRes = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
+    nCont = nDeb = nStair = nHole = 0; nPit = 0; nSubRes = 0; nDoorLate = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
     memset(parts, 0, sizeof parts);
 }
 static Model mbModel(MB *b, int t) {
@@ -1270,6 +1271,7 @@ static void genWorld(unsigned int seed) {
     genWilds();
     genWater();
     worldSolids = nSol; worldLights = nLight;
+    for (int i = 0; i < nDoorLate; i++) if (doorLate[i] >= 0) sol[doorLate[i]].off = false; nDoorLate = 0;   // 0.9.8: the shut inner doors
     TraceLog(LOG_INFO, "WINFILL %d windows walled up where an inner wall meets them", jpWinFilled); jpWinFilled = 0;
     if (nHandDoor) TraceLog(LOG_INFO, "HANDDOORS %d doorway markers, %d doorways cut", nHandDoor, jpDoorsHand);
     TraceLog(LOG_INFO, "HOUSEDETAILS %d wall details left off (they reached into another building's lot)", bdSkipped); bdSkipped = 0;
@@ -1458,8 +1460,8 @@ static void updateSanity(float dt, Vector3 aim) {
         if (Vector3Distance(fires[i].pos, pl.pos) < 4.5f) pl.nearFire = true;
     }
     float target = pl.nearFire ? 95 : fminf(90, (pl.roof ? 55 : 22) + wearWarm() * (pl.roof ? 0.6f : 1.0f) * (1 - pl.wet / 150.0f)) - pl.wet * 0.3f;   // clothes keep you warm, most of all outdoors; wet ones much less
-    pl.warmth += (target - pl.warmth) * dt * (pl.nearFire ? 0.08f : 0.02f);
-    if (!pl.sleeping) pl.rest = fmaxf(0, pl.rest - dt * 100.0f / 900.0f * trMul(7));
+    pl.warmth += (target - pl.warmth) * dt * (pl.nearFire ? 0.04f : 0.008f);   // 0.9.8: slower both ways
+    if (!pl.sleeping) pl.rest = fmaxf(0, pl.rest - dt * 100.0f / 2000.0f * trMul(7));   // 0.9.8: was 900
     if (!pl.sleeping && pl.watchT <= 0) pl.boredom = fminf(100, pl.boredom + dt * 100.0f / 300.0f);
     int visible = 0; float nearest = 1e9f;
     for (int i = 0; i < nCr; i++) {
@@ -2503,6 +2505,24 @@ int main(int argc, char **argv) {
                 if (df == 71) memset(vin.pressed, 0, sizeof vin.pressed);
                 if (df == 85 && di >= 0) { TraceLog(LOG_INFO, "DOORTEST key used: state %d locked %d solid off %d keys left %d msg '%s'", ops[di].state, ops[di].locked, sol[ops[di].sid].off, invCount(IT_KEY), msg); TakeScreenshot("door_key.png"); }
                 if (df == 86) { vin.on = false; break; } } }
+        {   // 0.9.8 stow test: KIRI_STOWTEST=1 holds E at a cupboard with a katana out: it must go away before the search starts, and come back
+            static int stt = -1, sf2 = 0, sc = -1;
+            if (stt < 0) stt = getenv("KIRI_STOWTEST") ? 1 : 0;
+            if (stt == 1) { sf2++;
+                if (sf2 == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = true; pl.tod = 12; DisableCursor(); for (int i = 0; i < nCr; i++) crs[i].on = false;
+                    pl.hands = (Slot){IT_KATANA, 1, 0}; pl.weapon = 0; pl.flash = false;
+                    for (int i = 0; i < nCont; i++) { Cont *c = &conts[i]; if (!c->on || c->kind == CK_PILE || searchTime(c->kind) < 1.0f || c->pos.y > 1 || c->pos.y < 0) continue;
+                        Vector3 f = V3(sinf(c->yaw), 0, cosf(c->yaw)), p = Vector3Add(c->pos, Vector3Scale(f, 1.3f)); if (!pointFree(p.x, p.z, 0.3f, c->pos.y + 0.1f)) continue;
+                        sc = i; pl.pos = V3(p.x, c->pos.y, p.z); pl.pos.y = groundAt(V3(p.x, c->pos.y + 1, p.z), 0.3f, 2) + 0.02f; pl.tyaw = pl.yaw = atan2f(-f.x, -f.z); pl.tpitch = pl.pitch = -0.35f; break; }
+                    TraceLog(LOG_INFO, "STOWTEST container %d", sc); }
+                if (sf2 == 40) { vin.on = true; memset(vin.down, 0, sizeof vin.down); memset(vin.pressed, 0, sizeof vin.pressed); vin.pressed[KEY_E] = 1; vin.down[KEY_E] = 1; }
+                if (sf2 == 41) memset(vin.pressed, 0, sizeof vin.pressed);
+                if (sf2 >= 40 && sf2 <= 160 && sf2 % 6 == 0) TraceLog(LOG_INFO, "STOWTEST f%d stow %.2f searchC %d searchT %.2f useQ %d inv %d prompt '%s'", sf2, vmStow, pl.searchC, pl.searchT, useQ, pl.invOpen, prompt);
+                if (sf2 == 35 || sf2 == 46 || sf2 == 52 || sf2 == 70) TakeScreenshot(TextFormat("stow_%03d.png", sf2));
+                if (sf2 == 165) { vin.down[KEY_E] = 0; pl.invOpen = false; DisableCursor(); }
+                if (sf2 == 175 || sf2 == 190) { TakeScreenshot(TextFormat("stow_%03d.png", sf2)); TraceLog(LOG_INFO, "STOWTEST after f%d stow %.2f", sf2, vmStow); }
+                if (sf2 == 200) { pl.flash = true; } if (sf2 == 212 || sf2 == 230 || sf2 == 260) { TakeScreenshot(TextFormat("stow_torch_%03d.png", sf2)); TraceLog(LOG_INFO, "STOWTEST torch f%d K %.2f", sf2, vmTorchK); }
+                if (sf2 == 270) quitReq = true; } }
         {   // basement test: KIRI_BASETEST=1 walks down a basement flight and back up with simulated input, then quits
             static int bt = -1, bf = 0, bp = -1; static Vector3 bdir;
             if (bt < 0) bt = getenv("KIRI_BASETEST") ? 1 : 0;
@@ -2858,7 +2878,7 @@ int main(int argc, char **argv) {
         Vector3 eye, aim;
         if (state == ST_PLAY) {
 #if !defined(PLATFORM_WEB)
-            static int autoTest = -1; if (autoTest < 0) autoTest = getenv("KIRI_SHOT") || getenv("KIRI_BASETEST") || getenv("KIRI_DOORTEST") || getenv("KIRI_WALK") || getenv("KIRI_VM") || getenv("KIRI_MPHOST") || getenv("KIRI_MPJOIN") ? 1 : 0;
+            static int autoTest = -1; if (autoTest < 0) autoTest = getenv("KIRI_SHOT") || getenv("KIRI_BASETEST") || getenv("KIRI_STOWTEST") || getenv("KIRI_DOORTEST") || getenv("KIRI_WALK") || getenv("KIRI_VM") || getenv("KIRI_MPHOST") || getenv("KIRI_MPJOIN") ? 1 : 0;
             if (gs.pauseUnfocus && !autoTest && !IsWindowFocused() && netMode == NM_OFF && !vin.on) { state = ST_PAUSE; EnableCursor(); pauseFrame = frame; }
 #endif
             if (cht.avail && KP(cht.key) && !pl.invOpen && !pl.mapOpen) { cht.menu = !cht.menu; if (cht.menu) EnableCursor(); else DisableCursor(); }
@@ -2917,7 +2937,7 @@ int main(int argc, char **argv) {
         if (pl.punch > 0) cam.target = Vector3Add(cam.target, V3(0, -pl.punch * 0.02f, 0));
 
         // ---- render 3D low-res
-        float flash = (pl.flash && (state == ST_PLAY || gameActive)) ? (pl.batt < 15 ? (hash2((int)(t * 15), 0, 1) > 0.3f ? 1 : 0.1f) : 1) : 0;
+        float flash = (pl.flash && (vmTorchK > 0.9f || pl.build) && (state == ST_PLAY || gameActive)) ?   /* 0.9.8: only once the phone is out and open */ (pl.batt < 15 ? (hash2((int)(t * 15), 0, 1) > 0.3f ? 1 : 0.1f) : 1) : 0;
         if (!gameActive && state != ST_PLAY) flash = 0;
         float muzzle = pl.muzzle > 0 ? 1 : 0, amb = 0.30f, fogD = 0.055f, snap[2] = {(float)rtW * 2, (float)rtH * 2};   // (vertices snap to whole render pixels: the PS1 look without walls swimming a pixel wider and back)
         {   // the wilds are bright, clear and wrong; the subway is darker than the street
@@ -3092,7 +3112,7 @@ int main(int argc, char **argv) {
             if (frame == 226) TakeScreenshot("shot_edge.png");
             if (frame == 227) {   // walk up a flight of stairs with simulated input
                 vin.on = true; memset(vin.down, 0, sizeof vin.down);
-                for (int i = 0; i < nStair; i++) if (stairs[i].bot.y < 1 && stairs[i].top.y > 3 && stairs[i].top.y < 4) { stTest = i; Vector3 d_ = Vector3Subtract(stairs[i].top, stairs[i].bot); if (fabsf(d_.x) > 0.5f && fabsf(d_.z) > 0.5f) break; }   // prefer a turned building
+                for (int i = 0; i < nStair; i++) if (stairs[i].bot.y < 1 && stairs[i].bot.y > 0 && stairs[i].top.y > 1.5f && stairs[i].top.y < 2.2f) { stTest = i; Vector3 d_ = Vector3Subtract(stairs[i].top, stairs[i].bot); if (fabsf(d_.x) > 0.5f && fabsf(d_.z) > 0.5f) break; }   // prefer a turned building
                 if (stTest >= 0) { Vector3 d_ = Vector3Subtract(stairs[stTest].top, stairs[stTest].bot); TraceLog(LOG_INFO, "STAIRTEST stair dir %.2f %.2f (turned building: %s)", d_.x, d_.z, fabsf(d_.x) > 0.5f && fabsf(d_.z) > 0.5f ? "yes" : "no"); }
                 if (stTest >= 0) { Stair *s = &stairs[stTest]; pl.pos = s->bot; Vector3 d = Vector3Subtract(s->top, s->bot); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = 0; pl.vy = 0; pl.hp = 100; vin.down[KEY_W] = 1; }
             }
@@ -3109,7 +3129,7 @@ int main(int argc, char **argv) {
             if (frame == 316) { for (int i = 0; i < nCr; i++) if (crs[i].on) { impactFX(&crs[i], 0.9f, false, V3(0, 0, 1)); break; } }
             if (frame == 317) TakeScreenshot("shot_hit.png");
             if (frame == 318) {   // second flight (switchback) from floor 1 to floor 2
-                stTest = -1; for (int i = 0; i < nStair; i++) if (stairs[i].bot.y > 3 && stairs[i].bot.y < 4 && stairs[i].top.y > 6) { stTest = i; break; }
+                stTest = -1; for (int i = 0; i < nStair; i++) if (stairs[i].bot.y > 1.5f && stairs[i].bot.y < 2.2f && stairs[i].top.y > 3 && stairs[i].top.y < 4) { stTest = i; break; }   // 0.9.8: the second half flight, half landing to floor 1
                 if (stTest >= 0) { vin.on = true; memset(vin.down, 0, sizeof vin.down); memset(vin.pressed, 0, sizeof vin.pressed); Stair *s = &stairs[stTest]; pl.pos = s->bot; Vector3 d = Vector3Subtract(s->top, s->bot); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = 0; vin.down[KEY_W] = 1; }
             }
             if (frame == 390) { if (stTest >= 0) TraceLog(LOG_INFO, "STAIRTEST2: start %.2f top %.2f reached y %.2f", stairs[stTest].bot.y, stairs[stTest].top.y, pl.pos.y); else TraceLog(LOG_INFO, "STAIRTEST2: no second flight found"); vin.on = false; }
@@ -3277,6 +3297,11 @@ int main(int argc, char **argv) {
             if (frame > 1204 && frame < 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
             if (frame == 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
                 TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
+            if (frame == 6 && getenv("KIRI_ROADSOLIDS")) { int n = 0;   // debug: solids standing on a road
+                for (int i = 0; i < nSol; i++) { Solid *so = &sol[i]; if (so->off) continue; Vector3 sz = Vector3Subtract(so->mx, so->mn); if (sz.y < 0.35f || so->mn.y > 1.0f || so->mn.y < -1.5f) continue;
+                    Vector3 c = xfP(so->f, Vector3Scale(Vector3Add(so->mn, so->mx), 0.5f)); if (!mainRoadAt(c.x, c.z, -0.6f)) continue;
+                    if (n++ < 60) TraceLog(LOG_INFO, "ROADSOLID %.1f %.1f y %.2f..%.2f size %.2f x %.2f", c.x, c.z, so->mn.y, so->mx.y, sz.x, sz.z); }
+                TraceLog(LOG_INFO, "ROADSOLID %d in all", n); }
             if (frame == 6) { char wb2[2000] = ""; for (int i = 0; i < wallAuditN && i < 24; i++) { char t2[64]; snprintf(t2, 64, " (%.0f,%.0f t%d w%.1f h%.1f)", wallAuditP[i].x, wallAuditP[i].z, wallAuditT[i], wallAuditW[i], wallAuditH[i]); strcat(wb2, t2); } TraceLog(LOG_INFO, "WALLAUDIT %d upright faces stand on a road:%s", wallAuditN, wb2); if (wallAuditN) { Vector3 q = wallAuditP[0]; int st = -1; for (int s2 = 0; s2 < nStreet; s2++) if (pathDist(ST_P(s2), ST_N(s2), q.x, q.z, NULL) < stW10[s2] / 20.0f) st = s2; TraceLog(LOG_INFO, "WALLAUDIT first: coast_d %.1f street %d kind %d touge %.1f north %.1f bores %d", coast_d(q.x, q.z), st, st >= 0 ? stKind[st] : -1, pathDist(tougeP, nTouge, q.x, q.z, NULL), pathDist(northP, nNorth, q.x, q.z, NULL), inBore(q.x, q.z, SIDEH)); } }
             if (frame == 6) {   // walkability audit: every street and the coast road, centre and edges: solid ground at the drawn height, nothing in the way
                 int holes = 0, blocked = 0, total = 0; char hb[400] = "", bb[400] = "";

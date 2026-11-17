@@ -1,4 +1,5 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.9.9|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.9.zip|2026-11-17|Half-landing stairwells, rigged hands, house doors, stow before interacting
 0.9.8|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.8.zip|2026-11-17|Stairwells, basements, subway, fog
 0.9.7|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.7.zip|2026-11-16|Planned town, layered pavement with round kerbs, gore, per-node road widths, doorway markers
 0.9.6|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.6.zip|2026-11-15|Every room has a way in, room at the stairs, inventory card fix, remember-me login

@@ -317,6 +317,14 @@ static void extFloor(Rectangle r, int kind, int street, float y0, float yTop, bo
             if (storefront || fr(0, 1) < winP) {
                 float p = storefront ? 0.15f : 0.4f;
                 float sill = storefront ? 0.35f : 0.9f, top = storefront ? 2.6f : 2.1f;
+                if (!storefront) {   // 0.9.8: windows of different sizes: standard, wide, narrow, a small high one, a long low strip
+                    float r = fr(0, 1), ww;
+                    if (r < 0.3f) { ww = mw - 0.8f; }
+                    else if (r < 0.45f) { ww = mw - 0.5f; sill = 0.6f; top = 2.2f; }
+                    else if (r < 0.7f) { ww = 0.9f; }
+                    else if (r < 0.85f) { ww = 0.6f; sill = 1.4f; top = 2.0f; }
+                    else { ww = mw - 0.6f; sill = 1.3f; top = 2.0f; }
+                    ww = clampf(ww, 0.5f, mw - 0.5f); p = (mw - ww) / 2; }
                 wallPiece(s, u0, u0 + p, y0, yTop, extTex, ec);
                 wallPiece(s, u1 - p, u1, y0, yTop, extTex, ec);
                 wallPiece(s, u0 + p, u1 - p, y0, y0 + sill, extTex, ec);
@@ -352,7 +360,7 @@ static bool fTight;   // set while a toilet, washroom or bath is fitted out: fix
 static void keepAdd(Rectangle wide, Rectangle tight) { if (nKeep >= MAX_KEEP) return; keepClear[nKeep] = wide; keepTight[nKeep] = tight; keepDoor[nKeep] = (Vector2){wide.x + wide.width / 2, wide.y + wide.height / 2}; nKeep++; }
 static bool blocksDoor(float x0, float z0, float x1, float z1, float y) {
     for (int k = 0; k < nKeep; k++) { Rectangle c = fTight ? keepTight[k] : keepClear[k]; if (x0 < c.x + c.width && x1 > c.x && z0 < c.y + c.height && z1 > c.y) return true; }
-    for (int i = 0; i < nOps; i++) { Open *o = &ops[i]; if (o->type != OP_DOOR || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue;   // keep 1.2 m clear around every door
+    for (int i = 0; i < nOps; i++) { Open *o = &ops[i]; if (o->type != OP_DOOR || opInner[i] || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue;   // keep 1.2 m clear around every door (an inner one has its doorway's own keep-clear)
         float dm = fTight ? 0.7f : 1.2f; if (x0 < o->mx.x + dm && x1 > o->mn.x - dm && z0 < o->mx.z + dm && z1 > o->mn.z - dm) return true; }
     return false;
 }
@@ -455,7 +463,7 @@ static bool pathOk(float x0, float z0, float x1, float z1) {
         pcSol = nSol; }
     Vector2 dp[8]; int nd = 0;
     for (int k = 0; k < nKeep + nOps && nd < 8; k++) { Vector2 c;
-        if (k < nKeep) c = keepDoor[k]; else { Open *o = &ops[k - nKeep]; if (o->type != OP_DOOR || o->f != curXf || fabsf(o->mn.y - pcY) > 0.6f) continue; c = (Vector2){(o->mn.x + o->mx.x) / 2, (o->mn.z + o->mx.z) / 2}; }
+        if (k < nKeep) c = keepDoor[k]; else { Open *o = &ops[k - nKeep]; if (o->type != OP_DOOR || opInner[k - nKeep] || o->f != curXf || fabsf(o->mn.y - pcY) > 0.6f) continue; c = (Vector2){(o->mn.x + o->mx.x) / 2, (o->mn.z + o->mx.z) / 2}; }
         if (c.x < pcRoom.x - 0.45f || c.x > pcRoom.x + pcRoom.width + 0.45f || c.y < pcRoom.y - 0.45f || c.y > pcRoom.y + pcRoom.height + 0.45f) continue;
         float d[4] = {fabsf(c.y - pcRoom.y), fabsf(c.x - (pcRoom.x + pcRoom.width)), fabsf(c.y - (pcRoom.y + pcRoom.height)), fabsf(c.x - pcRoom.x)}; int wl = 0; for (int e = 1; e < 4; e++) if (d[e] < d[wl]) wl = e; if (d[wl] > 0.6f) continue;
         float nx = wl == 1 ? -1 : wl == 3 ? 1 : 0, nz = wl == 0 ? 1 : wl == 2 ? -1 : 0; float ex = wl == 1 ? pcRoom.x + pcRoom.width : wl == 3 ? pcRoom.x : c.x, ez = wl == 0 ? pcRoom.y : wl == 2 ? pcRoom.y + pcRoom.height : c.y;
@@ -598,7 +606,7 @@ static void wallIn(int wall, float *nx, float *nz) { *nx = wall == 1 ? -1 : wall
 static int roomDoors(Rectangle rm, float y, int *first, float *uFirst) {   // which walls have a doorway (bit per wall); the first one found and where along it
     int mask = 0; *first = -1; *uFirst = 0;
     for (int k = 0; k < nKeep + nOps; k++) { Vector2 c;
-        if (k < nKeep) c = keepDoor[k]; else { Open *o = &ops[k - nKeep]; if (o->type != OP_DOOR || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue; c = (Vector2){(o->mn.x + o->mx.x) / 2, (o->mn.z + o->mx.z) / 2}; }
+        if (k < nKeep) c = keepDoor[k]; else { Open *o = &ops[k - nKeep]; if (o->type != OP_DOOR || opInner[k - nKeep] || o->f != curXf || fabsf(o->mn.y - y) > 0.6f) continue; c = (Vector2){(o->mn.x + o->mx.x) / 2, (o->mn.z + o->mx.z) / 2}; }
         if (c.x < rm.x - 0.45f || c.x > rm.x + rm.width + 0.45f || c.y < rm.y - 0.45f || c.y > rm.y + rm.height + 0.45f) continue;
         float d[4] = {fabsf(c.y - rm.y), fabsf(c.x - (rm.x + rm.width)), fabsf(c.y - (rm.y + rm.height)), fabsf(c.x - rm.x)}; int wl = 0; for (int q = 1; q < 4; q++) if (d[q] < d[wl]) wl = q;
         if (d[wl] > 0.6f) continue; mask |= 1 << wl; if (*first < 0) { *first = wl; *uFirst = (wl == 0 || wl == 2) ? c.x : c.y; } }
@@ -922,6 +930,7 @@ static void furnDumpBox(const char *tag, int k, Vector3 mn, Vector3 mx, float ya
 // Partitions are noted first and built together once the whole floor is laid out (jpBuildWalls): a doorway then cuts every wall drawn
 // along its line (two rooms' walls on one line used to shut each other's doors), and a room that still has no way in gets one.
 typedef struct { int ax; float pos, lo, hi; } JpWall;   // ax 0: at constant u, running lo..hi in d; ax 1: at constant d, running in u
+static Vector2 gStNear; static bool gStNearLo = true;   // 0.9.8: the stairwell's door landing (building frame), and whether it is at the low end in the plan's own (u, d)
 typedef struct { int ax; float pos, at; int fix; } JpDoor; static float jpFixLo[2], jpFixHi[2];   // fix: the stairwell's doors (never moved or pruned)
 static JpWall jpW[96]; static int jpNW; static JpDoor jpDr[48]; static int jpND; static int jpDoorsHand; static Vector3 handDoor[512]; static int nHandDoor;   // (the Mod Maker's doorway markers: handDoorsCollect)
 static void jpWallU(const JpF *J, float u, float d0, float d1, float door) {   // a partition at constant u from d0 to d1, a doorway centred at d = door (<0: none)
@@ -952,7 +961,7 @@ static void jgFlood(const JpF *J, int f, float doorU, bool hasStairs, float su0,
     jgW = (int)ceilf(J->W / JG_Q); jgD = (int)ceilf(J->D / JG_Q); if (jgW > JG_MAX) jgW = JG_MAX; if (jgD > JG_MAX) jgD = JG_MAX; memset(jg, 1, (size_t)jgW * jgD);
     for (int k = 0; k < jpNW; k++) { JpWall *q = &jpW[k]; for (float t = q->lo; t <= q->hi; t += JG_Q * 0.5f) { if (jpDoorCut(q->ax, q->pos, t)) continue;
         { int i0 = (int)floorf(q->pos / JG_Q - 1.0f); for (int ii = i0; ii <= i0 + 2; ii++) { float cc = (ii + 0.5f) * JG_Q; if (fabsf(cc - q->pos) > 0.101f) continue; int c = q->ax == 0 ? jgCell(cc, t) : jgCell(t, cc); if (c >= 0) jg[c] = 0; } } } }   // every cell whose middle is within 0.1 m of the wall line (the old test lost whole walls to rounding)
-    if (hasStairs) { float a0 = su0, a1 = su1, b0 = sd0, b1 = sd1, ld = fmaxf(0.8f, (fmaxf(su1 - su0, sd1 - sd0) - 3.6f) / 2) - 0.05f; if (su1 - su0 >= sd1 - sd0) { a0 += ld; a1 -= ld; b0 += 0.15f; b1 -= 0.15f; } else { b0 += ld; b1 -= ld; a0 += 0.15f; a1 -= 0.15f; }   // (the landings: as long as the building's own)   // the flights and the opening: not floor (the landings at both ends are)
+    if (hasStairs) { float a0 = su0, a1 = su1, b0 = sd0, b1 = sd1, ld = fmaxf(0.8f, (fmaxf(su1 - su0, sd1 - sd0) - 3.6f) / 2) - 0.05f; if (su1 - su0 >= sd1 - sd0) { if (gStNearLo) a0 += ld; else a1 -= ld; b0 += 0.15f; b1 -= 0.15f; } else { if (gStNearLo) b0 += ld; else b1 -= ld; a0 += 0.15f; a1 -= 0.15f; }   // 0.9.8: only the door landing is floor; the far end is the half landing   // (the landings: as long as the building's own)   // the flights and the opening: not floor (the landings at both ends are)
         for (float u = a0; u < a1; u += JG_Q * 0.5f) for (float d = b0; d < b1; d += JG_Q * 0.5f) { int c = jgCell(u, d); if (c >= 0) jg[c] = 0; } }
     {   // a person is 0.6 m wide: every cell within 0.25 m of something solid (or of the outer wall) is no place to stand
         static unsigned char t[JG_MAX * JG_MAX]; memcpy(t, jg, (size_t)jgW * jgD);
@@ -972,6 +981,12 @@ static void jgFlood(const JpF *J, int f, float doorU, bool hasStairs, float su0,
 static bool jpRoomReached(int r) { bool any = false; for (float u = jpRoomUD[r][0] + 0.25f; u < jpRoomUD[r][2] - 0.2f; u += JG_Q) for (float d = jpRoomUD[r][1] + 0.25f; d < jpRoomUD[r][3] - 0.2f; d += JG_Q) { if (jgReached(u, d)) return true; if (jgFree(u, d)) any = true; } return !any; }   // (a room that is all stairwell has nothing to reach)
 static int jpDoorsAdded = 0, jpRoomsShut = 0, jpDoorsPruned = 0; static char jbTrace[2000];
 // an inner wall that meets the outside wall where a window is: the window is walled up (outside finish outside, plaster inside)
+static int doorLate[20000], nDoorLate;
+static void innerDoor(bool alongX, float u0, float u1, float c, float y0, bool open) {   // 0.9.8: a hinged leaf in an inner doorway (alongX: the wall runs along x at z = c)
+    if (nOps >= MAX_OPEN) return; Open *o = &ops[nOps]; memset(o, 0, sizeof *o); opInner[nOps] = 1;
+    if (alongX) { o->mn = V3(u0, y0, c - 0.03f); o->mx = V3(u1, y0 + 2.1f, c + 0.03f); o->axis = 1; } else { o->mn = V3(c - 0.03f, y0, u0); o->mx = V3(c + 0.03f, y0 + 2.1f, u1); o->axis = 0; }
+    o->type = OP_DOOR; o->side = 1; o->state = open ? 0 : 1; o->bsid = -1; o->hp = 4; o->fy = y0; o->f = (short)curXf; o->locked = false; o->swing = open ? 1 : 0; o->sid = addSolid(o->mn, o->mx); if (o->sid >= 0) sol[o->sid].off = true; if (!open && nDoorLate < 20000) doorLate[nDoorLate++] = o->sid; nOps++;   // (shut ones turn solid once the town is built: furniture is placed as if open)
+}
 static void jpWinFill(const JpF *J, float u, float d) {
     Rectangle q = jpRect(J, u - 0.01f, d - 0.01f, u + 0.01f, d + 0.01f); float px = q.x + q.width / 2, pz = q.y + q.height / 2;
     float cx = J->in.x + J->in.width / 2, cz = J->in.y + J->in.height / 2;
@@ -981,6 +996,18 @@ static void jpWinFill(const JpF *J, float u, float d) {
         if (along < a0 - 0.12f || along > a1 + 0.12f || fabsf(across - wpos) > 0.45f) continue;
         float out = thinX ? (wpos > cx ? 1 : -1) : (wpos > cz ? 1 : -1);
         Vector3 mn = o->mn, mx = o->mx; if (thinX) { mn.x = wpos - 0.1f; mx.x = wpos + 0.1f; } else { mn.z = wpos - 0.1f; mx.z = wpos + 0.1f; }
+        mn.y -= 0.01f; mx.y += 0.01f;   // (a hair over the sill and lintel: no seam)
+        {   // 0.9.8: only the part of the window on the inner wall's side is walled up; the larger part stays a (smaller) window
+            float keepLo = a0, keepHi = along - 0.25f, fLo = along - 0.25f, fHi = a1 + 0.01f;
+            if (a1 - along > along - a0) { keepLo = along + 0.25f; keepHi = a1; fLo = a0 - 0.01f; fHi = along + 0.25f; }
+            if (keepHi - keepLo >= 0.5f) {
+                if (thinX) { mn.z = fLo; mx.z = fHi; } else { mn.x = fLo; mx.x = fHi; }
+                Vector3 omn = mn, omx = mx, imn = mn, imx = mx;
+                if (thinX) { if (out > 0) { omn.x = wpos; imx.x = wpos; } else { omx.x = wpos; imn.x = wpos; } } else { if (out > 0) { omn.z = wpos; imx.z = wpos; } else { omx.z = wpos; imn.z = wpos; } }
+                box(gExtTex, omn, omx, gExtCol, true, ALL); box(T_PLASTER, imn, imx, (Color){236, 232, 222, 255}, true, ALL);
+                if (thinX) { o->mn.z = keepLo; o->mx.z = keepHi; } else { o->mn.x = keepLo; o->mx.x = keepHi; }
+                jpWinFilled++; continue; } }
+        if (thinX) { mn.z -= 0.01f; mx.z += 0.01f; } else { mn.x -= 0.01f; mx.x += 0.01f; }
         Vector3 omn = mn, omx = mx, imn = mn, imx = mx;
         if (thinX) { if (out > 0) { omn.x = wpos; imx.x = wpos; } else { omx.x = wpos; imn.x = wpos; } } else { if (out > 0) { omn.z = wpos; imx.z = wpos; } else { omx.z = wpos; imn.z = wpos; } }
         box(gExtTex, omn, omx, gExtCol, true, ALL); box(T_PLASTER, imn, imx, (Color){236, 232, 222, 255}, true, ALL);
@@ -992,7 +1019,7 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         float lead = fmaxf(0.8f, ((L1 - L0) - 3.6f) / 2), roomC = C0 < 0.3f ? C1 : C0, g0 = L0 + lead / 2, g1 = L1 - lead / 2;
         int axL = alongU ? 1 : 0;   // (ax 0: a wall at constant u, running along d)
         for (int k = 0; k < jpNW; k++) if (jpW[k].ax == axL && fabsf(jpW[k].pos - roomC) < 0.25f) { roomC = jpW[k].pos; break; }   // (on the rooms' own wall line when one runs there: one wall, its doorways cut through)
-        jpW[jpNW++] = (JpWall){axL, roomC, L0 + lead, L1 - lead};   // (along the flights only: each landing opens straight into the floor)
+        jpW[jpNW++] = gStNearLo ? (JpWall){axL, roomC, L0 + lead, L1} : (JpWall){axL, roomC, L0, L1 - lead};   // 0.9.8: walled along the flights and the half landing   // (along the flights only: each landing opens straight into the floor)
         (void)Lmax;
         jpFixLo[0] = L0 + 0.42f; jpFixHi[0] = fmaxf(L0 + 0.42f, L0 + lead - 0.1f); jpFixLo[1] = fminf(L1 - 0.42f, L1 - lead + 0.1f); jpFixHi[1] = L1 - 0.42f;
         (void)g0; (void)g1; }
@@ -1041,7 +1068,7 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         for (int k = jpND - 1; k >= 0; k--) { JpDoor d = jpDr[k]; if (d.fix) continue; bool bad = false; int ra = -1, rb = -1;
             for (int sd2 = -1; sd2 <= 1; sd2 += 2) { bool sideOk = false; float pp = d.pos + sd2 * 0.45f;
                 for (float e = -0.15f; e <= 0.16f && !sideOk; e += 0.15f) { float u = d.ax == 0 ? pp : d.at + e, dd = d.ax == 0 ? d.at + e : pp;
-                    bool flight = false; if (hasStairs) { float a0 = su0, a1 = su1, b0 = sd0, b1 = sd1, ld = fmaxf(0.8f, (fmaxf(su1 - su0, sd1 - sd0) - 3.6f) / 2) - 0.05f; if (su1 - su0 >= sd1 - sd0) { a0 += ld; a1 -= ld; } else { b0 += ld; b1 -= ld; } flight = u > a0 && u < a1 && dd > b0 && dd < b1; }   // onto the flights themselves
+                    bool flight = false; if (hasStairs) { float a0 = su0, a1 = su1, b0 = sd0, b1 = sd1, ld = fmaxf(0.8f, (fmaxf(su1 - su0, sd1 - sd0) - 3.6f) / 2) - 0.05f; if (su1 - su0 >= sd1 - sd0) { if (gStNearLo) a0 += ld; else a1 -= ld; } else { if (gStNearLo) b0 += ld; else b1 -= ld; } flight = u > a0 && u < a1 && dd > b0 && dd < b1; }   // onto the flights themselves
                     if (u > 0.05f && dd > 0.05f && u < J->W - 0.05f && dd < J->D - 0.05f && !flight) sideOk = true; }
                 if (!sideOk) bad = true; int rr = jpRoomAt(d.ax == 0 ? pp : d.at, d.ax == 0 ? d.at : pp); if (sd2 < 0) ra = rr; else rb = rr; }
             if (!bad && ra == rb && ra >= 0) bad = true;
@@ -1075,6 +1102,7 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
                 if (end - cur > 0.02f) { Rectangle q = ax == 0 ? jpRect(J, pos - 0.05f, cur, pos + 0.05f, end) : jpRect(J, cur, pos - 0.05f, end, pos + 0.05f); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); jpDumpRect("W", q); }
                 if (e < nd) { float g0 = fmaxf(dl[e] - 0.4f, lo), g1 = fminf(dl[e] + 0.4f, hi); if (g1 - g0 > 0.3f) {
                         Rectangle l = ax == 0 ? jpRect(J, pos - 0.05f, g0, pos + 0.05f, g1) : jpRect(J, g0, pos - 0.05f, g1, pos + 0.05f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB); jpDumpRect("D", l);
+                        if (g1 - g0 > 0.6f && !getenv("KIRI_NOHD")) { bool ax2 = l.width > l.height; innerDoor(ax2, ax2 ? l.x : l.y, ax2 ? l.x + l.width : l.y + l.height, ax2 ? l.y + l.height / 2 : l.x + l.width / 2, jpY0, fr(0, 1) < 0.4f); }   // 0.9.8: a door in it, shut more often than not
                         if (ax == 0) keepAdd(jpRect(J, pos - 0.7f, dl[e] - 0.55f, pos + 0.7f, dl[e] + 0.55f), jpRect(J, pos - 0.42f, dl[e] - 0.4f, pos + 0.42f, dl[e] + 0.4f));
                         else keepAdd(jpRect(J, dl[e] - 0.55f, pos - 0.7f, dl[e] + 0.55f, pos + 0.7f), jpRect(J, dl[e] - 0.4f, pos - 0.42f, dl[e] + 0.4f, pos + 0.42f)); }
                     cur = fminf(dl[e] + 0.4f, hi); } } } }
@@ -1197,7 +1225,10 @@ static bool raFree(float x, float z, float y) { return standFree(x, z, y); }
 static void roomAudit(Rectangle in, float y0, int f, int kind, float sx, float sz) {   // (sx, sz): where one comes in
     const float q = 0.1f; int W = (int)(in.width / q) + 1, H = (int)(in.height / q) + 1; if (W * H > 60000 || W < 2 || H < 2) return;
     static unsigned char g[60000]; static int st[60000]; int n = 0;
+    static int dOff[4000]; int nOff = 0;   // 0.9.8: doors open (a shut door is a way through)
+    for (int i = 0; i < nOps && nOff < 4000; i++) { Open *o = &ops[i]; if (o->type == OP_DOOR && o->f == curXf && o->sid >= 0 && !sol[o->sid].off && fabsf(o->fy - y0) < 0.6f) { sol[o->sid].off = true; dOff[nOff++] = o->sid; } }
     for (int j = 0; j < H; j++) for (int i = 0; i < W; i++) g[j * W + i] = raFree(in.x + (i + 0.5f) * q, in.y + (j + 0.5f) * q, y0) ? 1 : 0;
+    for (int i = 0; i < nOff; i++) sol[dOff[i]].off = false;
     if (sx > -1e8f) { int bi = -1; float bd = 1e9f; for (int j = 0; j < H; j++) for (int i = 0; i < W; i++) if (g[j * W + i]) { float dx = in.x + (i + 0.5f) * q - sx, dz = in.y + (j + 0.5f) * q - sz, d = dx * dx + dz * dz; if (d < bd) { bd = d; bi = j * W + i; } }
         if (bi >= 0 && bd < 1.5f * 1.5f) { g[bi] = 2; st[n++] = bi; } }
     else for (int r = 0; r < jpRooms; r++) if (jpRoomP[r] == RM_HALL) { Rectangle rm = jpRoomR[r]; for (int j = 0; j < H; j++) for (int i = 0; i < W; i++) { float x = in.x + (i + 0.5f) * q, z = in.y + (j + 0.5f) * q; if (g[j * W + i] == 1 && x > rm.x && x < rm.x + rm.width && z > rm.y && z < rm.y + rm.height) { g[j * W + i] = 2; st[n++] = j * W + i; } } }
@@ -1237,7 +1268,9 @@ static bool jpFloor(Rectangle in, int street, Rectangle stairR, bool hasStairs, 
         for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { float x = xs[i], z = zs[j], u, d;
             switch (street) { case 0: u = x - in.x; d = z - in.y; break; case 2: u = x - in.x; d = in.y + in.height - z; break; case 3: u = z - in.y; d = x - in.x; break; default: u = z - in.y; d = in.x + in.width - x; }
             su0 = fminf(su0, u); su1 = fmaxf(su1, u); sd0 = fminf(sd0, d); sd1 = fmaxf(sd1, d); }
-        su0 = fmaxf(su0, 0); su1 = fminf(su1, J.W); sd0 = fmaxf(sd0, 0); sd1 = fminf(sd1, J.D); }
+        su0 = fmaxf(su0, 0); su1 = fminf(su1, J.W); sd0 = fmaxf(sd0, 0); sd1 = fminf(sd1, J.D);
+        { float x = gStNear.x, z = gStNear.y, nu, nd; switch (street) { case 0: nu = x - in.x; nd = z - in.y; break; case 2: nu = x - in.x; nd = in.y + in.height - z; break; case 3: nu = z - in.y; nd = x - in.x; break; default: nu = z - in.y; nd = in.x + in.width - x; }
+          gStNearLo = su1 - su0 >= sd1 - sd0 ? fabsf(nu - su0) < fabsf(nu - su1) : fabsf(nd - sd0) < fabsf(nd - sd1); } }
     bool atBack = !hasStairs || sd0 > J.D * 0.45f;
     bool work = (kind == 2 && f == 0) || kind == 3 || kind == 4 || kind == 6;   // a shop, the konbini, the koban, an office floor
     if (kind == 2 && f > 0) kind = 1;   // the family lives over the shop: a flat
@@ -1298,14 +1331,27 @@ static void stain(Vector3 p, float r) {   // dried blood on a floor, for good (i
     for (int k = 0; k < 3 + ri(3); k++) { float a = fr(-r * 0.6f, r * 0.6f), b = fr(-r * 0.6f, r * 0.6f), w = fr(r * 0.3f, r * 0.7f), d = fr(r * 0.3f, r * 0.7f), y = p.y + 0.004f + k * 0.0015f; box(T_GORE, V3(p.x + a - w, y, p.z + b - d), V3(p.x + a + w, y + 0.002f, p.z + b + d), (Color){(unsigned char)(70 + ri(40)), 8, 8, 255}, false, 16); }
 }
 // 0.9.7: the stairwell: a wall along the flights' room side with a doorway at each landing, and one across its far end
-static void stairwellWalls(bool runX, float uStart, float uE, float LEAD, float bandLo, float bandHi, bool stripHigh, float uMax, float y0, float yTop, bool base) {
-    float t = 0.1f, c0 = stripHigh ? bandLo - t : bandHi, c1 = c0 + t; Color wc = base ? rgb(120, 118, 112) : rgb(196, 194, 188); int tex = T_CONCRETE;
+// 0.9.8: the stairwell is a closed concrete shaft: a wall along its room side with a door at each landing, and one across its inner end with a door
+// (flights: the wall along the flights too; a planned floor builds that part with its rooms)
+static void stairwellWalls(bool runX, float uStart, float uE, float LEAD, float bandLo, float bandHi, bool stripHigh, float uMax, float y0, float yTop, bool base, bool flights) {
+    float t = 0.1f, c0 = stripHigh ? bandLo - t : bandHi, c1 = c0 + t, cD = c0 + t / 2, yD = y0 + 2.1f; Color wc = base ? rgb(120, 118, 112) : rgb(168, 166, 160); int tex = T_CONCRETE;
     float g[2][2] = {{uStart + LEAD / 2 - 0.45f, uStart + LEAD / 2 + 0.45f}, {uE - LEAD / 2 - 0.45f, uE - LEAD / 2 + 0.45f}};
     if (g[0][0] < uStart + 0.05f) { g[0][1] += uStart + 0.05f - g[0][0]; g[0][0] = uStart + 0.05f; }
-    {   // along the flights only: each landing opens straight onto the floor
-        float a0 = uStart + LEAD, a1 = uE - LEAD; if (runX) box(tex, V3(a0, y0, c0), V3(a1, yTop, c1), wc, true, ALL); else box(tex, V3(c0, y0, a0), V3(c1, yTop, a1), wc, true, ALL);
-        for (int k = 0; k < 2; k++) { Rectangle kc = runX ? (Rectangle){g[k][0] - 0.2f, stripHigh ? c0 - 1.1f : c1, 1.3f, 1.1f} : (Rectangle){stripHigh ? c0 - 1.1f : c1, g[k][0] - 0.2f, 1.1f, 1.3f}; keepAdd(kc, kc); } }
-    (void)uMax;
+    bool endWall = uMax - uE > 0.3f; float uW = endWall ? uE + t : uE;
+    #define SWB(a_, b_, ya_, yb_) do { if ((b_) - (a_) > 0.01f) { if (runX) box(tex, V3(a_, ya_, c0), V3(b_, yb_, c1), wc, true, ALL); else box(tex, V3(c0, ya_, a_), V3(c1, yb_, b_), wc, true, ALL); } } while (0)
+    if (!base && y0 < 1 && getenv("KIRI_SWLOG")) { static int nl = 0; if (nl++ < 12) { float m = (g[0][0] + g[0][1]) / 2, sg = stripHigh ? 1.0f : -1.0f;
+        Vector3 P = xfP(curXf, runX ? V3(m, 0, cD) : V3(cD, 0, m)), N = Vector3Subtract(xfP(curXf, runX ? V3(m, 0, cD + sg) : V3(cD + sg, 0, m)), P), U = Vector3Subtract(xfP(curXf, runX ? V3(m + 1, 0, cD) : V3(cD, 0, m + 1)), P);
+        TraceLog(LOG_INFO, "SWDOOR %.2f %.2f in %.2f %.2f along %.2f %.2f", P.x, P.z, N.x, N.z, U.x, U.z); } }
+    SWB(uStart, g[0][0], y0, yTop); SWB(g[0][0], g[0][1], yD, yTop); innerDoor(runX, g[0][0], g[0][1], cD, y0, false);
+    if (flights) SWB(g[0][1], uW, y0, yTop); else { SWB(g[0][1], uStart + LEAD, y0, yTop); SWB(uE - LEAD, uW, y0, yTop); }   // 0.9.8: the far end is the half landing: walled
+    #undef SWB
+    if (endWall) {   // across the inner end of the shaft, a door in the middle
+        float e0 = bandLo, e1 = bandHi, m = (e0 + e1) / 2, d0 = m - 0.45f, d1 = m + 0.45f;
+        #define SWE(a_, b_, ya_, yb_) do { if ((b_) - (a_) > 0.01f) { if (runX) box(tex, V3(uE, ya_, a_), V3(uE + t, yb_, b_), wc, true, ALL); else box(tex, V3(a_, ya_, uE), V3(b_, yb_, uE + t), wc, true, ALL); } } while (0)
+        SWE(e0, e1, y0, yTop); (void)d0; (void)d1;
+        #undef SWE
+    }
+    for (int k = 0; k < 1; k++) { Rectangle kc = runX ? (Rectangle){g[k][0] - 0.2f, stripHigh ? c0 - 1.1f : c1, 1.3f, 1.1f} : (Rectangle){stripHigh ? c0 - 1.1f : c1, g[k][0] - 0.2f, 1.1f, 1.3f}; keepAdd(kc, kc); }
 }
 // 0.9.7: a basement with a plan: a corridor along the stairwell, store rooms, a boiler room; one light that flickers or is dead; things
 // that happened down here
@@ -1371,6 +1417,18 @@ static void building(Rectangle r, int kind, int floors, int street) {
     float runLen = runX ? in.width : in.height, cross = runX ? in.height : in.width;
     int acc = floors > 6 ? 6 : floors;                       // floors you can walk into
     const float SW = 1.05f, RUN = 3.6f; const int NS = 12;
+    const int NSH = 10;   // 0.9.8: steps in each half flight
+    // a step: concrete from yb up to its tread, a handrail on the shaft wall and a railing (solid) on the well side
+    #define STEPBOX(u0_, u1_, cS_, yb_, top_, wallHi_) do { float _u0 = (u0_), _u1 = (u1_), _c = (cS_), _t = (top_); bool _wh = (wallHi_); \
+        if (runX) box(T_CONCRETE, V3(_u0, (yb_), _c), V3(_u1, _t, _c + SW), rgb(170, 165, 160), true, ALL); else box(T_CONCRETE, V3(_c, (yb_), _u0), V3(_c + SW, _t, _u1), rgb(170, 165, 160), true, ALL); \
+        float _h0 = _wh ? _c + SW - 0.09f : _c + 0.04f, _hy = _t + 0.85f; \
+        if (runX) box(T_METAL, V3(_u0, _hy, _h0), V3(_u1 + 0.01f, _hy + 0.05f, _h0 + 0.05f), rgb(110, 112, 110), false, ALL); else box(T_METAL, V3(_h0, _hy, _u0), V3(_h0 + 0.05f, _hy + 0.05f, _u1 + 0.01f), rgb(110, 112, 110), false, ALL); \
+        float _r0 = _wh ? _c + 0.01f : _c + SW - 0.05f; \
+        if (runX) { box(T_METAL, V3(_u0, _t + 0.9f, _r0), V3(_u1 + 0.01f, _t + 0.96f, _r0 + 0.04f), rgb(120, 124, 120), true, ALL); box(T_METAL, V3(_u0 + 0.02f, _t, _r0 + 0.01f), V3(_u0 + 0.04f, _t + 0.9f, _r0 + 0.03f), rgb(120, 124, 120), false, ALL); } \
+        else { box(T_METAL, V3(_r0, _t + 0.9f, _u0), V3(_r0 + 0.04f, _t + 0.96f, _u1 + 0.01f), rgb(120, 124, 120), true, ALL); box(T_METAL, V3(_r0 + 0.01f, _t, _u0 + 0.02f), V3(_r0 + 0.03f, _t + 0.9f, _u0 + 0.04f), rgb(120, 124, 120), false, ALL); } \
+        { Vector3 _m = runX ? V3((_u0 + _u1) / 2, 0, _r0 + 0.02f) : V3(_r0 + 0.02f, 0, (_u0 + _u1) / 2); (void)_m; } \
+        if (runX) box(T_PLAIN, V3(_u0, _t, _r0), V3(_u1, _t + 0.96f, _r0 + 0.04f), rgb(0, 0, 0), true, 0); else box(T_PLAIN, V3(_r0, _t, _u0), V3(_r0 + 0.04f, _t + 0.96f, _u1), rgb(0, 0, 0), true, 0); \
+    } while (0)
     if (runLen < 5.7f || cross < 2 * SW + 2.0f) acc = 1;
     if (kind == 3 || kind == 4) acc = 1;
     // switchback stairwell: two strips along the wall farthest from the street.
@@ -1399,7 +1457,7 @@ static void building(Rectangle r, int kind, int floors, int street) {
     int ft = kind == 0 ? T_TATAMI : (kind == 3 || kind == 4 || kind == 6) ? T_TILEWALL : T_WOOD;
     Rectangle prevHole = {0, 0, 0, 0};
     // a basement under some buildings: a flight down on the stair strip beyond the flight up, one big room under the whole floor
-    float uB0 = uL, uB1 = uH; Rectangle bHole = {0, 0, 0, 0};   // 0.9.7: the flight down runs under the flights up (strip B), the stairwell stacked like an O
+    float uB0 = uL, uB1 = uH; Rectangle bHole = {0, 0, 0, 0};   // 0.9.8: the flight down runs right under the ground floor's flight up (strip A), entered from the far landing
     const float uE = uH + LEAD;   // the stairwell's far end
     bool basement = acc > 1 && kind != 0 && nPit < MAX_PIT &&
                     (gBasementAll || kind == 6 || (kind == 1 && floors >= 2 && ri(10) < 7) || (kind == 2 && floors >= 2 && ri(10) < 6) || (bP && (bfl & BD_BRICKBASE)) ||
@@ -1407,25 +1465,29 @@ static void building(Rectangle r, int kind, int floors, int street) {
     if (gBasementK <= 0) basement = false;   // a map can switch them off
     if (basement) {
         float BY = SIDEH - FH, rise = FH / NS, tread = RUN / NS;
-        bHole = runX ? (Rectangle){uB0 - 0.05f, c0B, RUN + 0.1f, SW} : (Rectangle){c0B, uB0 - 0.05f, SW, RUN + 0.1f};
+        bHole = runX ? (Rectangle){uL - 0.02f, bandLo, uE - uL + 0.02f, bandHi - bandLo} : (Rectangle){bandLo, uL - 0.02f, bandHi - bandLo, uE - uL + 0.02f};   // 0.9.8: the whole shaft beyond the door landing
         { Pit *q = &pits[nPit++]; q->r = bHole; q->f = (short)curXf; q->x0 = q->z0 = 1e9f; q->x1 = q->z1 = -1e9f;
           for (int k = 0; k < 4; k++) { Vector3 w = xfP(curXf, V3(bHole.x + (k & 1) * bHole.width, 0, bHole.y + (k >> 1) * bHole.height)); q->x0 = fminf(q->x0, w.x); q->x1 = fmaxf(q->x1, w.x); q->z0 = fminf(q->z0, w.z); q->z1 = fmaxf(q->z1, w.z); } }
         prevHole = bHole;   // the ground floor's finish is cut there
-        for (int k = 0; k < NS; k++) { float u1 = uB1 - k * tread, u0 = u1 - tread, top = SIDEH - (k + 1) * rise;   // the flight down from the far landing back under the flight up, top step first
-            if (runX) box(T_CONCRETE, V3(u0, BY - 0.3f, c0B), V3(u1, top, c0B + SW), rgb(130, 126, 120), true, ALL); else box(T_CONCRETE, V3(c0B, BY - 0.3f, u0), V3(c0B + SW, top, u1), rgb(130, 126, 120), true, ALL); }
+        {   // 0.9.8: down from the ground floor's door landing the same way round: strip B down to the half landing, strip A back to the basement's door landing
+            float hh = FH / 2, rs = hh / NSH, tr = RUN / NSH;
+            for (int fl = 0; fl < 2; fl++) { float cS = fl ? c0A : c0B, yS = SIDEH - fl * hh; bool wallHi = fl ? stripHigh : !stripHigh;
+                for (int k = 0; k < NSH; k++) { float u0 = fl ? uH - (k + 1) * tr : uL + k * tr, u1 = u0 + tr, top = yS - (k + 1) * rs;
+                    STEPBOX(u0, u1, cS, BY - 0.3f, top, wallHi); } }
+            if (runX) box(T_CONCRETE, V3(uH, BY - 0.3f, bandLo), V3(uE, SIDEH - hh, bandHi), rgb(150, 146, 140), true, ALL); else box(T_CONCRETE, V3(bandLo, BY - 0.3f, uH), V3(bandHi, SIDEH - hh, uE), rgb(150, 146, 140), true, ALL);   // the half landing
+            float mA = c0A + SW / 2, mB = c0B + SW / 2;
+            Vector3 t1 = runX ? V3(uL - 0.45f, SIDEH, mB) : V3(mB, SIDEH, uL - 0.45f), b1 = runX ? V3(uH + 0.45f, SIDEH - hh, mB) : V3(mB, SIDEH - hh, uH + 0.45f);
+            Vector3 t2 = runX ? V3(uH + 0.45f, SIDEH - hh, mA) : V3(mA, SIDEH - hh, uH + 0.45f), b2 = runX ? V3(uL - 0.45f, BY, mA) : V3(mA, BY, uL - 0.45f);
+            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, b1), xfP(curXf, t1)};
+            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, b2), xfP(curXf, t2)};
+            (void)rise; (void)tread; (void)uB0; (void)uB1; }
         box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y), V3(r.x + r.width, BY, r.y + r.height), rgb(120, 118, 112), true, ALL);      // basement floor
         box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y), V3(r.x + r.width, SIDEH, r.y + curT), rgb(150, 148, 140), true, ALL);    // its walls
         box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y + r.height - curT), V3(r.x + r.width, SIDEH, r.y + r.height), rgb(150, 148, 140), true, ALL);
         box(T_CONCRETE, V3(r.x, BY - 0.3f, r.y), V3(r.x + curT, SIDEH, r.y + r.height), rgb(150, 148, 140), true, ALL);
         box(T_CONCRETE, V3(r.x + r.width - curT, BY - 0.3f, r.y), V3(r.x + r.width, SIDEH, r.y + r.height), rgb(150, 148, 140), true, ALL);
         slabWithHole(T_CONCRETE, in, bHole, SIDEH - 0.32f, SIDEH - 0.02f, rgb(135, 135, 132));                              // its ceiling, open over the stairs
-        {   // railing round the opening on the ground floor: along the up flight's side, and across the low end (you step on at the far landing)
-            float cS = (c0A < c0B) ? c0B : c0B + SW, ry = SIDEH + 1.0f; Color rc = rgb(120, 125, 120);
-            if (runX) { box(T_METAL, V3(uB0 - 0.05f, SIDEH, cS - 0.03f), V3(uB1 - 0.6f, ry, cS + 0.03f), rc, true, ALL); box(T_METAL, V3(uB0 - 0.08f, SIDEH, c0B), V3(uB0 - 0.02f, ry, c0B + SW), rc, true, ALL); }
-            else { box(T_METAL, V3(cS - 0.03f, SIDEH, uB0 - 0.05f), V3(cS + 0.03f, ry, uB1 - 0.6f), rc, true, ALL); box(T_METAL, V3(c0B, SIDEH, uB0 - 0.08f), V3(c0B + SW, ry, uB0 - 0.02f), rc, true, ALL); } }
-        {   float mC = c0B + SW / 2; Vector3 bot = runX ? V3(uB0 - 0.45f, BY, mC) : V3(mC, BY, uB0 - 0.45f), topP = runX ? V3(uB1 + 0.45f, SIDEH, mC) : V3(mC, SIDEH, uB1 + 0.45f);
-            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, bot), xfP(curXf, topP)}; }
-        stairwellWalls(runX, uStart, uE, LEAD, bandLo, bandHi, stripHigh, uStart + runLen, BY, SIDEH - 0.32f, true);
+        stairwellWalls(runX, uStart, uE, LEAD, bandLo, bandHi, stripHigh, uStart + runLen, BY, SIDEH, true, true);
         basementPlan(r, in, runX, uStart, runLen, cMin, cMax, stripHigh ? bandLo - 0.1f : bandHi + 0.1f, stripHigh, BY, kind);
     }
     for (int f = 0; f < acc; f++) {
@@ -1446,36 +1508,27 @@ static void building(Rectangle r, int kind, int floors, int street) {
         // flight from this floor up
         Rectangle hole = {0, 0, 0, 0};
         jpArr = jpArrNext; jpArrOk = jpArrNextOk && f > 0; jpArrNextOk = false;   // where the flight from below comes up onto this floor
-        if (f < acc - 1) {
-            bool even = (f % 2) == 0;
-            float c0 = even ? c0A : c0B;
-            float rise = FH / NS, tread = RUN / NS;
-            for (int k = 0; k < NS; k++) {
-                float u0 = even ? uL + k * tread : uH - (k + 1) * tread, u1 = u0 + tread;
-                float top = y0 + (k + 1) * rise;
-                if (runX) box(T_CONCRETE, V3(u0, y0, c0), V3(u1, top, c0 + SW), rgb(170, 165, 160), true, ALL);
-                else box(T_CONCRETE, V3(c0, y0, u0), V3(c0 + SW, top, u1), rgb(170, 165, 160), true, ALL);
-            }
-            hole = runX ? (Rectangle){uL - 0.05f, c0, RUN + 0.1f, SW} : (Rectangle){c0, uL - 0.05f, SW, RUN + 0.1f};
-            float midC = c0 + SW / 2, uBot = even ? uL - 0.45f : uH + 0.45f, uTop = even ? uH + 0.45f : uL - 0.45f;
-            Vector3 bot = runX ? V3(uBot, y0, midC) : V3(midC, y0, uBot);
-            Vector3 topP = runX ? V3(uTop, y0 + FH, midC) : V3(midC, y0 + FH, uTop);
-            if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, bot), xfP(curXf, topP)};
-            // railings on the floor above: both long edges of the opening, and across its low end
-            float yU = y0 + FH, ry = yU + 1.0f, ue = even ? uL - 0.05f : uH - 0.01f;
-            Color rc = rgb(150, 155, 150);
-            if (runX) {
-                box(T_METAL, V3(uL - 0.05f, yU, c0), V3(uH + 0.05f, ry, c0 + 0.06f), rc, true, ALL);
-                box(T_METAL, V3(uL - 0.05f, yU, c0 + SW - 0.06f), V3(uH + 0.05f, ry, c0 + SW), rc, true, ALL);
-                box(T_METAL, V3(ue, yU, c0), V3(ue + 0.06f, ry, c0 + SW), rc, true, ALL);
-            } else {
-                box(T_METAL, V3(c0, yU, uL - 0.05f), V3(c0 + 0.06f, ry, uH + 0.05f), rc, true, ALL);
-                box(T_METAL, V3(c0 + SW - 0.06f, yU, uL - 0.05f), V3(c0 + SW, ry, uH + 0.05f), rc, true, ALL);
-                box(T_METAL, V3(c0, yU, ue), V3(c0 + SW, ry, ue + 0.06f), rc, true, ALL);
-            }
-            // about a quarter of the landings are choked with junk
-            (void)fr(0, 1);   // (0.9.6: no junk pile on the landing any more - it shut the only way off the stairs; the draw is kept so the rest of the town comes out as before)
-            jpArrNext = (Vector2){topP.x, topP.z}; jpArrNextOk = true;
+        if (f < acc - 1) {   // 0.9.8: two half flights per storey round the shaft: up strip A to the half landing at the far end, turn, up strip B back over the door landing
+            bool solidUnder = f == 0 && !basement;   // (nothing below the ground floor's flights: built solid down to the floor)
+            float hh = FH / 2, rise = hh / NSH, tread = RUN / NSH;
+            for (int fl = 0; fl < 2; fl++) { float cS = fl ? c0B : c0A, yS = y0 + fl * hh; bool wallHi = fl ? !stripHigh : stripHigh;
+                for (int k = 0; k < NSH; k++) {
+                    float u0 = fl ? uH - (k + 1) * tread : uL + k * tread, u1 = u0 + tread, top = yS + (k + 1) * rise, yb = solidUnder ? y0 : top - 0.35f;
+                    STEPBOX(u0, u1, cS, yb, top, wallHi); } }
+            {   // the half landing across both strips
+                float yl = y0 + hh, yb = solidUnder ? y0 : yl - 0.25f;
+                if (runX) box(T_CONCRETE, V3(uH, yb, bandLo), V3(uE, yl, bandHi), rgb(165, 160, 155), true, ALL); else box(T_CONCRETE, V3(bandLo, yb, uH), V3(bandHi, yl, uE), rgb(165, 160, 155), true, ALL); }
+            hole = runX ? (Rectangle){uL - 0.02f, bandLo, uE - uL + 0.02f, bandHi - bandLo} : (Rectangle){bandLo, uL - 0.02f, bandHi - bandLo, uE - uL + 0.02f};
+            {   float mA = c0A + SW / 2, mB = c0B + SW / 2;
+                Vector3 b1 = runX ? V3(uL - 0.45f, y0, mA) : V3(mA, y0, uL - 0.45f), t1 = runX ? V3(uH + 0.45f, y0 + hh, mA) : V3(mA, y0 + hh, uH + 0.45f);
+                Vector3 b2 = runX ? V3(uH + 0.45f, y0 + hh, mB) : V3(mB, y0 + hh, uH + 0.45f), t2 = runX ? V3(uL - 0.45f, y0 + FH, mB) : V3(mB, y0 + FH, uL - 0.45f);
+                if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, b1), xfP(curXf, t1)};
+                if (nStair < MAX_STAIR) stairs[nStair++] = (Stair){xfP(curXf, b2), xfP(curXf, t2)};
+                (void)fr(0, 1);   // (the old junk draw, kept so the rest of the town comes out the same)
+                jpArrNext = (Vector2){t2.x, t2.z}; jpArrNextOk = true; }
+        } else if (f > 0) {   // the top floor: a rail across strip A where the shaft opens below the landing
+            float yU = y0, ry = yU + 1.0f; Color rc = rgb(110, 112, 110);
+            if (runX) box(T_METAL, V3(uL - 0.04f, yU, c0A), V3(uL + 0.02f, ry, c0A + SW), rc, true, ALL); else box(T_METAL, V3(c0A, yU, uL - 0.04f), V3(c0A + SW, ry, uL + 0.02f), rc, true, ALL);
         }
         // ceiling / next floor slab with the stairwell cut out
         prevHole = hole;
@@ -1529,8 +1582,9 @@ static void building(Rectangle r, int kind, int floors, int street) {
             else { pF = f == 0 ? RM_LDK : RM_WBED; pB = f == 0 ? RM_WASHWET : RM_WASHITSU; }   // a house: LDK and genkan below, bedrooms above
             if (kind == 2 && f > 0) { pF = RM_LDK; pB = RM_WASHWET; }   // the family lives over the shop
             if (!two && kind != 3 && kind != 4) { pF = f == 0 ? (kind == 2 ? RM_SHOP : RM_LDK) : (kind == 0 ? RM_WASHITSU : RM_WBED); }
+            gStNear = runX ? (Vector2){uStart + LEAD / 2, (bandLo + bandHi) / 2} : (Vector2){(bandLo + bandHi) / 2, uStart + LEAD / 2};
             bool jpDone = jpTry && jpFloor(in, street, fAvoid, acc > 1, y0, yTop, f, kind, jpDoor, kind);
-            if (acc > 1 && !jpDone) stairwellWalls(runX, uStart, uE, LEAD, bandLo, bandHi, stripHigh, uStart + runLen, y0, yTop, false);   // 0.9.7: the stairs in a stairwell of their own, a door at each landing (a planned floor builds it with its rooms)
+            if (acc > 1) stairwellWalls(runX, uStart, uE, LEAD, bandLo, bandHi, stripHigh, uStart + runLen, y0, f < acc - 1 ? y0 + FH : yTop, false, !jpDone);   // (up through the slab: the shaft is open floor to floor)   // 0.9.7: the stairs in a stairwell of their own, a door at each landing (a planned floor builds it with its rooms)
             if (!jpDone) { planRoom(front, y0, pF, oF, kind, street, kind == 0);
                 if (two) planRoom(back, y0, pB, oBk, kind, street, kind == 0); }
             {   // the dead: someone who never got out

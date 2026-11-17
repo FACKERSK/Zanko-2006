@@ -18,34 +18,55 @@ static Color skinC = {206, 172, 150, 255};
 
 // hand models. The thumb always joins the palm through the web / thenar pad (the ball of the thumb), so nothing floats.
 // grip 3 = the revolver grip without the thumb: the thumb is drawn separately so it can reach the hammer.
+// 0.9.8: the hand is a rig: a palm and five fingers of three bones each (two for the thumb), bent per grip. Every bone is a box
+// stretched joint to joint, so the fingers stay joined to the palm and to each other whatever the pose.
+// Right-hand space (the left is mirrored in x). grip 0: round a handle along y through the origin, palm on +x, fingers wrapping the front (-z);
+// 3: the same, the index on a trigger in front and no thumb (drawn by the revolver); 1: open, palm down, fingers forward (-z); 2: a fist, knuckles forward.
+static const Color skinK = {196, 160, 138, 255};   // knuckles and creases, a shade darker
+static void hBox(Matrix H, bool right, Vector3 c, Vector3 sz, Color col) {
+    if (!right) c.x = -c.x;
+    ADRAW("viewmodels/skin_box", MatrixMultiply(MatrixMultiply(MatrixScale(sz.x, sz.y, sz.z), MatrixTranslate(c.x, c.y, c.z)), H), col, BX(T_SKIN, 0, 0, 0, 1, 1, 1, CWH));
+}
+static void hBone(Matrix H, bool right, Vector3 a, Vector3 b, float w) {
+    if (!right) { a.x = -a.x; b.x = -b.x; }
+    Vector3 d = Vector3Subtract(b, a); float L = Vector3Length(d); if (L < 0.001f) return;
+    Vector3 z = Vector3Scale(d, 1 / L), x = Vector3CrossProduct(V3(0, 1, 0), z); if (Vector3Length(x) < 0.05f) x = V3(1, 0, 0); x = Vector3Normalize(x); Vector3 y = Vector3CrossProduct(z, x);
+    Matrix S = {x.x * w, y.x * w * 0.9f, z.x * L, a.x, x.y * w, y.y * w * 0.9f, z.y * L, a.y, x.z * w, y.z * w * 0.9f, z.z * L, a.z, 0, 0, 0, 1};
+    ADRAW("viewmodels/bone_skin", MatrixMultiply(S, H), skinC, BX(T_SKIN, 0, 0, 0.5f, 1.0f, 1.0f, 1.18f, CWH));
+}
+static void hFinger(Matrix H, bool right, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float w) {
+    hBone(H, right, p0, p1, w); hBone(H, right, p1, p2, w * 0.92f); hBone(H, right, p2, p3, w * 0.84f);
+    hBox(H, right, p1, V3(w * 1.02f, w * 0.95f, w * 0.95f), skinK); hBox(H, right, p2, V3(w * 0.94f, w * 0.88f, w * 0.88f), skinK);   // round the joints
+}
 static void drawHandAsset(Matrix H, bool right, int grip) {
-    if (grip == 0 || grip == 3) {   // wrapped around a vertical handle through the origin
-        if (right) ADRAW("viewmodels/hand_grip2_R", H, skinC, BX(T_SKIN, 0.045f, 0, 0.012f, 0.03f, 0.095f, 0.085f, CWH),
-                         BX(T_SKIN, 0.0f, 0.034f, -0.034f, 0.085f, 0.02f, 0.028f, CWH), BX(T_SKIN, 0.0f, 0.012f, -0.036f, 0.086f, 0.02f, 0.028f, CWH),
-                         BX(T_SKIN, 0.0f, -0.010f, -0.035f, 0.084f, 0.02f, 0.027f, CWH), BX(T_SKIN, 0.0f, -0.031f, -0.032f, 0.078f, 0.018f, 0.025f, CWH),
-                         BX(T_SKIN, 0.012f, 0.047f, 0.03f, 0.062f, 0.03f, 0.042f, CWH), BX(T_SKIN, 0.045f, -0.07f, 0.03f, 0.07f, 0.05f, 0.08f, CWH));
-        else ADRAW("viewmodels/hand_grip2_L", H, skinC, BX(T_SKIN, -0.045f, 0, 0.012f, 0.03f, 0.095f, 0.085f, CWH),
-                   BX(T_SKIN, 0.0f, 0.034f, -0.034f, 0.085f, 0.02f, 0.028f, CWH), BX(T_SKIN, 0.0f, 0.012f, -0.036f, 0.086f, 0.02f, 0.028f, CWH),
-                   BX(T_SKIN, 0.0f, -0.010f, -0.035f, 0.084f, 0.02f, 0.027f, CWH), BX(T_SKIN, 0.0f, -0.031f, -0.032f, 0.078f, 0.018f, 0.025f, CWH),
-                   BX(T_SKIN, -0.012f, 0.047f, 0.03f, 0.062f, 0.03f, 0.042f, CWH), BX(T_SKIN, -0.045f, -0.07f, 0.03f, 0.07f, 0.05f, 0.08f, CWH));
-        if (grip == 0) {   // the thumb, from the pad over the top of the handle and down its far side
-            if (right) ADRAW("viewmodels/thumb_grip2_R", H, skinC, BX(T_SKIN, -0.012f, 0.05f, 0.012f, 0.03f, 0.026f, 0.04f, CWH), BX(T_SKIN, -0.02f, 0.05f, -0.014f, 0.024f, 0.022f, 0.032f, CWH));
-            else ADRAW("viewmodels/thumb_grip2_L", H, skinC, BX(T_SKIN, 0.012f, 0.05f, 0.012f, 0.03f, 0.026f, 0.04f, CWH), BX(T_SKIN, 0.02f, 0.05f, -0.014f, 0.024f, 0.022f, 0.032f, CWH));
-        }
-    } else if (grip == 1) {   // open hand, palm down, fingers forward
-        if (right) ADRAW("viewmodels/hand_open2_R", H, skinC, BX(T_SKIN, 0, 0, 0, 0.085f, 0.026f, 0.09f, CWH),
-                         BX(T_SKIN, -0.03f, 0, -0.072f, 0.017f, 0.018f, 0.058f, CWH), BX(T_SKIN, -0.01f, 0, -0.078f, 0.017f, 0.018f, 0.068f, CWH),
-                         BX(T_SKIN, 0.01f, 0, -0.076f, 0.017f, 0.018f, 0.064f, CWH), BX(T_SKIN, 0.03f, 0, -0.068f, 0.016f, 0.017f, 0.05f, CWH),
-                         BX(T_SKIN, -0.038f, -0.004f, 0.012f, 0.03f, 0.024f, 0.05f, CWH), BX(T_SKIN, -0.054f, -0.006f, -0.022f, 0.022f, 0.02f, 0.05f, CWH));
-        else ADRAW("viewmodels/hand_open2_L", H, skinC, BX(T_SKIN, 0, 0, 0, 0.085f, 0.026f, 0.09f, CWH),
-                   BX(T_SKIN, 0.03f, 0, -0.072f, 0.017f, 0.018f, 0.058f, CWH), BX(T_SKIN, 0.01f, 0, -0.078f, 0.017f, 0.018f, 0.068f, CWH),
-                   BX(T_SKIN, -0.01f, 0, -0.076f, 0.017f, 0.018f, 0.064f, CWH), BX(T_SKIN, -0.03f, 0, -0.068f, 0.016f, 0.017f, 0.05f, CWH),
-                   BX(T_SKIN, 0.038f, -0.004f, 0.012f, 0.03f, 0.024f, 0.05f, CWH), BX(T_SKIN, 0.054f, -0.006f, -0.022f, 0.022f, 0.02f, 0.05f, CWH));
-    } else {   // fist, knuckles forward, the thumb folded across the front of the fingers
-        if (right) ADRAW("viewmodels/fist2_R", H, skinC, BX(T_SKIN, 0, 0, 0, 0.088f, 0.08f, 0.09f, CWH), BX(T_SKIN, 0, 0.012f, -0.05f, 0.09f, 0.05f, 0.022f, ((Color){226, 190, 168, 255})),
-                         BX(T_SKIN, -0.04f, -0.018f, -0.012f, 0.024f, 0.04f, 0.06f, CWH), BX(T_SKIN, -0.02f, -0.03f, -0.05f, 0.04f, 0.02f, 0.022f, CWH));
-        else ADRAW("viewmodels/fist2_L", H, skinC, BX(T_SKIN, 0, 0, 0, 0.088f, 0.08f, 0.09f, CWH), BX(T_SKIN, 0, 0.012f, -0.05f, 0.09f, 0.05f, 0.022f, ((Color){226, 190, 168, 255})),
-                   BX(T_SKIN, 0.04f, -0.018f, -0.012f, 0.024f, 0.04f, 0.06f, CWH), BX(T_SKIN, 0.02f, -0.03f, -0.05f, 0.04f, 0.02f, 0.022f, CWH));
+    static const float fw[4] = {0.0185f, 0.019f, 0.018f, 0.0155f}, fl[4] = {1.0f, 1.08f, 1.02f, 0.82f};
+    if (grip == 0 || grip == 3) {
+        static const float fy[4] = {0.034f, 0.012f, -0.01f, -0.031f};
+        hBox(H, right, V3(0.05f, 0.0f, 0.014f), V3(0.024f, 0.098f, 0.086f), skinC);   // palm, on the handle's right
+        hBox(H, right, V3(0.042f, -0.062f, 0.03f), V3(0.05f, 0.04f, 0.07f), skinC);   // heel of the hand into the wrist
+        for (int k = 0; k < 4; k++) { float y = fy[k], s = fl[k];
+            Vector3 K = V3(0.044f, y, -0.03f);
+            if (grip == 3 && k == 0) { hFinger(H, right, K, V3(0.024f, y - 0.002f, -0.062f * s), V3(0.004f, y - 0.006f, -0.072f * s), V3(-0.01f, y - 0.012f, -0.064f * s), fw[k]); continue; }   // on the trigger
+            float r = 0.031f; hFinger(H, right, K, V3(r * cosf(-1.35f), y, r * sinf(-1.35f) - 0.006f), V3(r * cosf(-2.25f), y, r * sinf(-2.25f)), V3(r * cosf(-3.0f) * s, y, r * sinf(-3.0f) + 0.004f), fw[k]); }
+        if (grip == 0) {   // the thumb from the ball of the hand over the top of the handle and down its far side
+            hBox(H, right, V3(0.036f, 0.028f, 0.03f), V3(0.03f, 0.04f, 0.04f), skinC);
+            hBone(H, right, V3(0.03f, 0.04f, 0.032f), V3(0.0f, 0.054f, 0.022f), 0.022f); hBone(H, right, V3(0.0f, 0.054f, 0.022f), V3(-0.022f, 0.05f, -0.008f), 0.019f);
+            hBox(H, right, V3(0.0f, 0.054f, 0.022f), V3(0.022f, 0.02f, 0.02f), skinK); }
+    } else if (grip == 1) {   // open, palm down
+        static const float fx[4] = {-0.03f, -0.01f, 0.01f, 0.03f};
+        hBox(H, right, V3(0, 0, 0), V3(0.084f, 0.024f, 0.09f), skinC); hBox(H, right, V3(0, -0.004f, 0.05f), V3(0.07f, 0.03f, 0.04f), skinC);
+        for (int k = 0; k < 4; k++) { float x = fx[k], s = fl[k];
+            hFinger(H, right, V3(x, 0.0f, -0.044f), V3(x * 1.05f, -0.004f, -0.044f - 0.042f * s), V3(x * 1.08f, -0.011f, -0.044f - 0.068f * s), V3(x * 1.1f, -0.021f, -0.044f - 0.088f * s), fw[k]); }
+        hBone(H, right, V3(-0.036f, -0.004f, 0.015f), V3(-0.056f, -0.008f, -0.016f), 0.022f); hBone(H, right, V3(-0.056f, -0.008f, -0.016f), V3(-0.064f, -0.012f, -0.044f), 0.019f);
+        hBox(H, right, V3(-0.056f, -0.008f, -0.016f), V3(0.021f, 0.02f, 0.02f), skinK);
+    } else {   // fist: knuckles forward, fingers folded under, the thumb across them
+        static const float fx[4] = {-0.03f, -0.01f, 0.01f, 0.03f};
+        hBox(H, right, V3(0, 0.004f, 0.006f), V3(0.086f, 0.074f, 0.08f), skinC);
+        hBox(H, right, V3(0, 0.022f, -0.038f), V3(0.088f, 0.03f, 0.02f), skinK);   // the knuckle ridge
+        for (int k = 0; k < 4; k++) { float x = fx[k];
+            hFinger(H, right, V3(x, 0.022f, -0.04f), V3(x, 0.014f, -0.064f), V3(x, -0.014f, -0.066f), V3(x, -0.026f, -0.046f), fw[k]); }
+        hBone(H, right, V3(-0.04f, -0.01f, 0.0f), V3(-0.034f, -0.026f, -0.042f), 0.022f); hBone(H, right, V3(-0.034f, -0.026f, -0.042f), V3(-0.004f, -0.03f, -0.066f), 0.019f);
+        hBox(H, right, V3(-0.034f, -0.026f, -0.042f), V3(0.021f, 0.02f, 0.02f), skinK);
     }
 }
 // a box stretched from a to b (both in M's space), w thick: thumb bones
@@ -56,12 +77,31 @@ static void drawSeg(Matrix M, Vector3 a, Vector3 b, float w) {
     ADRAW("viewmodels/seg_skin", MatrixMultiply(S, M), skinC, BX(T_SKIN, 0, 0, 0.5f, 1.0f, 1.0f, 1.25f, CWH));
 }
 // a sleeve from the wrist back to a shoulder anchor; both points in camera-local space
+static Matrix armSegM(Vector3 a, Vector3 b, float w) {
+    Vector3 d = Vector3Subtract(b, a); float L = fmaxf(Vector3Length(d), 0.001f);
+    Vector3 z = Vector3Scale(d, 1 / L), x = Vector3CrossProduct(V3(0, 1, 0), z); if (Vector3Length(x) < 0.01f) x = V3(1, 0, 0); x = Vector3Normalize(x); Vector3 y = Vector3CrossProduct(z, x);
+    return (Matrix){x.x * w, y.x * w, z.x * L, a.x, x.y * w, y.y * w, z.y * L, a.y, x.z * w, y.z * w, z.z * L, a.z, 0, 0, 0, 1};
+}
+// 0.9.8: the arm is a two-bone rig: shoulder fixed under the eye, the elbow solved so forearm and upper arm keep their lengths whatever the hand does
 static void drawArm(Matrix B, Vector3 wrist, Vector3 shoulder) {
-    Vector3 d = Vector3Subtract(shoulder, wrist); float L = Vector3Length(d); if (L < 0.01f) return;
-    Vector3 z = Vector3Scale(d, 1 / L), x = Vector3Normalize(Vector3CrossProduct(V3(0, 1, 0), z)), y = Vector3CrossProduct(z, x);
-    Matrix A = {x.x * 0.1f, y.x * 0.1f, z.x * L, wrist.x, x.y * 0.1f, y.y * 0.1f, z.y * L, wrist.y, x.z * 0.1f, y.z * 0.1f, z.z * L, wrist.z, 0, 0, 0, 1};
-    Matrix M = MatrixMultiply(A, B);
-    ADRAW("viewmodels/sleeve2", M, WHITE, BX(T_CLOTH, 0, 0, 0.55f, 1.0f, 1.0f, 0.9f, ((Color){124, 130, 146, 255})), BX(T_CLOTH, 0, 0, 0.06f, 1.12f, 1.12f, 0.12f, ((Color){92, 97, 110, 255})));
+    float side = shoulder.x >= 0 ? 1.0f : -1.0f; Vector3 S = V3(side * 0.23f, -0.34f, 0.08f);   // the shoulder joint (camera space)
+    const float L1 = 0.31f, L2 = 0.3f;   // upper arm, forearm
+    Vector3 d = Vector3Subtract(S, wrist); float D = Vector3Length(d); if (D < 0.01f) return; Vector3 dn = Vector3Scale(d, 1 / D);
+    Vector3 elbow;
+    if (D >= L1 + L2 - 0.002f) elbow = Vector3Add(wrist, Vector3Scale(dn, L2 * D / (L1 + L2)));   // out of reach: straight, stretched evenly
+    else { float a = (L2 * L2 - L1 * L1 + D * D) / (2 * D), h = sqrtf(fmaxf(0, L2 * L2 - a * a));
+        Vector3 pole = Vector3Normalize(V3(side * 0.7f, -1.0f, 0.25f)); pole = Vector3Subtract(pole, Vector3Scale(dn, Vector3DotProduct(pole, dn))); if (Vector3Length(pole) < 0.01f) pole = V3(0, -1, 0); pole = Vector3Normalize(pole);
+        elbow = Vector3Add(Vector3Add(wrist, Vector3Scale(dn, a)), Vector3Scale(pole, h)); }
+    ADRAW("viewmodels/sleeve2", MatrixMultiply(armSegM(wrist, elbow, 0.1f), B), WHITE, BX(T_CLOTH, 0, 0, 0.55f, 1.0f, 1.0f, 0.9f, ((Color){124, 130, 146, 255})), BX(T_CLOTH, 0, 0, 0.06f, 1.12f, 1.12f, 0.12f, ((Color){92, 97, 110, 255})));
+    ADRAW("viewmodels/sleeve_upper", MatrixMultiply(armSegM(elbow, S, 0.115f), B), WHITE, BX(T_CLOTH, 0, 0, 0.5f, 1.0f, 1.0f, 1.08f, ((Color){118, 124, 140, 255})));
+    ADRAW("viewmodels/elbow", MatrixMultiply(MatrixMultiply(MatrixScale(0.12f, 0.12f, 0.12f), MatrixTranslate(elbow.x, elbow.y, elbow.z)), B), WHITE, BX(T_CLOTH, 0, 0, 0, 1.0f, 1.0f, 1.0f, ((Color){118, 124, 140, 255})));
+}
+// 0.9.8: the free left hand cups the right on a pistol grip (no light: two hands, steadier)
+static void supportHand(Matrix B, Matrix H, HandP R) {
+    Matrix Ll = MatrixMultiply(MatrixRotateY(-0.35f), MatrixTranslate(-0.036f, -0.028f, 0.014f));
+    drawHandAsset(MatrixMultiply(Ll, H), false, 0);
+    Matrix Hloc = frameM(MatrixIdentity(), R.p, R.r.x, R.r.y, R.r.z); Vector3 w = Vector3Transform(V3(-0.04f, -0.06f, 0.06f), MatrixMultiply(Ll, Hloc));
+    drawArm(B, w, V3(-0.34f, -0.8f, 0.2f));
 }
 // ---- muzzle flashes: each gun its own shape, a new random turn for every shot. M: origin at the muzzle, local -z out of the barrel.
 // kind 0 revolver: a five-point star and a spit of fire from the cylinder gap; 1 pistol: a tight four-point cross;
@@ -231,12 +271,16 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     // two hand sets: the left holds the flashlight while it is on, the right holds fists or the weapon
     // the phone comes up from the pocket and flips open when the light goes on; folds shut and drops away when it goes off
     if (melee && st0 == 5) { R.p = V3(0.2f, -0.3f, -0.3f); R.r = V3(-1.15f, 0.1f, -0.15f); L.vis = true; }   // the naginata held low and long
-    static float torchK = 0; bool torchWant = pl.flash && !pl.build && !(melee && heavy > 0.45f) && !(melee && st0 == 5);
-    torchK = clampf(torchK + (torchWant ? 1.0f : -1.0f) * vdt * 3.4f, 0, 1);
-    bool torch = torchK > 0.001f; float phoneOpen = ph(torchK, 0.5f, 0.95f);
-    if (torch) { float e = ezOut(torchK);   // the phone, upright in the palm, screen toward you, light on the back
-        L = (HandP){Vector3Lerp(V3(-0.24f, -0.62f, -0.3f), V3(-0.13f, -0.165f, -0.47f), e), Vector3Lerp(V3(1.2f, 0.8f, 0.5f), V3(0.3f, 0.32f, 0.05f), e), 0, true};
-        L.r.z += bell(torchK, 0.45f, 0.95f) * 0.25f; }   // a flick of the wrist to snap it open
+    // 0.9.8: the light means the phone in the left hand: every weapon one-handed. Out of the pocket, flipped open, the light button pressed
+    static float torchK = 0; bool torchWant = pl.flash && !pl.build;
+    static int vmStill = -1; if (vmStill < 0) vmStill = getenv("KIRI_VM") && !getenv("KIRI_VMSEQ") ? 1 : 0;   // (the stills test: no blending, poses as they are)
+    torchK = clampf(torchK + (torchWant ? 1.0f : -1.35f) * vdt * 1.5f, 0, 1); if (vmStill) torchK = torchWant ? 1 : 0; vmTorchK = torchK;
+    bool torch = torchK > 0.001f; float phoneOpen = ph(torchK, 0.45f, 0.78f);
+    if (!torch && melee && ht != IT_KNIFE && st0 != 2 && ht != IT_UMBRELLA && ht != IT_FIREEXT && !(idef[ht].style == 2)) L.vis = true;   // no light: both hands on the handle
+    if (torch) { float e = ezOut(torchK / 0.45f), press = bell(torchK, 0.8f, 0.97f);   // the phone, upright in the palm, screen toward you, light on the back
+        L = (HandP){Vector3Lerp(V3(-0.2f, -0.6f, -0.18f), V3(-0.13f, -0.165f, -0.47f), e), Vector3Lerp(V3(1.4f, 0.4f, 0.9f), V3(0.3f, 0.32f, 0.05f), e), 0, true};
+        L.r.z += bell(torchK, 0.45f, 0.78f) * 0.3f;   // a flick of the wrist snaps it open
+        L.p.z -= press * 0.012f; L.r.x -= press * 0.1f; }   // the thumb presses the light key
     // ---- melee swing (wind-up, strike, recovery) and the fist jab
     float dur = pl.swingDur > 0 ? pl.swingDur : 0.6f, s = pl.swingT > 0 ? 1 - pl.swingT / dur : 0;
     float wu = ez(s / 0.3f), st = ezOut((s - 0.3f) / 0.15f), rc = ez((s - 0.45f) / 0.55f);
@@ -461,6 +505,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     }
     if (gun) { float kk = pl.kick * pl.kick; R.p.z += pl.kick * 0.07f; R.p.y += kk * 0.03f; R.r.x += pl.kick * 0.5f; R.r.z += kk * 0.08f; }
     if (gun2) { float kk = pl.kick * pl.kick; R.p.z += pl.kick * 0.06f; R.p.y += kk * 0.02f; R.r.x += pl.kick * 0.35f; if (L.vis) { L.p.z += pl.kick * 0.06f; L.p.y += kk * 0.02f; } }
+    HandP R0 = R, L0 = L;   // 0.9.8: the weapon pose before an interaction takes the hands
     // ---- searching, climbing, sprinting
     if (pl.searchC >= 0) { R.vis = L.vis = true; R.grip = L.grip = 1;
         R.p = V3(0.12f + sinf(t * 9) * 0.03f, -0.27f + fabsf(sinf(t * 7)) * 0.03f, -0.5f + cosf(t * 8) * 0.03f); L.p = V3(-0.12f + cosf(t * 8.5f) * 0.03f, -0.27f + fabsf(cosf(t * 6.5f)) * 0.03f, -0.5f + sinf(t * 7.5f) * 0.03f);
@@ -491,6 +536,31 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         rlDrawRenderBatchActive(); return;
     }
     if (pl.sleeping) { rlDrawRenderBatchActive(); return; }
+    // ---- 0.9.8: the weapon goes down before the hands do anything else, and comes back up after
+    bool hideW = false;
+    if (vmStow > 0.001f && ht >= 0) {
+        float a = ez(clampf(vmStow * 2, 0, 1)), b = ez(clampf(vmStow * 2 - 1, 0, 1));
+        HandP Rd = R0, Ld = L0; Rd.p = Vector3Add(Rd.p, Vector3Add(sway, V3(0.02f, -0.48f, 0.12f))); Rd.r.x += 1.05f; Rd.r.z -= 0.3f; Ld.p.y -= 0.48f;
+        if (vmStow < 0.5f) { HandP Rw = R0; Rw.p = Vector3Add(Rw.p, sway); R.p = Vector3Lerp(Rw.p, Rd.p, a); R.r = Vector3Lerp(Rw.r, Rd.r, a); R.grip = R0.grip; R.vis = true;
+            if (L0.vis) { L = L0; L.p = Vector3Lerp(L0.p, Ld.p, a); } else L.vis = false; }
+        else { hideW = true; HandP Ri = R, Li = L; Rd.grip = 1; Ld.grip = 1;
+            R.p = Vector3Lerp(Rd.p, Ri.p, b); R.r = Vector3Lerp(Rd.r, Ri.r, b);
+            if (Li.vis) { L.p = Vector3Lerp(Vector3Add(Li.p, V3(0, -0.48f, 0)), Li.p, b); } } }
+    {   // 0.9.8: every change of what the hands are doing blends over 0.22 s from where they were: nothing snaps
+        static HandP oR, oL; static Vector3 offRp, offRr, offLp, offLr; static float bT = 9, gT = 9; static int lastKey = -1; static bool lastLv = false; static HandP ghostL;
+        int key = A * 7919 + (ht + 3) * 131 + (hideW ? 1 : 0) * 17 + (pl.searchC >= 0 ? 2 : 0) * 19 + (pl.climbT > 0 ? 3 : 0) * 23 + (pl.build ? 5 : 0) * 29 + (torchK > 0.5f ? 7 : 0) * 31 + (L.vis ? 11 : 0) * 37 + (gk > 0.5f ? 13 : 0) * 41;
+        #define WRAPV(v_) V3(wrapA((v_).x), wrapA((v_).y), wrapA((v_).z))
+        if (lastKey != -1 && key != lastKey) { offRp = Vector3Subtract(oR.p, R.p); offRr = WRAPV(Vector3Subtract(oR.r, R.r));
+            if (lastLv && L.vis) { offLp = Vector3Subtract(oL.p, L.p); offLr = WRAPV(Vector3Subtract(oL.r, L.r)); } else if (L.vis) { offLp = V3(0.02f, -0.4f, 0.1f); offLr = V3(0.7f, 0, 0); } else { offLp = offLr = V3(0, 0, 0); }
+            if (lastLv && !L.vis) { ghostL = oL; gT = 0; }
+            bT = 0; }
+        #undef WRAPV
+        bT += vdt / 0.22f; gT += vdt / 0.2f; if (vmStill) bT = gT = 9; float w = 1 - ez(bT);
+        if (w > 0) { R.p = Vector3Add(R.p, Vector3Scale(offRp, w)); R.r = Vector3Add(R.r, Vector3Scale(offRr, w)); if (L.vis) { L.p = Vector3Add(L.p, Vector3Scale(offLp, w)); L.r = Vector3Add(L.r, Vector3Scale(offLr, w)); } }
+        oR = R; oL = L; lastKey = key; lastLv = L.vis;
+        if (gT < 1 && !L.vis && !pl.sleeping) { HandP g = ghostL; g.p.y -= ez(gT) * 0.42f; g.r.x += ez(gT) * 0.6f; g.vis = true; drawHand(B, g, false); }   // a hand that is no longer needed drops out of view
+    }
+    if (hideW) { ht = -1; gun = gun2 = melee = thr = false; }
     // ---- draw hands and what they hold
     if (R.vis) {
         Matrix H = handM(B, R);
@@ -583,6 +653,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             }
             if (pl.muzzle > 0) drawMuzzleFlash(MatrixMultiply(MatrixTranslate(0, 0.092f, -0.25f), G), 0, fminf(1, pl.muzzle / 0.07f), netShotN * 31u + 1u);
             drawHandAsset(H, true, 3);
+            if (!torch && A != ANIM_RELOAD && A != ANIM_INSPECT && A != ANIM_TURNGUN) supportHand(B, H, R);   // 0.9.8: two hands on it without the light
             // the left hand during reload and inspect: follows the parts it works on
             if (A == ANIM_RELOAD || A == ANIM_INSPECT) {
                 Matrix Bi = MatrixInvert(B);
@@ -620,6 +691,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
                       BX(T_WOOD, 0, 0.3f, -0.03f, 0.044f, 0.24f, 0.04f, ((Color){120, 78, 44, 255})), BX(T_METAL, 0, 0.115f, 0.016f, 0.024f, 0.012f, 0.024f, ((Color){190, 150, 70, 255})), BX(T_METAL, 0, 0.115f, -0.016f, 0.024f, 0.012f, 0.024f, ((Color){190, 150, 70, 255})));
             } else drawHeld(G, ht);
             drawHandAsset(H, true, 3);   // fingers round the grip, the finger by the trigger
+            if (ht == IT_PISTOL && !torch && A != ANIM_RELOAD && A != ANIM_INSPECT) supportHand(B, H, R);
             if (ht == IT_SHOTGUN && !torch && A != ANIM_RELOAD) { Matrix L2 = MatrixMultiply(MatrixMultiply(MatrixRotateX(-PI / 2), MatrixTranslate(0, -0.036f, -0.33f)), H); drawHandAsset(L2, false, 0); }   // wrapped round the fore-end
             if (pl.muzzle > 0) drawMuzzleFlash(MatrixMultiply(MatrixMultiply(MatrixRotateX(PI / 2), MatrixTranslate(0, len, 0)), G), ht == IT_SHOTGUN ? 2 : 1, fminf(1, pl.muzzle / 0.07f), netShotN * 31u + 5u);
         } else if (thr) {
