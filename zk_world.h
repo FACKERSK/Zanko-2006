@@ -1020,11 +1020,32 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         bool alongU = su1 - su0 >= sd1 - sd0; float L0 = alongU ? su0 : sd0, L1 = alongU ? su1 : sd1, C0 = alongU ? sd0 : su0, C1 = alongU ? sd1 : su1, Lmax = alongU ? J->W : J->D;
         float lead = fmaxf(0.8f, ((L1 - L0) - 3.6f) / 2), roomC = C0 < 0.3f ? C1 : C0, g0 = L0 + lead / 2, g1 = L1 - lead / 2;
         int axL = alongU ? 1 : 0;   // (ax 0: a wall at constant u, running along d)
-        for (int k = 0; k < jpNW; k++) if (jpW[k].ax == axL && fabsf(jpW[k].pos - roomC) < 0.25f) { roomC = jpW[k].pos; break; }   // (on the rooms' own wall line when one runs there: one wall, its doorways cut through)
-        jpW[jpNW++] = gStNearLo ? (JpWall){axL, roomC, L0 + lead, L1} : (JpWall){axL, roomC, L0, L1 - lead};   // 0.9.8: walled along the flights and the half landing   // (along the flights only: each landing opens straight into the floor)
+        {   // 0.9.11: the wall along the flights and the half landing (the door landing stays open to the plan; the stairwell wall and its door are built with the stairs).
+            // A room wall alongside the door landing gets a doorway opposite the stairwell door, and a toilet or bath there becomes a little lobby
+            float gc = gStNearLo ? L0 + lead / 2 : L1 - lead / 2;
+            bool hiBand = roomC == C0; { for (int k = 0; k < jpNW; k++) if (jpW[k].ax == axL && fabsf(jpW[k].pos - roomC) < 0.25f && (hiBand ? jpW[k].pos <= roomC + 0.01f : jpW[k].pos >= roomC - 0.01f)) { roomC = jpW[k].pos; break; } }   // (snapped only away from the shaft: never into the flights)
+            jpW[jpNW++] = gStNearLo ? (JpWall){axL, roomC, L0 + lead, L1} : (JpWall){axL, roomC, L0, L1 - lead};
+            for (int k = 0; k < jpNW - 1; k++) { JpWall *q = &jpW[k]; if (q->ax != axL || fabsf(q->pos - roomC) > 0.6f || q->lo > gc - 0.3f || q->hi < gc + 0.3f) continue;
+                bool have = false; for (int m = 0; m < jpND; m++) if (jpDr[m].ax == axL && fabsf(jpDr[m].pos - q->pos) < 0.05f && fabsf(jpDr[m].at - gc) < 0.5f) have = true;
+                if (!have && jpND < 48) jpDr[jpND++] = (JpDoor){axL, q->pos, gc, 0}; }
+            float pr = hiBand ? roomC - 0.3f : roomC + 0.3f; int r = alongU ? jpRoomAt(gc, pr) : jpRoomAt(pr, gc);
+            if (r >= 0 && (jpRoomP[r] == RM_TOILET || jpRoomP[r] == RM_BATH)) jpRoomP[r] = RM_HALL; }
         (void)Lmax;
         jpFixLo[0] = L0 + 0.42f; jpFixHi[0] = fmaxf(L0 + 0.42f, L0 + lead - 0.1f); jpFixLo[1] = fminf(L1 - 0.42f, L1 - lead + 0.1f); jpFixHi[1] = L1 - 0.42f;
         (void)g0; (void)g1; }
+    // 0.9.11: a toilet or a bath is closed on every side: any stretch of its edge with no wall gets one (the doors are found below like any room's)
+    for (int r = 0; r < jpRooms; r++) if (jpRoomP[r] == RM_TOILET || jpRoomP[r] == RM_BATH) {
+        float *q = jpRoomUD[r];
+        for (int side = 0; side < 4; side++) { int ax = side < 2 ? 0 : 1; float pos = side == 0 ? q[0] : side == 1 ? q[2] : side == 2 ? q[1] : q[3], lo = ax == 0 ? q[1] : q[0], hi = ax == 0 ? q[3] : q[2];
+            if (pos < 0.08f || (ax == 0 ? pos > J->W - 0.08f : pos > J->D - 0.08f)) continue;   // (the outer wall)
+            float cov[24][2]; int nc = 0;
+            for (int k = 0; k < jpNW && nc < 24; k++) if (jpW[k].ax == ax && fabsf(jpW[k].pos - pos) < 0.12f && jpW[k].hi > lo && jpW[k].lo < hi) { cov[nc][0] = jpW[k].lo; cov[nc][1] = jpW[k].hi; nc++; }
+            float t = lo;
+            while (t < hi - 0.1f && jpNW < 96) { float nxt = hi; bool inside = false;
+                for (int c = 0; c < nc; c++) { if (cov[c][0] <= t + 0.01f && cov[c][1] > t + 0.01f) { inside = true; t = cov[c][1]; break; } if (cov[c][0] > t && cov[c][0] < nxt) nxt = cov[c][0]; }
+                if (inside) continue;
+                if (nxt - t > 0.1f) jpW[jpNW++] = (JpWall){ax, pos, t, nxt};
+                t = nxt; } } }
     int roomsReal = jpRooms;   // the two landings count as rooms while the doors are worked out: each must be reachable (the next flight starts at the other one)
     if (false && hasStairs && jpRooms <= 14) { bool alongU = su1 - su0 >= sd1 - sd0; float L0 = alongU ? su0 : sd0, L1 = alongU ? su1 : sd1, lead = fmaxf(0.8f, ((L1 - L0) - 3.6f) / 2);
         for (int e = 0; e < 2; e++) { float l0 = e ? L1 - lead : L0, l1 = e ? L1 : L0 + lead; int r = jpRooms++; jpRoomP[r] = RM_HALL;
@@ -1241,7 +1262,7 @@ static void roomAudit(Rectangle in, float y0, int f, int kind, float sx, float s
     for (int r = 0; r < jpRooms; r++) { Rectangle rm = jpRoomR[r]; bool got = false, any = false;
         for (int j = 0; j < H && !got; j++) for (int i = 0; i < W && !got; i++) { float x = in.x + (i + 0.5f) * q, z = in.y + (j + 0.5f) * q; if (x < rm.x + 0.15f || x > rm.x + rm.width - 0.15f || z < rm.y + 0.15f || z > rm.y + rm.height - 0.15f) continue; if (g[j * W + i]) any = true; if (g[j * W + i] == 2) got = true; }
         if (!got && any && jpDump) jpDumpRect("U", rm);
-        if (!got && any && getenv("KIRI_JGDUMP")) { static int na = 0; if (na++ < 3) { FILE *fp = fopen(TextFormat("/tmp/claude-0/ag%d.txt", na), "w"); if (fp) { fprintf(fp, "in %.2f %.2f %.2f %.2f room %.2f %.2f %.2f %.2f start %.2f %.2f\n", in.x, in.y, in.width, in.height, rm.x, rm.y, rm.width, rm.height, sx, sz);
+        if (!got && any && getenv("KIRI_JGDUMP") && !(getenv("KIRI_JGSKIP6") && kind == 6)) { static int na = 0; if (na++ < 3) { FILE *fp = fopen(TextFormat("/tmp/claude-0/ag%d.txt", na), "w"); if (fp) { fprintf(fp, "in %.2f %.2f %.2f %.2f room %.2f %.2f %.2f %.2f start %.2f %.2f\n", in.x, in.y, in.width, in.height, rm.x, rm.y, rm.width, rm.height, sx, sz);
             for (int j = 0; j < H; j += 2) { for (int i = 0; i < W; i += 2) { float x = in.x + (i + 0.5f) * q, z = in.y + (j + 0.5f) * q; bool inR = x > rm.x && x < rm.x + rm.width && z > rm.y && z < rm.y + rm.height; fputc(g[j * W + i] == 0 ? '#' : g[j * W + i] == 2 ? (inR ? 'R' : '.') : (inR ? 'x' : 'o'), fp); } fputc('\n', fp); }
             float cx = rm.x + rm.width / 2, cz = rm.y + rm.height / 2; Vector3 wmn, wmx; xfBox(curXf, V3(cx - 2.5f, 0, cz - 2.5f), V3(cx + 2.5f, 0, cz + 2.5f), &wmn, &wmx); query(wmn.x, wmn.z, wmx.x, wmx.z);
             for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->off || s->mx.y <= y0 + 0.42f || s->mn.y >= y0 + 1.7f) continue; fprintf(fp, "S f%d same %d %.2f..%.2f x %.2f..%.2f z %.2f..%.2f\n", s->f, s->f == curXf, s->mn.y - y0, s->mx.y - y0, s->mn.x, s->mx.x, s->mn.z, s->mx.z); }
@@ -1344,7 +1365,8 @@ static void stairwellWalls(bool runX, float uStart, float uE, float LEAD, float 
     if (!base && y0 < 1 && getenv("KIRI_SWLOG")) { static int nl = 0; if (nl++ < 12) { float m = (g[0][0] + g[0][1]) / 2, sg = stripHigh ? 1.0f : -1.0f;
         Vector3 P = xfP(curXf, runX ? V3(m, 0, cD) : V3(cD, 0, m)), N = Vector3Subtract(xfP(curXf, runX ? V3(m, 0, cD + sg) : V3(cD + sg, 0, m)), P), U = Vector3Subtract(xfP(curXf, runX ? V3(m + 1, 0, cD) : V3(cD, 0, m + 1)), P);
         TraceLog(LOG_INFO, "SWDOOR %.2f %.2f in %.2f %.2f along %.2f %.2f", P.x, P.z, N.x, N.z, U.x, U.z); } }
-    SWB(uStart, g[0][0], y0, yTop); SWB(g[0][0], g[0][1], yD, yTop); innerDoor(runX, g[0][0], g[0][1], cD, y0, false);
+    SWB(uStart, g[0][0], y0, yTop);
+    SWB(g[0][0], g[0][1], yD, yTop); innerDoor(runX, g[0][0], g[0][1], cD, y0, false);
     if (flights) SWB(g[0][1], uW, y0, yTop); else { SWB(g[0][1], uStart + LEAD, y0, yTop); SWB(uE - LEAD, uW, y0, yTop); }   // 0.9.8: the far end is the half landing: walled
     #undef SWB
     if (endWall) {   // across the inner end of the shaft, a door in the middle

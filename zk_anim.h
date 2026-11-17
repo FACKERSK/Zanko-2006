@@ -84,8 +84,8 @@ static Matrix armSegM(Vector3 a, Vector3 b, float w) {
 }
 // 0.9.8: the arm is a two-bone rig: shoulder fixed under the eye, the elbow solved so forearm and upper arm keep their lengths whatever the hand does
 static void drawArm(Matrix B, Vector3 wrist, Vector3 shoulder) {
-    float side = shoulder.x >= 0 ? 1.0f : -1.0f; Vector3 S = V3(side * 0.23f, -0.34f, 0.08f);   // the shoulder joint (camera space)
-    const float L1 = 0.31f, L2 = 0.3f;   // upper arm, forearm
+    float side = shoulder.x >= 0 ? 1.0f : -1.0f; Vector3 S = V3(side * 0.27f, -0.52f, 0.12f);   // the shoulder joint (camera space)
+    const float L1 = 0.33f, L2 = 0.31f;   // upper arm, forearm
     Vector3 d = Vector3Subtract(S, wrist); float D = Vector3Length(d); if (D < 0.01f) return; Vector3 dn = Vector3Scale(d, 1 / D);
     Vector3 elbow;
     if (D >= L1 + L2 - 0.002f) elbow = Vector3Add(wrist, Vector3Scale(dn, L2 * D / (L1 + L2)));   // out of reach: straight, stretched evenly
@@ -276,7 +276,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
     static int vmStill = -1; if (vmStill < 0) vmStill = getenv("KIRI_VM") && !getenv("KIRI_VMSEQ") ? 1 : 0;   // (the stills test: no blending, poses as they are)
     torchK = clampf(torchK + (torchWant ? 1.0f : -1.35f) * vdt * 1.5f, 0, 1); if (vmStill) torchK = torchWant ? 1 : 0; vmTorchK = torchK;
     bool torch = torchK > 0.001f; float phoneOpen = ph(torchK, 0.45f, 0.78f);
-    if (!torch && melee && ht != IT_KNIFE && st0 != 2 && ht != IT_UMBRELLA && ht != IT_FIREEXT && !(idef[ht].style == 2)) L.vis = true;   // no light: both hands on the handle
+    if (!torch && melee && !smallWeapon(ht) && ht != IT_FIREEXT) L.vis = true;   // no light: both hands on the handle (0.9.11: not on the small one-handed ones)
     if (torch) { float e = ezOut(torchK / 0.45f), press = bell(torchK, 0.8f, 0.97f);   // the phone, upright in the palm, screen toward you, light on the back
         L = (HandP){Vector3Lerp(V3(-0.2f, -0.6f, -0.18f), V3(-0.13f, -0.165f, -0.47f), e), Vector3Lerp(V3(1.4f, 0.4f, 0.9f), V3(0.3f, 0.32f, 0.05f), e), 0, true};
         L.r.z += bell(torchK, 0.45f, 0.78f) * 0.3f;   // a flick of the wrist snaps it open
@@ -704,7 +704,10 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             if (ht == IT_UMBRELLA && pl.umbK > 0.02f) { float k = pl.umbK;   // the canopy: eight clear panels round the tip
                 for (int q = 0; q < 8; q++) { Matrix P = MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixTranslate(0, 0, 0.3f), MatrixRotateX(0.5f)), MatrixScale(k, 1, k)), MatrixRotateY(q * PI / 4 + PI / 8)), MatrixMultiply(MatrixTranslate(0, 0.8f, 0), I));
                     ADRAW("viewmodels/umbrella_panel", P, WHITE, BX(T_PLAIN, 0, 0, 0, 0.27f, 0.008f, 0.6f, ((Color){225, 236, 240, 255})), BX(T_METAL, 0, -0.006f, 0, 0.008f, 0.008f, 0.6f, ((Color){120, 122, 128, 255}))); } }
-            if (L.vis && !torch && (A != ANIM_INSPECT || (style == 3 && L.grip == 0))) { Matrix L2 = MatrixMultiply(MatrixTranslate(0, style == 4 ? 0.4f : -0.17f, 0), H); drawHandAsset(L2, false, 0); L.vis = false; }
+            if (L.vis && !torch && (A != ANIM_INSPECT || (style == 3 && L.grip == 0))) {   // 0.9.11: the second hand on the handle just above the first (below it only on the katana's long grip), with its arm
+                Matrix Lt = MatrixTranslate(0, style == 4 ? 0.4f : ht == IT_KATANA ? -0.12f : 0.105f, 0); Matrix L2 = MatrixMultiply(Lt, H); drawHandAsset(L2, false, 0);
+                Matrix Hloc = frameM(MatrixIdentity(), R.p, R.r.x, R.r.y, R.r.z); Vector3 w = Vector3Transform(V3(0.04f, -0.06f, 0.06f), MatrixMultiply(Lt, Hloc)); drawArm(B, w, V3(-0.34f, -0.8f, 0.2f));
+                L.vis = false; }
         } else if (ht >= 0 && isConsumable(ht)) {   // held for use; while it is being eaten or applied the other hand has it
             if (A != ANIM_EAT && A != ANIM_DRINK && A != ANIM_PILL && A != ANIM_BANDAGE) drawItemType(ht, MatrixMultiply(MatrixMultiply(MatrixScale(0.6f, 0.6f, 0.6f), MatrixTranslate(0, -0.035f, -0.01f)), H));
             drawHandAsset(H, true, (A == ANIM_EAT || A == ANIM_DRINK || A == ANIM_PILL || A == ANIM_BANDAGE) ? 2 : 0);

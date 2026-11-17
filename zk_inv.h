@@ -50,7 +50,7 @@ static const ItemDef *weaponDef(void) {   // bare fists when nothing melee is he
     return (t >= 0 && idef[t].cat == CAT_MELEE) ? &idef[t] : &fists;
 }
 static bool heavyHeld(void) { return pl.hands.t >= 0 && idef[pl.hands.t].weight >= 2.25f; }
-static float meleeDmg(void) { float d = weaponDef()->dmg * (1 + 0.07f * skLvl(SK_STR)); d *= twoHanded() ? 1.2f : (heavyHeld() ? 0.75f : 0.9f); return pl.stage == 3 ? d * 1.5f : d; }   // insanity: rage; 0.9.8: two hands hit harder, one hand on a heavy weapon much less
+static float meleeDmg(void) { float d = weaponDef()->dmg * (1 + 0.07f * skLvl(SK_STR)); if (!smallWeapon(pl.hands.t)) d *= twoHanded() ? 1.2f : (heavyHeld() ? 0.75f : 0.9f);  /* (a small one-handed weapon: the same either way) */ return pl.stage == 3 ? d * 1.5f : d; }   // insanity: rage; 0.9.8: two hands hit harder, one hand on a heavy weapon much less
 static float meleeCd(void) { return weaponDef()->cd * encSwing() * (heavyHeld() && !twoHanded() ? 1.3f : 1.0f); }
 static float meleeRange(void) { return weaponDef()->range; }
 static const char *weaponName(void) { return pl.hands.t >= 0 ? idef[pl.hands.t].name : "Fists"; }

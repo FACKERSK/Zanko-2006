@@ -1379,6 +1379,7 @@ static int facingOpening(Vector3 eyeP, Vector3 f, float maxD, int wantType, int 
         Vector3 d = V3(c.x - eyeP.x, 0, c.z - eyeP.z);
         float dist = Vector3Length(d);
         if (dist > bd || dist < 0.01f) continue;
+        if (o->type == OP_WINDOW ? (eyeP.y < o->mn.y - 1.7f || eyeP.y > o->mn.y + 0.3f) : (eyeP.y < o->mn.y - 0.7f || eyeP.y > o->mx.y - 0.6f)) continue;   // 0.9.11: on its floor (no doors through floors and ceilings)
         Vector3 fl = Vector3Normalize(V3(f.x, 0, f.z));
         if (Vector3DotProduct(Vector3Scale(d, 1.0f / dist), fl) < 0.55f) continue;
         bd = dist; best = i;
@@ -3298,6 +3299,21 @@ int main(int argc, char **argv) {
             if (frame > 1204 && frame < 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); TraceLog(LOG_INFO, "WALLDBG f%d local %.2f %.2f %.2f world %.2f %.2f", frame, L.x, L.y, L.z, pl.pos.x, pl.pos.z); }
             if (frame == 1215 && wtS >= 0) { Solid *s = &sol[wtS]; Vector3 L = xfI(s->f, pl.pos); vin.on = false;
                 TraceLog(LOG_INFO, "WALLTEST turned wall (frame angle %.0f deg): player local x %.2f, wall from %.2f to %.2f -> %s", xfYaw(s->f) * RAD2DEG, L.x, s->mn.x, s->mx.x, L.x < s->mn.x ? "blocked" : "WENT THROUGH"); }
+            if (frame == 6 && getenv("KIRI_FLOAT")) { int n = 0;   // debug: solid boxes with nothing under them and nothing beside them
+                for (int i = 0; i < nSol; i++) { Solid *so = &sol[i]; if (so->off) continue; Vector3 sz = Vector3Subtract(so->mx, so->mn);
+                    if (sz.x < 0.2f || sz.z < 0.2f || sz.y < 0.05f || sz.x > 6 || sz.z > 6 || sz.y > 3) continue;
+                    Vector3 cl = Vector3Scale(Vector3Add(so->mn, so->mx), 0.5f), c = xfP(so->f, cl);
+                    bool off0 = so->off; so->off = true;
+                    float sup = groundAt(V3(c.x, so->mn.y - 0.005f, c.z), 0.3f, 0);
+                    bool att = false;
+                    if (so->mn.y - sup > 0.3f) {
+                        for (int k = 0; k < 12 && !att; k++) { float fx = (k % 4 == 0) ? -0.5f : (k % 4 == 1) ? 0.5f : 0, fz = (k % 4 == 2) ? -0.5f : (k % 4 == 3) ? 0.5f : 0; float yy = so->mn.y + sz.y * (0.1f + 0.4f * (k / 4));
+                            Vector3 pl2 = V3(cl.x + fx * (sz.x + 0.1f), yy, cl.z + fz * (sz.z + 0.1f)), pw = xfP(so->f, pl2);
+                            query(pw.x - 0.02f, pw.z - 0.02f, pw.x + 0.02f, pw.z + 0.02f);
+                            for (int q = 0; q < qn; q++) { Solid *t = &sol[qb[q]]; if (t->off) continue; Vector3 L = solL(t, pw); if (L.x > t->mn.x - 0.02f && L.x < t->mx.x + 0.02f && L.z > t->mn.z - 0.02f && L.z < t->mx.z + 0.02f && yy > t->mn.y - 0.02f && yy < t->mx.y + 0.02f) { att = true; break; } } }
+                        if (!att) { if (n < 40) TraceLog(LOG_INFO, "FLOAT %.1f %.1f y %.2f..%.2f size %.2f x %.2f (support %.2f)", c.x, c.z, so->mn.y, so->mx.y, sz.x, sz.z, sup); n++; } }
+                    so->off = off0; }
+                TraceLog(LOG_INFO, "FLOAT %d in all", n); }
             if (frame == 6 && getenv("KIRI_ROADSOLIDS")) { int n = 0;   // debug: solids standing on a road
                 for (int i = 0; i < nSol; i++) { Solid *so = &sol[i]; if (so->off) continue; Vector3 sz = Vector3Subtract(so->mx, so->mn); if (sz.y < 0.35f || so->mn.y > 1.0f || so->mn.y < -1.5f) continue;
                     Vector3 c = xfP(so->f, Vector3Scale(Vector3Add(so->mn, so->mx), 0.5f)); if (!mainRoadAt(c.x, c.z, -0.6f)) continue;

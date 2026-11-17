@@ -1,4 +1,24 @@
-ZANKO 2006 - Afterglow  (v0.9.10, fixes)
+ZANKO 2006 - Afterglow  (v0.9.11, fixes)
+
+- 0.9.11: fixes from play.
+  * Doors and windows can only be used from their own floor
+    (no more opening doors through floors and ceilings).
+  * Stairwell doors: where a room wall runs beside the door
+    landing it gets a doorway opposite the stairwell door, so
+    no stairwell door opens onto a wall. A toilet or bath
+    that would sit in front of one is a small lobby instead.
+  * The stairwell wall is never pulled into the shaft, so
+    flights no longer cut through it.
+  * Toilets and baths are closed on every side; their doors
+    are placed like any room's.
+  * The second hand on a two-handed weapon grips the handle
+    just above the first (lower only on the katana's long
+    grip), with its own arm.
+  * Knives and other small one-handed weapons (under 1 kg)
+    are the same with or without the light: no penalty, no
+    two-handed bonus.
+  * The arms join lower and further back, so the upper arm
+    no longer fills the bottom of the view.
 
 - 0.9.10: fixes after 0.9.9.
   * No windows in a stairwell's outer wall where the flights

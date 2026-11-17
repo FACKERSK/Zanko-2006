@@ -22,5 +22,6 @@ static void animPlay(int a) {
 static void animUse(int a, int item) { animPlay(a); animItem = item; }
 // 0.9.8: the weapon is put away for every interaction (searching, doors, climbing) and comes back after; swaps put the old one away first
 static float vmStow = 0, vmStowHold = 0, vmTorchK = 0; static bool useQ = false; static float useQT = 0; static int swapPend = -2;   // swapPend: slot to equip once the holster ends (-1: fists)
-static bool twoHanded(void) { return pl.hands.t >= 0 && !pl.flash; }   // no phone light in the other hand: both hands on the weapon
+static bool smallWeapon(int t) { return t >= 0 && idef[t].cat == CAT_MELEE && idef[t].weight < 1.0f; }   // 0.9.11: knives, hammers, short blades, batons: one-handed anyway
+static bool twoHanded(void) { return pl.hands.t >= 0 && !pl.flash && !smallWeapon(pl.hands.t); }   // no phone light in the other hand: both hands on the weapon
 static bool animBusy(void) { return animId != ANIM_NONE && animId != ANIM_TAKE && animId != ANIM_DOOR && animT < animDur; }
