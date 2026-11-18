@@ -29,6 +29,15 @@ static bool lineOfSight(Vector3 a, Vector3 b) {
     }
     return true;
 }
+static bool reachClear(Vector3 a, Vector3 b, float stop) {   // 0.9.13: nothing is used through a wall: the line from the eye to the thing (up to `stop` short of it) meets no solid
+    Vector3 d = Vector3Subtract(b, a); float L = Vector3Length(d); if (L <= stop + 0.02f) return true;   // but the ones the thing itself is in (its own box, the counter it sits in, a door leaf in its doorway)
+    Vector3 e = Vector3Add(a, Vector3Scale(d, (L - stop) / L)), sd = Vector3Subtract(e, a);
+    query(fminf(a.x, b.x) - 0.05f, fminf(a.z, b.z) - 0.05f, fmaxf(a.x, b.x) + 0.05f, fmaxf(a.z, b.z) + 0.05f);
+    for (int k = 0; k < qn; k++) { Solid *s = &sol[qb[k]]; if (s->off) continue; Vector3 Lb = solL(s, b);
+        if (Lb.x > s->mn.x - 0.05f && Lb.x < s->mx.x + 0.05f && Lb.y > s->mn.y - 0.05f && Lb.y < s->mx.y + 0.05f && Lb.z > s->mn.z - 0.05f && Lb.z < s->mx.z + 0.05f) continue;
+        if (segHitsBox(solL(s, a), s->f ? xfDI(s->f, sd) : sd, s->mn, s->mx)) return false; }
+    return true;
+}
 static float stingCd = 0;
 static float scareCd = 0, breathCd = 0, crUnseen[MAX_CR];   // jump scares (0.9.7): one stab at most every 30 s
 static void scare(void) { if (scareCd > 0 || !audioOk) return; Sound sn = sScare[ri(3)]; SetSoundVolume(sn, 0.95f * gs.sfx); SetSoundPitch(sn, fr(0.94f, 1.05f)); PlaySound(sn); scareCd = 30; stingCd = 9; pl.shake = fmaxf(pl.shake, 0.4f); pl.sanity -= 4; }

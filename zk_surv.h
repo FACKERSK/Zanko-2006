@@ -146,7 +146,7 @@ static int facingWater(Vector3 aim) {
     for (int i = 0; i < nWs; i++) {
         Vector3 d = V3(wsrc[i].pos.x - pl.pos.x, 0, wsrc[i].pos.z - pl.pos.z); float L = Vector3Length(d);
         float reach = wsrc[i].kind == 1 ? 2.3f : 1.7f;
-        if (L < reach && fabsf(wsrc[i].pos.y - pl.pos.y) < 1.5f && (L < 0.6f || Vector3DotProduct(Vector3Scale(d, 1 / L), f) > 0.4f)) return i;
+        if (L < reach && fabsf(wsrc[i].pos.y - pl.pos.y) < 1.5f && (L < 0.6f || Vector3DotProduct(Vector3Scale(d, 1 / L), f) > 0.4f) && reachClear(V3(pl.pos.x, pl.pos.y + 1.2f, pl.pos.z), V3(wsrc[i].pos.x, wsrc[i].pos.y + 0.6f, wsrc[i].pos.z), 0.6f)) return i;
     }
     return -1;
 }

@@ -18,6 +18,7 @@ static const int actDefP[A_N] = {0, 0, 0, 0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN, GAM
     GAMEPAD_BUTTON_MIDDLE_LEFT, GAMEPAD_BUTTON_RIGHT_THUMB, 0, 0, 0, 0, 0, 0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT, GAMEPAD_BUTTON_LEFT_FACE_LEFT};
 // pad: D-pad left / right step through the quick slots (and bare fists); D-pad down barricades; inspect is on the keyboard only
 static int bindK[A_N][2], bindP[A_N];
+static bool padBuild;   // 0.9.13: build mode on a gamepad: the d-pad belongs to the build controls (turn, pick the piece), not to the map, quick slots or barricades
 static float padLookSens = 1.0f; static bool padInvertY = false, padVibe = true;
 
 // ---- gamepad state, sampled once per frame
@@ -70,6 +71,7 @@ static bool actD(int a) {
     if (bindDown(bindK[a][0]) || bindDown(bindK[a][1])) return true;
     if (vin.on || padId < 0) return false;
     if (a == A_SPRINT && padSprintLatch) return true;
+    if (padBuild && bindP[a] >= GAMEPAD_BUTTON_LEFT_FACE_UP && bindP[a] <= GAMEPAD_BUTTON_LEFT_FACE_LEFT) return false;
     return bindP[a] > 0 && padNow[bindP[a]];
 }
 static bool sprintLatch = false, sneakLatch = false;   // "Toggle" sprint / sneak in Settings > Gameplay
@@ -82,6 +84,7 @@ static bool actP(int a) {
     if (inputLocked) return false;
     if (bindPressed(bindK[a][0]) || bindPressed(bindK[a][1])) return true;
     if (vin.on || padId < 0) return false;
+    if (padBuild && bindP[a] >= GAMEPAD_BUTTON_LEFT_FACE_UP && bindP[a] <= GAMEPAD_BUTTON_LEFT_FACE_LEFT) return false;
     return padP(bindP[a]);
 }
 // analog movement: x right, y forward (keys give -1 / 0 / 1, the stick anything between)

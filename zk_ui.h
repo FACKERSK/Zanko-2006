@@ -269,7 +269,7 @@ static void drawHUD(Vector2 cross, float t) {
     float W = sw, H = shh, s = aU;
     aCorrupt = pl.stage;
     drawEyelids(W, H);
-    if (pl.sleeping && pl.eyeK > 0.9f) { char b2[64]; snprintf(b2, sizeof b2, "Sleeping...  rest %d%%   [Z] wake", (int)pl.rest); keySubst(b2, sizeof b2); aTextC(b2, W / 2, H * 0.47f, 22, (Color){200, 196, 186, (unsigned char)(255 * (pl.eyeK - 0.9f) * 10)}, false); }
+    if (pl.sleeping && pl.eyeK > 0.9f) { char b2[64]; snprintf(b2, sizeof b2, "Sleeping...  rest %d%%", (int)pl.rest); keySubst(b2, sizeof b2); aTextC(b2, W / 2, H * 0.47f, 22, (Color){200, 196, 186, (unsigned char)(255 * (pl.eyeK - 0.9f) * 10)}, false); }
     if (pl.watchT > 0 && pl.watchKind == 2 && mangaStep < 4 && MANGA_T - pl.watchT > 1.2f) { char b2[128]; snprintf(b2, sizeof b2, "[%s] %s     [%s] Put it down", actKey(A_ATTACK), mangaStep < 3 ? "Turn the page" : "Close it", actKey(A_GUARD));
         aTextC(b2, W / 2, H * 0.8f, 16, (Color){226, 220, 206, 230}, false); }
     if (pl.watchT > 0 && pl.watchKind != 2) { const char *w = pl.watchKind == 1 ? "Watching anime..." : "Watching the broadcast...";
@@ -348,7 +348,8 @@ static void drawHUD(Vector2 cross, float t) {
         float bh = BK_N * 26 + 92;
         Rectangle bp = HUDP(10, Wr / 2 - mg - 143 * f, 360 - mg - (104 + 14 + bh / 2) * f, 286, bh);
         aGadget(bp);
-        aText(TextFormat("Build  (%s next piece, wheel turns %.0f deg, %s place, %s exit)", actKey(A_RELOAD), bkRot, actKey(A_ATTACK), actKey(A_BUILD)), bp.x + 16 * s, bp.y + 14 * s, 11, C_CYAN, false);
+        if (padActive) aText(TextFormat("Build  (D-pad up/down piece, left/right turn %.0f deg, %s place, %s exit)", bkRot, actKey(A_ATTACK), actKey(A_BUILD)), bp.x + 16 * s, bp.y + 14 * s, 11, C_CYAN, false);
+        else aText(TextFormat("Build  (%s next piece, wheel turns %.0f deg, %s place, %s exit)", actKey(A_RELOAD), bkRot, actKey(A_ATTACK), actKey(A_BUILD)), bp.x + 16 * s, bp.y + 14 * s, 11, C_CYAN, false);
         for (int k = 0; k < BK_N; k++) {
             float yy = bp.y + 36 * s + k * 26 * s;
             bool sel = k == pl.buildKind, ok = bkAfford(k) && (!bkHammer[k] || invHas(IT_HAMMER));

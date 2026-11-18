@@ -399,6 +399,7 @@ static int facingBuild(Vector3 eye, Vector3 aim, float maxD, int kind) {
         Vector3 d = Vector3Subtract(c, eye); float L = Vector3Length(d);
         if (L > bd || L < 0.01f) continue;
         if (Vector3DotProduct(Vector3Scale(d, 1 / L), aim) < 0.6f) continue;
+        if (!reachClear(eye, c, 0)) continue;   // 0.9.13: not through a wall
         bd = L; best = i;
     }
     return best;
@@ -413,6 +414,18 @@ static void spiritSeal(void) {
         spawnParts(crCenter(&crs[best]), 12, T_PAPER, WHITE, 1.5f, 0.06f); say("The ofuda seals the spirit."); }
     else say("No spirit within reach.");
 }
+static int facingWBed(Vector3 eye, Vector3 aim, float maxD) {   // 0.9.13: a bed or futon of the town's own, in reach and in view (or the one you are on)
+    int best = -1; float bd = maxD;
+    for (int i = 0; i < nWBed; i++) { Vector3 mn = wBedMn[i], mx = wBedMx[i];
+        if (fabsf(mx.y - eye.y) > 2.2f) continue;
+        float cx = clampf(eye.x, mn.x, mx.x), cz = clampf(eye.z, mn.z, mx.z), dx = cx - eye.x, dz = cz - eye.z, L = sqrtf(dx * dx + dz * dz);
+        if (L > bd) continue;
+        Vector3 c = V3((mn.x + mx.x) / 2, mx.y, (mn.z + mx.z) / 2), d = Vector3Subtract(c, eye); float dl = Vector3Length(d);
+        if (L > 0.05f && dl > 0.01f && Vector3DotProduct(Vector3Scale(d, 1 / dl), aim) < 0.5f) continue;
+        if (!reachClear(eye, V3(c.x, mx.y + 0.05f, c.z), 0.3f)) continue;
+        bd = L; best = i; }
+    return best;
+}
 static int facingCont(Vector3 eye, Vector3 aim, float maxD) {
     int best = -1; float bd = maxD;
     for (int i = 0; i < nCont; i++) {
@@ -422,6 +435,7 @@ static int facingCont(Vector3 eye, Vector3 aim, float maxD) {
         Vector3 d = Vector3Subtract(p, eye); float L = Vector3Length(d);
         if (L > bd + (c->kind == CK_PILE ? 0.3f : 0) || L < 0.01f) continue;
         if (Vector3DotProduct(Vector3Scale(d, 1 / L), aim) < (L < 1.2f ? 0.35f : 0.75f)) continue;
+        if (!reachClear(eye, p, 0)) continue;   // 0.9.13: not through a wall
         bd = L; best = i;
     }
     return best;
@@ -474,7 +488,13 @@ static void updatePlayer(float dt) {
     pl.yaw = wrapA(pl.yaw); pl.tyaw = pl.yaw + wrapA(pl.tyaw - pl.yaw);
     Vector3 aim = dirOf(pl.tyaw, pl.tpitch);
     if (pl.sleeping || pl.watchT > 0) {
-        if (pl.sleeping) { pl.rest = fminf(100, pl.rest + dt * 100.0f / 40.0f); if (pl.rest >= 100 || actP(A_SLEEP)) { pl.sleeping = false; say("You wake up."); if (pl.rest >= 100) play(sPhone, 0.35f); else play(sSigh, 0.5f); }   /* the phone alarm, or you get up yourself */ }
+        if (pl.sleeping) {   // 0.9.13: sleep runs its course: you wake rested, or when something wakes you (a creature close by, hunger or thirst, being hurt)
+            pl.rest = fminf(100, pl.rest + dt * 100.0f / 40.0f);
+            const char *why = NULL;
+            for (int i = 0; i < nCr && !why; i++) { Cr *c = &crs[i]; if (!c->on || c->state == CS_DEAD || c->phantom) continue; float d = Vector3Distance(c->pos, pl.pos); if (d < 9 || (c->state == CS_CHASE && d < 20)) why = "Something moves close by. You jolt awake."; }
+            if (!why && (pl.food < 4 || pl.water < 4)) why = pl.water < pl.food ? "Thirst wakes you." : "Hunger wakes you.";
+            if (!why && pl.rest >= 100) why = "You wake up rested.";
+            if (why) { pl.sleeping = false; say(why); if (pl.rest >= 100) play(sPhone, 0.35f); else play(sSigh, 0.5f); } }
         else {
             if (pl.watchKind == 2) {   // reading: it opens, then waits on each spread; a press turns the page, the last press closes it
                 static const float hold[4] = {1.45f, 2.68f, 4.03f, 5.38f}; float T = MANGA_T - pl.watchT;
@@ -581,10 +601,10 @@ static void updatePlayer(float dt) {
     Vector3 ledge; bool hasLedge = findLedge(pl.pos, Vector3Normalize(V3(aim.x, 0, aim.z)), &ledge);
     int nearTV = -1;
     for (int i = 0; i < nTV; i++) { Vector3 d = V3(tvs[i].pos.x - pl.pos.x, 0, tvs[i].pos.z - pl.pos.z); float L = Vector3Length(d);
-        if (L < 1.9f && fabsf(tvs[i].pos.y - pl.pos.y - 0.8f) < 1.0f && Vector3DotProduct(Vector3Scale(d, 1 / fmaxf(L, 0.01f)), Vector3Normalize(V3(aim.x, 0, aim.z))) > 0.5f) { nearTV = i; break; } }
+        if (L < 1.9f && fabsf(tvs[i].pos.y - pl.pos.y - 0.8f) < 1.0f && Vector3DotProduct(Vector3Scale(d, 1 / fmaxf(L, 0.01f)), Vector3Normalize(V3(aim.x, 0, aim.z))) > 0.5f && reachClear(eye, V3(tvs[i].pos.x, tvs[i].pos.y + 0.5f, tvs[i].pos.z), 0.35f)) { nearTV = i; break; } }
     int door = facingBuild(eye, aim, 2.4f, BK_DOOR), myWall = -1;
     { int w = facingBuild(eye, aim, 2.4f, -1); if (w >= 0 && (builds[w].kind == BK_WALL || builds[w].kind == BK_DOOR || builds[w].kind == BK_FLOOR || builds[w].kind == BK_CRATE)) myWall = w; }
-    int bed = facingBuild(eye, aim, 2.4f, BK_BED);
+    int bed = facingBuild(eye, aim, 2.4f, BK_BED), wbed = facingWBed(eye, aim, 2.0f);
     if (pl.searchC >= 0) {
         Cont *c = &conts[pl.searchC];
         if (!c->on || Vector3Distance(c->pos, pl.pos) > 2.8f || !actD(A_USE)) { pl.searchC = -1; pl.searchT = 0; }
@@ -606,7 +626,7 @@ static void updatePlayer(float dt) {
         else if (nearTV >= 0 && cont < 0) snprintf(prompt, sizeof prompt, invHas(IT_VHS) ? "[E] Watch anime (VHS)" : "[E] Watch TV");
         else if (cont >= 0) { Cont *c = &conts[cont]; snprintf(prompt, sizeof prompt, c->kind == CK_PILE || c->kind == CK_CHEST ? "[E] Open %s" : c->searched ? "[hold E] %s (searched)" : "[hold E] Search %s", ckName[c->kind]); }
         else if (door >= 0) snprintf(prompt, sizeof prompt, builds[door].open ? "[E] Close door" : "[E] Open door");
-        else if (bed >= 0) snprintf(prompt, sizeof prompt, "[Z] Sleep in bed");
+        else if (bed >= 0 || wbed >= 0) snprintf(prompt, sizeof prompt, "[%s] Sleep in bed", actKey(A_SLEEP));
         else if (vaultOp >= 0) snprintf(prompt, sizeof prompt, "[SPACE] Vault through window%s", barrOp >= 0 ? "   [G] Barricade (2 planks)" : "");
         else if (barrOp >= 0) snprintf(prompt, sizeof prompt, "%s[G] Barricade (%d planks)", useDoor >= 0 && useDoor == barrOp ? "[E] Close door   " : "", ops[barrOp].type == OP_WINDOW ? 2 : 3);
         else if (myWall >= 0 && builds[myWall].hp < builds[myWall].maxhp) snprintf(prompt, sizeof prompt, "[G] Repair (1 plank)  -  %d%%", (int)(100 * builds[myWall].hp / builds[myWall].maxhp));
@@ -678,16 +698,25 @@ static void updatePlayer(float dt) {
     if (actP(A_HOLSTER)) holster();
     if (actP(A_SLEEP)) {
         bool threat = false; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state == CS_CHASE && Vector3Distance(crs[i].pos, pl.pos) < 25) threat = true;
-        bool inBed = bed >= 0 || facingBuild(eye, V3(0, -1, 0), 2.0f, BK_BED) >= 0;
+        bool inBed = bed >= 0 || wbed >= 0 || facingBuild(eye, V3(0, -1, 0), 2.0f, BK_BED) >= 0;
         if (threat) say("Something is hunting you. You can't sleep now.");
         else if (!inBed && !(pl.roof && pl.nearFire)) say("Sleep needs a bed, or a roof and a fire.");
-        else { pl.sleeping = true; say("You close your eyes. [Z] to wake."); play(sSigh, 0.55f); }
+        else if (pl.rest > 92) say("You are not tired enough to sleep.");
+        else { pl.sleeping = true; say("You close your eyes."); play(sSigh, 0.55f); }
     }
-    if (actP(A_BUILD)) { pl.build = !pl.build; if (pl.build) { say(TextFormat("Build mode: %s place, wheel turns, %s next piece, %s exit", actKey(A_ATTACK), actKey(A_RELOAD), actKey(A_BUILD))); bkRot = 0; showHint(11); } }
-    if (pl.build) {   // wheel turns the piece (15 degree steps, hold Shift for 5), reload picks the next piece
+    if (actP(A_BUILD)) { pl.build = !pl.build; if (pl.build) { if (padActive) say(TextFormat("Build mode: %s place, D-pad left / right turns, D-pad up / down picks the piece, %s exit", actKey(A_ATTACK), actKey(A_BUILD)));
+            else say(TextFormat("Build mode: %s place, wheel turns, %s next piece, %s exit", actKey(A_ATTACK), actKey(A_RELOAD), actKey(A_BUILD))); bkRot = 0; showHint(11); } }
+    padBuild = pl.build && padActive;
+    if (pl.build) {   // wheel turns the piece (15 degree steps, hold Shift for 5), reload picks the next piece; on a gamepad the d-pad does both (0.9.13)
         float w = MWheel(); float step = IsKeyDown(KEY_LEFT_SHIFT) ? 5.0f : 15.0f;
-        if (w > 0 || padP(GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) bkRot = fmodf(bkRot + step, 360); if (w < 0 || padP(GAMEPAD_BUTTON_LEFT_FACE_LEFT)) bkRot = fmodf(bkRot - step + 360, 360);
-        if (actP(A_RELOAD)) pl.buildKind = (pl.buildKind + 1) % BK_N; if (padP(GAMEPAD_BUTTON_LEFT_FACE_DOWN)) pl.buildKind = (pl.buildKind + BK_N - 1) % BK_N; }
+        if (w > 0) bkRot = fmodf(bkRot + step, 360); if (w < 0) bkRot = fmodf(bkRot - step + 360, 360);
+        if (padActive) { static float holdT = 0; int dir = (padNow[GAMEPAD_BUTTON_LEFT_FACE_RIGHT] ? 1 : 0) - (padNow[GAMEPAD_BUTTON_LEFT_FACE_LEFT] ? 1 : 0);
+            if (padP(GAMEPAD_BUTTON_LEFT_FACE_RIGHT) || padP(GAMEPAD_BUTTON_LEFT_FACE_LEFT)) { bkRot = fmodf(bkRot + dir * 15.0f + 360, 360); holdT = 0; }   // a tap: 15 degrees
+            else if (dir) { holdT += dt; if (holdT > 0.35f) bkRot = fmodf(bkRot + dir * 120.0f * dt + 360, 360); }   // held: it keeps turning
+            else holdT = 0;
+            if (padP(GAMEPAD_BUTTON_LEFT_FACE_DOWN)) pl.buildKind = (pl.buildKind + 1) % BK_N;
+            if (padP(GAMEPAD_BUTTON_LEFT_FACE_UP)) pl.buildKind = (pl.buildKind + BK_N - 1) % BK_N; }
+        if (actP(A_RELOAD)) pl.buildKind = (pl.buildKind + 1) % BK_N; }
     // ---- attack / build
     pl.swingCd -= dt; pl.shootCd -= dt; pl.kick = fmaxf(0, pl.kick - dt * 6); pl.muzzle -= dt;
     if (pl.swingT > 0) {

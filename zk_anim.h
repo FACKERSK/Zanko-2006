@@ -324,14 +324,35 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         sA = A; sHt = ht; sU = u2; sShot = revShotT; sFall = cyFallT; sLd = ldFallT;
     }
     static float prevSw = 0; static int swingN = 0, lastKills = -1;
-    if (pl.swingT > prevSw + 0.02f) swingN++;   // a new swing started: combos alternate direction
-    if (vmSwingN >= 0) swingN = vmSwingN;
+    static int swR = 0, swRPrev = 0;
+    if (pl.swingT > prevSw + 0.02f) { swingN++; swRPrev = swR; swR = ri(1 << 20); }   // a new swing started: combos alternate direction; 0.9.13: and pick one of the weapon's strikes (never the same one twice running)
+    if (vmSwingN >= 0) { swingN = vmSwingN % 10; swRPrev = -1; swR = vmSwingN / 10; }
+    #define SWV(n_) ({ int n__ = (n_), a__ = swR % n__; if (n__ > 1 && a__ == swRPrev % n__) a__ = (a__ + 1) % n__; a__; })
     prevSw = pl.swingT;
     if (lastKills >= 0 && pl.kills > lastKills && A == ANIM_NONE && (ht == IT_KATANA || (melee && ht != IT_FIREEXT && ht != IT_UMBRELLA && fr(0, 1) < 0.45f))) animPlay(ANIM_FLOURISH);   // chiburi, or a flip: after a kill
     lastKills = pl.kills;
     float sd = (swingN & 1) ? -1.0f : 1.0f;
     if (melee && !pl.build && pl.swingT > 0) {
         float post = st >= 1 ? 1 : 0, sw = sinf(s * PI);
+        int var = style == 0 || style == 1 || style == 2 ? SWV(3) : style == 3 || style == 5 ? SWV(2) : 0;
+        float hs = sd;   // which side a sideways strike starts from
+        if (var == 1 && (style == 0 || style == 2 || style == 3)) {   // 0.9.13: a flat sweep across the body, right to left (or back)
+            float sweep = st - rc * 0.25f * post, back = wu;
+            R.p.x = 0.2f + hs * (back * 0.16f - sweep * 0.36f) + shakeHit; R.p.y = -0.25f + back * 0.06f - sweep * 0.02f; R.p.z = -0.42f + back * 0.08f - bell(s, 0.3f, 0.55f) * 0.1f;
+            R.r.x = -1.35f + back * 0.25f; R.r.y = hs * (back * 1.0f - sweep * 2.1f); R.r.z = -0.2f - hs * 1.25f * (back + sweep > 0 ? 1 : 0) * fminf(1, back * 3 + sweep);
+            if (style == 3) L.vis = true;
+        } else if (var == 2 && (style == 0 || style == 2)) {   // a diagonal cut, from high on one side down to low on the other
+            float cut = st - rc * 0.2f * post;
+            R.p.x = 0.2f + hs * (wu * 0.12f - cut * 0.28f) + shakeHit; R.p.y = -0.25f + wu * 0.24f - cut * 0.34f + rc * 0.06f * post; R.p.z = -0.42f + wu * 0.08f - cut * 0.1f;
+            R.r.x = -0.95f + wu * 1.5f - cut * 2.1f + rc * 0.5f * post; R.r.y = hs * (wu * 0.5f - cut * 1.0f); R.r.z = -0.2f - hs * 0.7f * fminf(1, wu * 2 + cut);
+        } else if (var == 1 && style == 1) {   // knife: a backhand slash across
+            float sl = st - rc * 0.3f * post; R.p = Vector3Add(R.p, V3(hs * (wu * 0.1f - sl * 0.26f) + shakeHit, wu * 0.02f, -bell(s, 0.25f, 0.6f) * 0.12f)); R.r.y += hs * (wu * 0.6f - sl * 1.4f); R.r.z += -hs * 0.9f * fminf(1, wu * 2 + sl);
+        } else if (var == 2 && style == 1) {   // knife: an overhand stab, point down
+            float dn = bell(s, 0.25f, 0.62f); R.p = Vector3Add(R.p, V3(-dn * 0.04f + shakeHit, wu * 0.18f - dn * 0.24f, -dn * 0.16f)); R.r.x += wu * 1.4f + dn * 0.9f; R.r.z += 0.3f * wu;
+        } else if (var == 1 && style == 5) {   // sickle: a flat hook from the side
+            float hk = st - rc * 0.25f * post; R.p.x = 0.26f + hs * (wu * 0.12f - hk * 0.3f) + shakeHit; R.p.y = -0.24f + wu * 0.05f; R.p.z = -0.44f + wu * 0.08f - hk * 0.06f;
+            R.r.x = -1.2f + wu * 0.3f; R.r.y = hs * (wu * 0.8f - hk * 1.8f); R.r.z = -0.3f - hs * 1.0f * fminf(1, wu * 2 + hk);
+        } else
         if (style == 0) {   // katana: raised over the head, cut straight down, settle (a hair to one side or the other from one cut to the next)
             R.p.x = 0.2f + sd * (wu * 0.03f - st * 0.03f) + shakeHit; R.p.y = -0.25f + wu * 0.3f - st * 0.38f + rc * 0.08f * post;
             R.p.z = -0.42f + wu * 0.1f - st * 0.14f + rc * 0.04f * post;
@@ -362,7 +383,14 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
         R.vis = s < 0.3f || s > 0.62f;   // the hand is out of view at the end of the throw
     } else if ((gun2 || thr) && !pl.build && pl.swingT > 0) {
     } else if (!melee && !gun && !pl.build && pl.swingT > 0) {
-        float jab = bell(s, 0.15f, 0.7f); R.p.z -= jab * 0.26f; R.p.x -= jab * 0.09f; R.p.y += jab * 0.05f; R.r.x += jab * 0.25f; L.p.z += jab * 0.04f; R.p.x += shakeHit;
+        // 0.9.13: fists throw different punches: a right jab, a left jab (not with the phone in that hand), a right hook, an uppercut, a left hook
+        int var = torch ? (int[]){0, 2, 3}[SWV(3)] : SWV(5);
+        float jab = bell(s, 0.15f, 0.7f), cock = bell(s, 0.0f, 0.22f);
+        if (var == 0) { R.p.z -= jab * 0.26f; R.p.x -= jab * 0.09f; R.p.y += jab * 0.05f; R.r.x += jab * 0.25f; L.p.z += jab * 0.04f; R.p.x += shakeHit; }
+        else if (var == 1) { L.p.z -= jab * 0.26f; L.p.x += jab * 0.09f; L.p.y += jab * 0.05f; L.r.x += jab * 0.25f; R.p.z += jab * 0.04f; L.p.x += shakeHit; }
+        else if (var == 2) { R.p.x += cock * 0.05f - jab * 0.24f; R.p.z += cock * 0.03f - jab * 0.12f; R.p.y += jab * 0.06f; R.r.y += jab * 1.0f; R.r.z -= jab * 0.6f; R.r.x += jab * 0.15f; L.p.z += jab * 0.03f; R.p.x += shakeHit; }
+        else if (var == 3) { R.p.y += -cock * 0.06f + jab * 0.17f; R.p.z -= jab * 0.15f; R.p.x -= jab * 0.06f; R.r.x += jab * 0.95f - cock * 0.2f; R.r.z += jab * 0.35f; R.p.x += shakeHit; }
+        else { L.p.x -= cock * 0.05f - jab * 0.24f; L.p.z += cock * 0.03f - jab * 0.12f; L.p.y += jab * 0.06f; L.r.y -= jab * 1.0f; L.r.z += jab * 0.6f; L.r.x += jab * 0.15f; R.p.z += jab * 0.03f; L.p.x += shakeHit; }
     }
     // ---- guard
     float gk = pl.blockK;
@@ -548,7 +576,7 @@ static void drawViewmodel2(Vector3 eye, Vector3 aim) {
             if (Li.vis) { L.p = Vector3Lerp(Vector3Add(Li.p, V3(0, -0.48f, 0)), Li.p, b); } } }
     {   // 0.9.8: every change of what the hands are doing blends over 0.22 s from where they were: nothing snaps
         static HandP oR, oL; static Vector3 offRp, offRr, offLp, offLr; static float bT = 9, gT = 9; static int lastKey = -1; static bool lastLv = false; static HandP ghostL;
-        int key = A * 7919 + (ht + 3) * 131 + (hideW ? 1 : 0) * 17 + (pl.searchC >= 0 ? 2 : 0) * 19 + (pl.climbT > 0 ? 3 : 0) * 23 + (pl.build ? 5 : 0) * 29 + (torchK > 0.5f ? 7 : 0) * 31 + (L.vis ? 11 : 0) * 37 + (gk > 0.5f ? 13 : 0) * 41;
+        int key = A * 7919 + (ht + 3) * 131 + (hideW ? 1 : 0) * 17 + (pl.searchC >= 0 ? 2 : 0) * 19 + (pl.climbT > 0 ? 3 : 0) * 23 + (pl.build ? 5 : 0) * 29 + (torchK > 0.5f ? 7 : 0) * 31 + (torch ? 1 : 0) * 43 + (L.vis ? 11 : 0) * 37 + (gk > 0.5f ? 13 : 0) * 41;
         #define WRAPV(v_) V3(wrapA((v_).x), wrapA((v_).y), wrapA((v_).z))
         if (lastKey != -1 && key != lastKey) { offRp = Vector3Subtract(oR.p, R.p); offRr = WRAPV(Vector3Subtract(oR.r, R.r));
             if (lastLv && L.vis) { offLp = Vector3Subtract(oL.p, L.p); offLr = WRAPV(Vector3Subtract(oL.r, L.r)); } else if (L.vis) { offLp = V3(0.02f, -0.4f, 0.1f); offLr = V3(0.7f, 0, 0); } else { offLp = offLr = V3(0, 0, 0); }

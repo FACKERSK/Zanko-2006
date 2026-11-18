@@ -1,4 +1,43 @@
-ZANKO 2006 - Afterglow  (v0.9.12, prebuilt world)
+ZANKO 2006 - Afterglow  (v0.9.13, fixes)
+
+- 0.9.13: fixes from play.
+  * Nothing is paper-thin: every piece of the world is at least
+    1 cm thick and closed on all six sides. Roads and pavements
+    are slabs with a body under them, kerbs, walls, rails and
+    cables have real thickness.
+  * Nothing can be used through a wall: searching, doors,
+    windows, beds, TVs and water need a clear line from the eye.
+    Climbing checks the way over the ledge, so no climbing
+    through walls.
+  * Stairwells: no second door right behind the stairwell door
+    (an open doorway is left there), and it lines up with the
+    stairwell door exactly.
+  * Touge: the ground under the road and its verges is the
+    road's own height (no road sunk in the hillside or floating
+    over it). Houses along the pass stand on level terraces that
+    cover their whole footprint.
+  * Tunnels: headwalls have a level top and the hill rises
+    behind them, with no gap; the old tunnel at the top of the
+    pass sits inside the mountain. Rail and road tunnel hills no
+    longer bury the pass.
+  * The ground is one closed solid: no holes anywhere seen from
+    above (checked with everything but the ground hidden), with
+    sides and a floor under it. Only tunnel mouths are open.
+  * Punches vary: right and left jabs, hooks and an uppercut
+    (right-handed only while the phone light is out). Katana,
+    bats and clubs also sweep flat and cut diagonally, knives
+    slash and stab overhand, axes and sickles swing from the side.
+    The same strike never comes twice in a row.
+  * Putting the phone light away with bare fists: the left hand
+    comes back up into the guard smoothly instead of snapping.
+  * Beds and futons in houses can be slept in.
+  * Sleep runs its course: you wake when rested, or when a
+    creature comes close, hunger or thirst gets bad, or you are
+    hurt. You cannot sleep when already rested.
+  * Build mode on a gamepad: D-pad left / right turns the piece
+    (hold to keep turning), D-pad up / down picks the piece.
+    The D-pad no longer opens the map, switches weapons or
+    barricades while building.
 
 - 0.9.12: the world is prebuilt.
   * The town, its buildings and their floor plans are built

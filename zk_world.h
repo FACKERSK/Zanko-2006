@@ -161,8 +161,9 @@ static Texture2D makeBliss(void) {   // saturated XP-wallpaper grass
     return t;
 }
 static bool terrainSkip(float ax, float az);   // zk_layout.h: cells hidden behind tunnel headwalls
+static float terrainSkipY(float ax, float az); static bool terrMouth(float x, float z, float y);
 static void terrVert(Mesh *m, int *vp, float x, float z, float y, Vector3 nn) {
-    int v = *vp;
+    int v = *vp; if (!m->vertices) { *vp = v + 1; return; }   // (counting pass)
     m->vertices[v * 3] = x; m->vertices[v * 3 + 1] = y; m->vertices[v * 3 + 2] = z;
     m->normals[v * 3] = nn.x; m->normals[v * 3 + 1] = nn.y; m->normals[v * 3 + 2] = nn.z;
     m->texcoords[v * 2] = x / 5; m->texcoords[v * 2 + 1] = z / 5;
@@ -182,50 +183,82 @@ static void terrVert(Mesh *m, int *vp, float x, float z, float y, Vector3 nn) {
 }
 #define TSUB 4   // cells along the town's edge and under roads are laid in 0.5 m pieces, so grass meets paving and asphalt along a fine line, not 2 m steps
 static bool rvCorridor(float x, float z);
+// 0.9.13: the ground is one closed solid, like a cube: a top over every cell of the world (no holes: under the town, the roads,
+// a tunnel's headwall or the seawall it is laid lower, out of sight, instead of being left out), upright faces wherever two
+// pieces of the top do not meet (and round the edge of the world), and a floor under it all. Only a tunnel's mouth is open.
+#define TER_BOT (-20.0f)
+static unsigned char *terT;   // per 0.5 m column: 0 none (outside the world), 1 ground, 2 town (laid far down), 3 under a road (a little down), 4 behind a headwall / at the seawall (down to terLow), +8 river bed
+static float *terLow;          // per 2 m cell: how low a type-4 column lies
+static int terNS;              // columns along a side
+static int terIdx(int I, int J) { return J * terNS + I; }
+static float terTop(int t, float base, int ci, int cj, int n) {
+    if (t & 8) base = fminf(base, -2.3f);
+    switch (t & 7) { case 2: return -12.0f; case 3: return base - 0.15f; case 4: return fminf(base, terLow[cj * n + ci]); default: return base; }
+}
+static float terBase(int ci, int cj, float uu, float ww) {   // the heightfield over cell (ci, cj) at (uu, ww) in 0..1
+    float h00 = hf[cj * HF_N + ci], h10 = hf[cj * HF_N + ci + 1], h01 = hf[(cj + 1) * HF_N + ci], h11 = hf[(cj + 1) * HF_N + ci + 1];
+    return (h00 * (1 - uu) + h10 * uu) * (1 - ww) + (h01 * (1 - uu) + h11 * uu) * ww;
+}
 static void genTerrain(void) {
     if (terrainOk) { UnloadModel(terrain); terrainOk = false; }
-    const float S = HF_S; int n = HF_N - 1;
-    unsigned short *keep = calloc((size_t)n * n, sizeof(unsigned short)); int quads = 0;   // bit 0x8000: the whole cell; else one bit per piece
+    const float S = HF_S, q = S / TSUB; int n = HF_N - 1, NS = n * TSUB; terNS = NS;
+    free(terT); free(terLow); terT = calloc((size_t)NS * NS, 1); terLow = malloc(sizeof(float) * (size_t)n * n);
+    bool *uni = calloc((size_t)n * n, 1);   // the whole cell one kind: one quad
     for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) {
-        float ax = HF_X0 + i * S, az = HF_X0 + j * S;
-        if (hfOut(ax, az) || terrainSkip(ax, az)) continue;
+        float ax = HF_X0 + i * S, az = HF_X0 + j * S; terLow[j * n + i] = -1e9f;
+        if (hfOut(ax, az)) continue;
+        float sy = terrainSkipY(ax, az); terLow[j * n + i] = sy;
         int nl = 0, np2 = 0; for (int c = 0; c < 4; c++) { float x = ax + ((c & 1) ? S - 0.1f : 0.1f), z = az + ((c & 2) ? S - 0.1f : 0.1f); nl += cityLand(x, z); np2 += inCore(x, z); }
-        if (nl == 4 || np2 == 4) continue;   // town ground or paving covers it
-        bool road = hfReady && mainRoadAt(ax + S / 2, az + S / 2, 1.6f);
-        if (nl == 0 && np2 == 0 && !road) { keep[j * n + i] = 0x8000; quads++; continue; }
-        unsigned short mk = 0; const float q = S / TSUB;
+        bool road = hfReady && mainRoadAt(ax + S / 2, az + S / 2, 1.6f), rc = rvCorridor(ax + S / 2, az + S / 2);
+        int whole = sy > -1e8f ? 4 : (nl == 4 || np2 == 4) ? 2 : (nl == 0 && np2 == 0 && !road) ? 1 : 0;
+        if (whole && !rc) { uni[j * n + i] = 1; for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) terT[terIdx(i * TSUB + a, j * TSUB + b)] = (unsigned char)whole; continue; }
         for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) { float x = ax + (a + 0.5f) * q, z = az + (b + 0.5f) * q;
-            if (cityLand(x, z) || inCore(x, z) || (hfReady && mainRoadAt(x, z, 0.05f))) continue; mk |= 1 << (b * TSUB + a); quads++; }
-        keep[j * n + i] = mk;
-    }
-    Mesh m = {0};
-    m.vertexCount = quads * 6; m.triangleCount = quads * 2;
-    m.vertices = MemAlloc(m.vertexCount * 3 * sizeof(float)); m.texcoords = MemAlloc(m.vertexCount * 2 * sizeof(float)); m.normals = MemAlloc(m.vertexCount * 3 * sizeof(float));
-    m.colors = MemAlloc(m.vertexCount * 4);
-    int v = 0;
-    #define HFN(gi, gj) ({ int gi_ = (gi), gj_ = (gj); float hx_ = hf[gj_ * HF_N + (gi_ < HF_N - 1 ? gi_ + 1 : gi_)] - hf[gj_ * HF_N + (gi_ > 0 ? gi_ - 1 : gi_)], hz_ = hf[(gj_ < HF_N - 1 ? gj_ + 1 : gj_) * HF_N + gi_] - hf[(gj_ > 0 ? gj_ - 1 : gj_) * HF_N + gi_]; Vector3Normalize(V3(-hx_, 2 * S, -hz_)); })
-    for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) {
-        unsigned short mk = keep[j * n + i]; if (!mk) continue;
-        float h00 = hf[j * HF_N + i], h10 = hf[j * HF_N + i + 1], h01 = hf[(j + 1) * HF_N + i], h11 = hf[(j + 1) * HF_N + i + 1];
-        Vector3 n00 = HFN(i, j), n10 = HFN(i + 1, j), n01 = HFN(i, j + 1), n11 = HFN(i + 1, j + 1);
-        float ax = HF_X0 + i * S, az = HF_X0 + j * S;
-        if (mk == 0x8000) {
-            int vi[4] = {0, 0, 1, 1}, vj[4] = {0, 1, 1, 0}, ord[6] = {0, 1, 2, 0, 2, 3};
-            bool rivc = false; if (rvCorridor(ax + S / 2, az + S / 2)) for (int c2 = 0; c2 < 4 && !rivc; c2++) { float qx = ax + (c2 & 1) * S, qz = az + (c2 >> 1) * S; for (int e2 = 0; e2 < 9 && !rivc; e2++) { float ex = qx + (e2 % 3 - 1) * 0.6f, ez = qz + (e2 / 3 - 1) * 0.6f; rivc = cityLand(ex, ez) || (hfReady && mainRoadAt(ex, ez, 0.3f)); } }   // a river cell with a corner on the town's bank: the bed stays flat, no wedge of grass climbing the wall
-            for (int k = 0; k < 6; k++) { int a = vi[ord[k]], b = vj[ord[k]]; float yy = a ? (b ? h11 : h10) : (b ? h01 : h00); if (rivc) yy = fminf(yy, -2.3f); terrVert(&m, &v, ax + a * S, az + b * S, yy, a ? (b ? n11 : n10) : (b ? n01 : n00)); }
-            continue; }
-        const float q = S / TSUB;
-        for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) { if (!(mk & (1 << (b * TSUB + a)))) continue; bool riv = rvCorridor(ax + (a + 0.5f) * q, az + (b + 0.5f) * q);   // (drawn at all, so not town: beside the river that leaves only the bed)
-            float u[4] = {(float)a / TSUB, (float)a / TSUB, (float)(a + 1) / TSUB, (float)(a + 1) / TSUB}, w[4] = {(float)b / TSUB, (float)(b + 1) / TSUB, (float)(b + 1) / TSUB, (float)b / TSUB};
-            int ord[6] = {0, 1, 2, 0, 2, 3};
-            for (int k = 0; k < 6; k++) { float uu = u[ord[k]], ww = w[ord[k]];
-                float y = (h00 * (1 - uu) + h10 * uu) * (1 - ww) + (h01 * (1 - uu) + h11 * uu) * ww;
-                if (riv) y = fminf(y, -2.3f);     // the bed lies flat right up to the bank walls: no slope of grass climbing out of the water
-                Vector3 nn = Vector3Normalize(Vector3Add(Vector3Scale(Vector3Add(Vector3Scale(n00, 1 - uu), Vector3Scale(n10, uu)), 1 - ww), Vector3Scale(Vector3Add(Vector3Scale(n01, 1 - uu), Vector3Scale(n11, uu)), ww)));
-                terrVert(&m, &v, ax + uu * S, az + ww * S, y, nn); } (void)q; }
+            int t = whole ? whole : (cityLand(x, z) || inCore(x, z)) ? 2 : (hfReady && mainRoadAt(x, z, 0.05f)) ? 3 : 1;
+            if (rvCorridor(x, z) && t != 2) t |= 8;
+            terT[terIdx(i * TSUB + a, j * TSUB + b)] = (unsigned char)t; } }
+    #define HFN(gi, gj) ({ int gi_ = (gi), gj_ = (gj); float hx_ = hf[gj_ * HF_N + (gi_ < HF_N - 1 ? gi_ + 1 : gi_)] - hf[gj_ * HF_N + (gi_ > 0 ? gi_ - 1 : gi_)], hz_ = hf[(gj_ < HF_N - 1 ? gj_ + 1 : gj_) * HF_N + gi_] - hf[(gj_ > 0 ? gj_ - 1 : gj_) * HF_N + gi_]; Vector3Normalize(V3(-hx_, 2 * HF_S, -hz_)); })
+    Mesh m = {0}; int v = 0, walls = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1) { m.vertexCount = v; m.triangleCount = v / 3; m.vertices = MemAlloc(v * 3 * sizeof(float)); m.texcoords = MemAlloc(v * 2 * sizeof(float)); m.normals = MemAlloc(v * 3 * sizeof(float)); m.colors = MemAlloc(v * 4); v = 0; walls = 0; }
+        // the top
+        for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) {
+            int t0 = terT[terIdx(i * TSUB, j * TSUB)]; if (!t0) continue;
+            Vector3 n00 = HFN(i, j), n10 = HFN(i + 1, j), n01 = HFN(i, j + 1), n11 = HFN(i + 1, j + 1); float ax = HF_X0 + i * S, az = HF_X0 + j * S;
+            int sub = uni[j * n + i] ? 1 : TSUB;
+            for (int b = 0; b < sub; b++) for (int a = 0; a < sub; a++) {
+                int t = uni[j * n + i] ? t0 : terT[terIdx(i * TSUB + a, j * TSUB + b)]; if (!t) continue;
+                float u[4] = {(float)a / sub, (float)a / sub, (float)(a + 1) / sub, (float)(a + 1) / sub}, w[4] = {(float)b / sub, (float)(b + 1) / sub, (float)(b + 1) / sub, (float)b / sub};
+                int ord[6] = {0, 1, 2, 0, 2, 3};
+                for (int k = 0; k < 6; k++) { float uu = u[ord[k]], ww = w[ord[k]], y = terTop(t, terBase(i, j, uu, ww), i, j, n);
+                    Vector3 nn = Vector3Normalize(Vector3Add(Vector3Scale(Vector3Add(Vector3Scale(n00, 1 - uu), Vector3Scale(n10, uu)), 1 - ww), Vector3Scale(Vector3Add(Vector3Scale(n01, 1 - uu), Vector3Scale(n11, uu)), ww)));
+                    terrVert(&m, &v, ax + uu * S, az + ww * S, y, nn); } } }
+        // the sides: between every two 0.5 m columns whose tops do not meet, and along the edge of the world (down to the floor)
+        for (int J = 0; J < NS; J++) for (int I = 0; I < NS; I++) { int t = terT[terIdx(I, J)]; if (!t) continue;
+            int ci = I / TSUB, cj = J / TSUB; float ua = (float)(I % TSUB) / TSUB, wa = (float)(J % TSUB) / TSUB;
+            for (int e = 0; e < 4; e++) {   // e 0: +x, 1: +z, 2: -x, 3: -z (the -x / -z sides only where there is no column)
+                int I2 = I + (e == 0) - (e == 2), J2 = J + (e == 1) - (e == 3);
+                int t2 = (I2 < 0 || J2 < 0 || I2 >= NS || J2 >= NS) ? 0 : terT[terIdx(I2, J2)];
+                if (e >= 2 && t2) continue;
+                float u0, w0, u1, w1; if (e == 0 || e == 2) { u0 = u1 = ua + (e == 0 ? 1.0f / TSUB : 0); w0 = wa; w1 = wa + 1.0f / TSUB; } else { w0 = w1 = wa + (e == 1 ? 1.0f / TSUB : 0); u0 = ua; u1 = ua + 1.0f / TSUB; }
+                float b0 = terBase(ci, cj, u0, w0), b1 = terBase(ci, cj, u1, w1);
+                float a0 = terTop(t, b0, ci, cj, n), a1 = terTop(t, b1, ci, cj, n), c0, c1;
+                if (t2) { int ci2 = I2 / TSUB, cj2 = J2 / TSUB; c0 = terTop(t2, b0, ci2, cj2, n); c1 = terTop(t2, b1, ci2, cj2, n); } else { c0 = c1 = TER_BOT; }
+                if (fabsf(a0 - c0) < 0.003f && fabsf(a1 - c1) < 0.003f) continue;
+                float x0 = HF_X0 + (ci + u0) * S, z0 = HF_X0 + (cj + w0) * S, x1 = HF_X0 + (ci + u1) * S, z1 = HF_X0 + (cj + w1) * S;
+                if (terrMouth((x0 + x1) / 2, (z0 + z1) / 2, (fminf(a0, c0) + fmaxf(a0, c0)) / 2)) continue;   // the tunnel's mouth stays open
+                Vector3 nn = e == 0 ? V3(1, 0, 0) : e == 1 ? V3(0, 0, 1) : e == 2 ? V3(-1, 0, 0) : V3(0, 0, -1);
+                Vector3 P[4] = {V3(x0, c0, z0), V3(x1, c1, z1), V3(x1, a1, z1), V3(x0, a0, z0)};
+                int o1[6] = {0, 1, 2, 0, 2, 3}, o2[6] = {0, 2, 1, 0, 3, 2};
+                for (int k = 0; k < 6; k++) terrVert(&m, &v, P[o1[k]].x, P[o1[k]].z, P[o1[k]].y, nn);
+                for (int k = 0; k < 6; k++) terrVert(&m, &v, P[o2[k]].x, P[o2[k]].z, P[o2[k]].y, Vector3Negate(nn));
+                walls++; } }
+        {   // the floor under it all
+            float x0 = HF_X0, x1 = HF_X0 + n * S, z0 = HF_X0, z1 = HF_X0 + n * S; Vector3 P[4] = {V3(x0, TER_BOT, z0), V3(x1, TER_BOT, z0), V3(x1, TER_BOT, z1), V3(x0, TER_BOT, z1)}; int o[6] = {0, 1, 2, 0, 2, 3};
+            for (int k = 0; k < 6; k++) terrVert(&m, &v, P[o[k]].x, P[o[k]].z, P[o[k]].y, V3(0, -1, 0)); }
     }
     #undef HFN
-    free(keep);
+    free(uni);
+    TraceLog(LOG_INFO, "TERRAIN closed: %d vertices, %d side pieces", v, walls);
     UploadMesh(&m, false);
     terrain = LoadModelFromMesh(m);
     terrain.materials[0].shader = sh;
@@ -532,10 +565,15 @@ static bool tableSet(float cx, float cz, float y, bool alongX, int seats, float 
         else chair(cx + ox, cz + oz, y, face, rgb(140, 105, 80)); }
     return true;
 }
+static void wBedAdd(float x0, float z0, float x1, float z1, float y0, float y1) {   // a bed the town was built with, kept in world space
+    if (nWBed >= MAX_WBED) return; Vector3 a = xfP(curXf, V3(x0, y0, z0)), b = xfP(curXf, V3(x1, y1, z1));
+    wBedMn[nWBed] = Vector3Min(a, b); wBedMx[nWBed] = Vector3Max(a, b); nWBed++;
+}
 static void futon(Rectangle rm, int wall, float u, float y, Color cover) {
     float x0, z0, x1, z1; bool alongX = wall == 1 || wall == 3; wallFoot(rm, wall, u, 1.0f, 2.0f, &x0, &z0, &x1, &z1);
     if (alongX) { float t; t = x0; (void)t; }
     if (!fFree(x0, z0, x1, z1, y)) return;
+    wBedAdd(x0, z0, x1, z1, y, y + 0.2f);
     box(T_CLOTH, V3(x0, y, z0), V3(x1, y + 0.12f, z1), rgb(236, 232, 222), false, ALLB);
     float k = 0.35f; box(T_CLOTH, V3(x0 + 0.02f, y + 0.12f, z0 + (wall == 0 ? 0.55f : 0.02f)), V3(x1 - 0.02f, y + 0.2f, z1 - (wall == 2 ? 0.55f : 0.02f)), cover, false, ALLB); (void)k;
 }
@@ -650,6 +688,7 @@ static void tvOn(Rectangle rm, int wall, float u, float y) {   // a low stand ag
 }
 static bool bedOn(Rectangle rm, int wall, float u, float y, bool futonStyle, Color cover) {   // a bed (or a futon) with its head to a wall
     float x0, z0, x1, z1; wallFoot(rm, wall, u, 1.0f, 2.0f, &x0, &z0, &x1, &z1); float nx, nz; wallIn(wall, &nx, &nz);
+    wBedAdd(x0, z0, x1, z1, y, y + (futonStyle ? 0.2f : 0.55f));
     if (futonStyle) { box(T_CLOTH, V3(x0, y, z0), V3(x1, y + 0.12f, z1), rgb(236, 232, 222), false, ALLB); }
     else { box(T_WOOD, V3(x0, y, z0), V3(x1, y + 0.3f, z1), rgb(130, 95, 70), true, ALL); box(T_CLOTH, V3(x0 + 0.03f, y + 0.3f, z0 + 0.03f), V3(x1 - 0.03f, y + 0.46f, z1 - 0.03f), rgb(232, 230, 224), false, ALLB);
         float hx0 = x0, hx1 = x1, hz0 = z0, hz1 = z1; if (wall == 0) hz1 = hz0 + 0.06f; else if (wall == 2) hz0 = hz1 - 0.06f; else if (wall == 1) hx0 = hx1 - 0.06f; else hx1 = hx0 + 0.06f; box(T_WOOD, V3(hx0, y + 0.3f, hz0), V3(hx1, y + 0.85f, hz1), rgb(118, 86, 62), false, ALLB); }   // the headboard
@@ -932,7 +971,7 @@ static void furnDumpBox(const char *tag, int k, Vector3 mn, Vector3 mx, float ya
 // Partitions are noted first and built together once the whole floor is laid out (jpBuildWalls): a doorway then cuts every wall drawn
 // along its line (two rooms' walls on one line used to shut each other's doors), and a room that still has no way in gets one.
 typedef struct { int ax; float pos, lo, hi; } JpWall;   // ax 0: at constant u, running lo..hi in d; ax 1: at constant d, running in u
-static Vector2 gStNear; static bool gStNearLo = true;   // 0.9.8: the stairwell's door landing (building frame), and whether it is at the low end in the plan's own (u, d)
+static Vector2 gStNear; static bool gStNearLo = true; static float gStNu = -1, gStNd = -1;   // (0.9.13: the stairwell door's centre in the plan's own (u, d))   // 0.9.8: the stairwell's door landing (building frame), and whether it is at the low end in the plan's own (u, d)
 typedef struct { int ax; float pos, at; int fix; } JpDoor; static float jpFixLo[2], jpFixHi[2];   // fix: the stairwell's doors (never moved or pruned)
 static JpWall jpW[96]; static int jpNW; static JpDoor jpDr[48]; static int jpND; static int jpDoorsHand; static Vector3 handDoor[512]; static int nHandDoor;   // (the Mod Maker's doorway markers: handDoorsCollect)
 static void jpWallU(const JpF *J, float u, float d0, float d1, float door) {   // a partition at constant u from d0 to d1, a doorway centred at d = door (<0: none)
@@ -1023,11 +1062,14 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         {   // 0.9.11: the wall along the flights and the half landing (the door landing stays open to the plan; the stairwell wall and its door are built with the stairs).
             // A room wall alongside the door landing gets a doorway opposite the stairwell door, and a toilet or bath there becomes a little lobby
             float gc = gStNearLo ? L0 + lead / 2 : L1 - lead / 2;
+            { float g2 = alongU ? gStNu : gStNd; if (getenv("KIRI_GCDBG")) { static int ng = 0; if (ng++ < 40) TraceLog(LOG_INFO, "GCDBG f %d lo %d L %.2f..%.2f lead %.2f gc %.2f g2 %.2f nu %.2f nd %.2f alongU %d", f, gStNearLo, L0, L1, lead, gc, g2, gStNu, gStNd, alongU); }
+              if (g2 > L0 - 0.5f && g2 < L1 + 0.5f) gc = g2; }   // 0.9.13: exactly where the stairwell's own door is
             bool hiBand = roomC == C0; { for (int k = 0; k < jpNW; k++) if (jpW[k].ax == axL && fabsf(jpW[k].pos - roomC) < 0.25f && (hiBand ? jpW[k].pos <= roomC + 0.01f : jpW[k].pos >= roomC - 0.01f)) { roomC = jpW[k].pos; break; } }   // (snapped only away from the shaft: never into the flights)
             jpW[jpNW++] = gStNearLo ? (JpWall){axL, roomC, L0 + lead, L1} : (JpWall){axL, roomC, L0, L1 - lead};
             for (int k = 0; k < jpNW - 1; k++) { JpWall *q = &jpW[k]; if (q->ax != axL || fabsf(q->pos - roomC) > 0.6f || q->lo > gc - 0.3f || q->hi < gc + 0.3f) continue;
-                bool have = false; for (int m = 0; m < jpND; m++) if (jpDr[m].ax == axL && fabsf(jpDr[m].pos - q->pos) < 0.05f && fabsf(jpDr[m].at - gc) < 0.5f) have = true;
-                if (!have && jpND < 48) jpDr[jpND++] = (JpDoor){axL, q->pos, gc, 0}; }
+                // 0.9.13: an open doorway (no door in it) straight across from the stairwell door: one door, not two back to back
+                for (int m = jpND - 1; m >= 0; m--) if (jpDr[m].ax == axL && fabsf(jpDr[m].pos - q->pos) < 0.05f && fabsf(jpDr[m].at - gc) < 0.9f) jpDr[m] = jpDr[--jpND];
+                if (jpND < 48) jpDr[jpND++] = (JpDoor){axL, q->pos, gc, 3}; }
             float pr = hiBand ? roomC - 0.3f : roomC + 0.3f; int r = alongU ? jpRoomAt(gc, pr) : jpRoomAt(pr, gc);
             if (r >= 0 && (jpRoomP[r] == RM_TOILET || jpRoomP[r] == RM_BATH)) jpRoomP[r] = RM_HALL; }
         (void)Lmax;
@@ -1058,6 +1100,7 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
                 if (q->ax != d->ax && d->pos > q->lo - 0.06f && d->pos < q->hi + 0.06f) { if (q->pos <= d->at && q->pos > lo) lo = q->pos; if (q->pos > d->at && q->pos < hi) hi = q->pos; } }
             if (segLo > segHi) continue;
             lo = fmaxf(lo, segLo); hi = fminf(hi, segHi); float a0 = lo + 0.5f, a1 = hi - 0.5f;   // centres 0.5 m from a wall meeting it or the end of its own wall
+            if (d->fix == 3) continue;   // (the archway opposite the stairwell door stays where that door is)
             if (d->fix) { float f0 = fmaxf(a0, jpFixLo[d->fix - 1]), f1 = fminf(a1, jpFixHi[d->fix - 1]); if (f1 < f0) { jpDr[k] = jpDr[--jpND]; continue; } d->at = clampf(d->at, f0, f1); continue; }   // (a stairwell door with no clean place on its landing goes: one is found below)
             if (a1 < a0) { if (hi - lo > 0.85f) d->at = (lo + hi) / 2; continue; }
             d->at = clampf(d->at, a0, a1); } }   // (a stairwell door stays on its landing)
@@ -1118,14 +1161,14 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         for (int a = 0; a < ni; a++) for (int b = a + 1; b < ni; b++) if (iv[b][0] < iv[a][0]) { float t0 = iv[a][0], t1 = iv[a][1]; iv[a][0] = iv[b][0]; iv[a][1] = iv[b][1]; iv[b][0] = t0; iv[b][1] = t1; }
         for (int a = 0; a < ni;) { float lo = iv[a][0], hi = iv[a][1]; int b = a + 1; while (b < ni && iv[b][0] <= hi + 0.02f) { hi = fmaxf(hi, iv[b][1]); b++; } a = b;
             { float Lmax = ax == 0 ? J->D : J->W; if (lo < 0.25f) { if (ax == 0) jpWinFill(J, pos, lo); else jpWinFill(J, lo, pos); } if (hi > Lmax - 0.25f) { if (ax == 0) jpWinFill(J, pos, hi); else jpWinFill(J, hi, pos); } }   // (ends at the outside wall)
-            float dl[24]; int nd = 0; for (int m = 0; m < jpND && nd < 24; m++) if (jpDr[m].ax == ax && fabsf(jpDr[m].pos - pos) < 0.04f && jpDr[m].at > lo - 0.3f && jpDr[m].at < hi + 0.3f) { bool dup = false; for (int e = 0; e < nd; e++) if (fabsf(dl[e] - jpDr[m].at) < 0.5f) dup = true; if (!dup) dl[nd++] = jpDr[m].at; }
-            for (int x = 0; x < nd; x++) for (int y = x + 1; y < nd; y++) if (dl[y] < dl[x]) { float t = dl[x]; dl[x] = dl[y]; dl[y] = t; }
+            float dl[24]; bool arch[24]; int nd = 0; for (int m = 0; m < jpND && nd < 24; m++) if (jpDr[m].ax == ax && fabsf(jpDr[m].pos - pos) < 0.04f && jpDr[m].at > lo - 0.3f && jpDr[m].at < hi + 0.3f) { int dup = -1; for (int e = 0; e < nd; e++) if (fabsf(dl[e] - jpDr[m].at) < 0.5f) dup = e; if (dup < 0) { arch[nd] = jpDr[m].fix == 3; dl[nd++] = jpDr[m].at; } else if (jpDr[m].fix == 3) arch[dup] = true; }
+            for (int x = 0; x < nd; x++) for (int y = x + 1; y < nd; y++) if (dl[y] < dl[x]) { float t = dl[x]; dl[x] = dl[y]; dl[y] = t; bool ta = arch[x]; arch[x] = arch[y]; arch[y] = ta; }
             float cur = lo;
             for (int e = 0; e <= nd; e++) { float end = e < nd ? fmaxf(dl[e] - 0.4f, lo) : hi;
                 if (end - cur > 0.02f) { Rectangle q = ax == 0 ? jpRect(J, pos - 0.05f, cur, pos + 0.05f, end) : jpRect(J, cur, pos - 0.05f, end, pos + 0.05f); box(jpPT, V3(q.x, jpY0, q.y), V3(q.x + q.width, jpYT, q.y + q.height), jpPC, true, ALL); jpDumpRect("W", q); }
                 if (e < nd) { float g0 = fmaxf(dl[e] - 0.4f, lo), g1 = fminf(dl[e] + 0.4f, hi); if (g1 - g0 > 0.3f) {
                         Rectangle l = ax == 0 ? jpRect(J, pos - 0.05f, g0, pos + 0.05f, g1) : jpRect(J, g0, pos - 0.05f, g1, pos + 0.05f); box(jpPT, V3(l.x, jpY0 + 2.05f, l.y), V3(l.x + l.width, jpYT, l.y + l.height), jpPC, false, ALLB); jpDumpRect("D", l);
-                        if (g1 - g0 > 0.6f && !getenv("KIRI_NOHD")) { bool ax2 = l.width > l.height; innerDoor(ax2, ax2 ? l.x : l.y, ax2 ? l.x + l.width : l.y + l.height, ax2 ? l.y + l.height / 2 : l.x + l.width / 2, jpY0, fr(0, 1) < 0.4f); }   // 0.9.8: a door in it, shut more often than not
+                        if (g1 - g0 > 0.6f && !arch[e] && !getenv("KIRI_NOHD")) { bool ax2 = l.width > l.height; innerDoor(ax2, ax2 ? l.x : l.y, ax2 ? l.x + l.width : l.y + l.height, ax2 ? l.y + l.height / 2 : l.x + l.width / 2, jpY0, fr(0, 1) < 0.4f); }   // 0.9.8: a door in it, shut more often than not
                         if (ax == 0) keepAdd(jpRect(J, pos - 1.0f, dl[e] - 0.75f, pos + 1.0f, dl[e] + 0.75f), jpRect(J, pos - 0.42f, dl[e] - 0.4f, pos + 0.42f, dl[e] + 0.4f));
                         else keepAdd(jpRect(J, dl[e] - 0.75f, pos - 1.0f, dl[e] + 0.75f, pos + 1.0f), jpRect(J, dl[e] - 0.4f, pos - 0.42f, dl[e] + 0.4f, pos + 0.42f)); }
                     cur = fminf(dl[e] + 0.4f, hi); } } } }
@@ -1293,7 +1336,7 @@ static bool jpFloor(Rectangle in, int street, Rectangle stairR, bool hasStairs, 
             su0 = fminf(su0, u); su1 = fmaxf(su1, u); sd0 = fminf(sd0, d); sd1 = fmaxf(sd1, d); }
         su0 = fmaxf(su0, 0); su1 = fminf(su1, J.W); sd0 = fmaxf(sd0, 0); sd1 = fminf(sd1, J.D);
         { float x = gStNear.x, z = gStNear.y, nu, nd; switch (street) { case 0: nu = x - in.x; nd = z - in.y; break; case 2: nu = x - in.x; nd = in.y + in.height - z; break; case 3: nu = z - in.y; nd = x - in.x; break; default: nu = z - in.y; nd = in.x + in.width - x; }
-          gStNearLo = su1 - su0 >= sd1 - sd0 ? fabsf(nu - su0) < fabsf(nu - su1) : fabsf(nd - sd0) < fabsf(nd - sd1); } }
+          gStNearLo = su1 - su0 >= sd1 - sd0 ? fabsf(nu - su0) < fabsf(nu - su1) : fabsf(nd - sd0) < fabsf(nd - sd1); gStNu = nu; gStNd = nd; } }
     bool atBack = !hasStairs || sd0 > J.D * 0.45f;
     bool work = (kind == 2 && f == 0) || kind == 3 || kind == 4 || kind == 6;   // a shop, the konbini, the koban, an office floor
     if (kind == 2 && f > 0) kind = 1;   // the family lives over the shop: a flat

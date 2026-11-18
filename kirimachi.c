@@ -445,6 +445,12 @@ static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, C
     if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), Vector3Negate(n), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a});
 }
 static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
+    // 0.9.13: nothing is paper: every drawn box is at least 1 cm through on each axis and closed on all six sides
+    if (!mask) return;
+    mask = 63;
+    { const float MINT = 0.01f; if (mx.x - mn.x < MINT) { float c = (mn.x + mx.x) / 2; mn.x = c - MINT / 2; mx.x = c + MINT / 2; }
+      if (mx.y - mn.y < MINT) { float c = (mn.y + mx.y) / 2; mn.y = c - MINT / 2; mx.y = c + MINT / 2; }
+      if (mx.z - mn.z < MINT) { float c = (mn.z + mx.z) / 2; mn.z = c - MINT / 2; mx.z = c + MINT / 2; } }
     // every drawn box is given a hair of thickness beyond its true size: the smaller the box, the more (3 mm for a 10 cm piece,
     // under 1 mm for a wall), so where two faces share a plane the smaller piece (the trim, the rug, the sign) is always the one
     // in front and the depth buffer never has to choose between them (no flicker). Collision keeps the exact sizes.
@@ -558,6 +564,8 @@ static Vector3 phonePos, stationCenter;
 #define MAX_SCREEN 180
 typedef struct { Vector3 pos; float r, life; int kind; bool on; } Ward;   // kind 0 salt circle, 1 shimenawa, 2 shrine
 static Ward wards[MAX_WARD]; static int nWard;
+#define MAX_WBED 4096
+static Vector3 wBedMn[MAX_WBED], wBedMx[MAX_WBED]; static int nWBed;   // 0.9.13: the beds and futons the town was built with (world boxes): you can sleep in them
 #define MAX_FIRE 24
 #define MAX_TV 700
 typedef struct { Vector3 pos; float life; int light; bool on; } Fire;
@@ -1126,7 +1134,7 @@ static void freeWorld(void) {
         memset(&mb[c][t], 0, sizeof(MB)); }
         if (chLodOk[c]) { UnloadModel(chLod[c]); chLodOk[c] = false; } chAny[c] = false; }
     for (int c = 0; c < GN * GN; c++) cellN[c] = 0;
-    nSol = nOps = nVend = nLight = nSign = nLamp = nCrate = nBuild = nItem = nCr = nWard = nScreen = nFire = nTV = nCar = 0;
+    nSol = nOps = nVend = nLight = nSign = nLamp = nCrate = nBuild = nItem = nCr = nWard = nScreen = nFire = nTV = nCar = 0; nWBed = 0;
     nCont = nDeb = nStair = nHole = 0; nPit = 0; nSubRes = 0; nDoorLate = 0; baseShrine = -1; nMapFoot = 0; nWs = 0; nXf = 1; curXf = 0;
     memset(parts, 0, sizeof parts);
 }
@@ -1195,6 +1203,7 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
     for (int s2 = 0; s2 < nStreet; s2++) { float w = stW10[s2] / 10.0f; if (w < 3) continue; if (pathDist(ST_P(s2), ST_N(s2), x, z, NULL) < w / 2 - 1.0f) return true; }
     return false; }
 static bool lineOfSight(Vector3 a, Vector3 b); static float groundAt(Vector3 p, float r, float step);
+static bool reachClear(Vector3 a, Vector3 b, float stop);   // (zk_creat.h)
 static void worldPrint(const char *tag) {   // 0.9.12: what the world answers when asked (a built world and a baked one must match)
     if (!getenv("KIRI_FPRINT")) return; {   // 0.9.12: what the world answers when asked (a built world and a baked one must match)
                 unsigned int h[10] = {0}; const char *nm[10] = {"groundAt", "baseGround", "cityLand", "mainRoad", "river", "sea", "pit", "roadRast", "bore/touge/coast", "los"};
@@ -1210,7 +1219,7 @@ static void worldPrint(const char *tag) {   // 0.9.12: what the world answers wh
 // The town is built once, like a compiled map: the generator's output (geometry, collision, doors, furniture, lights, stairs, ...)
 // is written to Data/world.bake and every later start loads it instead of building again. It belongs to one map, one set of
 // placed objects and one game version (the key); anything else builds and bakes anew. KIRI_NOBAKE=1 always builds.
-#define BAKE_VER 2
+#define BAKE_VER 3
 static unsigned int bakeKey(void) { unsigned int h = mapHash() ^ (BAKE_VER * 0x9E3779B9u); for (const char *c = GAME_VERSION; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; } return h; }
 typedef struct { unsigned char *p; size_t n, cap; } BkBuf;
 static void bkPut(BkBuf *b, const void *d, size_t n) { if (b->n + n > b->cap) { b->cap = (b->n + n) * 2 + 65536; b->p = realloc(b->p, b->cap); } memcpy(b->p + b->n, d, n); b->n += n; }
@@ -1226,7 +1235,7 @@ static void bakeSave(void) {
     for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) { MB *m = &mb[c][t]; BKW(m->cnt); if (m->cnt) { bkPut(&B, m->v, (size_t)m->cnt * 12); bkPut(&B, m->t, (size_t)m->cnt * 8); bkPut(&B, m->n, (size_t)m->cnt * 12); bkPut(&B, m->c, (size_t)m->cnt * 4); } }
     bkPut(&B, chMn, sizeof chMn); bkPut(&B, chMx, sizeof chMx); bkPut(&B, chAny, sizeof chAny);
     BKA(sol, nSol); bkPut(&B, cellN, sizeof cellN); for (int c = 0; c < GN * GN; c++) if (cellN[c]) bkPut(&B, cellL[c], (size_t)cellN[c] * sizeof(int));
-    BKA(ops, nOps); BKA(vends, nVend); BKA(lights, nLight); BKA(signs, nSign); BKA(lamps, nLamp); BKA(crates, nCrate); BKA(items, nItem); BKA(wards, nWard);
+    BKA(ops, nOps); BKA(vends, nVend); BKA(lights, nLight); BKA(signs, nSign); BKA(lamps, nLamp); BKA(crates, nCrate); BKA(items, nItem); BKA(wards, nWard); BKA(wBedMn, nWBed); bkPut(&B, wBedMx, sizeof(Vector3) * nWBed);
     BKA(screens, nScreen); BKA(fires, nFire); BKA(tvs, nTV); BKA(cars, nCar); BKA(conts, nCont); BKA(debs, nDeb); BKA(stairs, nStair); BKA(holes, nHole); BKA(pits, nPit);
     BKA(mapFoot, nMapFoot); bkPut(&B, mapFootH, sizeof(float) * nMapFoot); bkPut(&B, mapFootY, sizeof(float) * nMapFoot); bkPut(&B, mapFootF, sizeof(short) * nMapFoot);
     BKA(wsrc, nWs); BKA(xfs, nXf); BKA(bores, nBore); BKW(baseShrine); BKW(worldSolids); BKW(worldLights);
@@ -1262,7 +1271,7 @@ static bool bakeLoad(void) {
     bkGet(&R, chMn, sizeof chMn); bkGet(&R, chMx, sizeof chMx); bkGet(&R, chAny, sizeof chAny);
     BKRA(sol, nSol, MAX_SOLID); bkGet(&R, cellN, sizeof cellN);
     for (int c = 0; c < GN * GN && !R.bad; c++) if (cellN[c]) { if (cellCap[c] < cellN[c]) { cellCap[c] = cellN[c]; cellL[c] = realloc(cellL[c], sizeof(int) * cellCap[c]); } bkGet(&R, cellL[c], (size_t)cellN[c] * sizeof(int)); }
-    BKRA(ops, nOps, MAX_OPEN); BKRA(vends, nVend, MAX_VEND); BKRA(lights, nLight, MAX_LIGHT); BKRA(signs, nSign, MAX_SIGN); BKRA(lamps, nLamp, MAX_LAMP); BKRA(crates, nCrate, MAX_CRATE); BKRA(items, nItem, MAX_ITEM); BKRA(wards, nWard, MAX_WARD);
+    BKRA(ops, nOps, MAX_OPEN); BKRA(vends, nVend, MAX_VEND); BKRA(lights, nLight, MAX_LIGHT); BKRA(signs, nSign, MAX_SIGN); BKRA(lamps, nLamp, MAX_LAMP); BKRA(crates, nCrate, MAX_CRATE); BKRA(items, nItem, MAX_ITEM); BKRA(wards, nWard, MAX_WARD); BKRA(wBedMn, nWBed, MAX_WBED); bkGet(&R, wBedMx, sizeof(Vector3) * nWBed);
     BKRA(screens, nScreen, MAX_SCREEN); BKRA(fires, nFire, MAX_FIRE); BKRA(tvs, nTV, MAX_TV); BKRA(cars, nCar, MAX_CAR); BKRA(conts, nCont, MAX_CONT); BKRA(debs, nDeb, MAX_DEB); BKRA(stairs, nStair, MAX_STAIR); BKRA(holes, nHole, MAX_HOLE); BKRA(pits, nPit, MAX_PIT);
     BKRA(mapFoot, nMapFoot, MAX_MAPFOOT); bkGet(&R, mapFootH, sizeof(float) * nMapFoot); bkGet(&R, mapFootY, sizeof(float) * nMapFoot); bkGet(&R, mapFootF, sizeof(short) * nMapFoot);
     BKRA(wsrc, nWs, MAX_WS); BKRA(xfs, nXf, MAX_XF); BKRA(bores, nBore, MAX_BORE); BKR(baseShrine); BKR(worldSolids); BKR(worldLights);
@@ -1450,6 +1459,7 @@ static bool findLedge(Vector3 p, Vector3 f, Vector3 *dest) {
                 if (L.x + 0.25f < s->mn.x || L.x - 0.25f > s->mx.x || L.z + 0.25f < s->mn.z || L.z - 0.25f > s->mx.z) continue;
                 if (s->mn.y < best + 1.7f && s->mx.y > best + 0.02f) { ok = false; break; }
             }
+            if (ok && (!lineOfSight(V3(p.x, best + 0.15f, p.z), V3(x, best + 0.15f, z)) || !lineOfSight(V3(p.x, best + 1.2f, p.z), V3(x, best + 1.2f, z)))) ok = false;   // 0.9.13: the way over the ledge is open (never through a wall)
             if (ok) { *dest = V3(x, best, z); return true; }
         }
     }
@@ -1470,6 +1480,7 @@ static int facingOpening(Vector3 eyeP, Vector3 f, float maxD, int wantType, int 
         if (o->type == OP_WINDOW ? (eyeP.y < o->mn.y - 1.7f || eyeP.y > o->mn.y + 0.3f) : (eyeP.y < o->mn.y - 0.7f || eyeP.y > o->mx.y - 0.6f)) continue;   // 0.9.11: on its floor (no doors through floors and ceilings)
         Vector3 fl = Vector3Normalize(V3(f.x, 0, f.z));
         if (Vector3DotProduct(Vector3Scale(d, 1.0f / dist), fl) < 0.55f) continue;
+        if (!reachClear(V3(eyeP.x, eyeP.y + 1.2f, eyeP.z), c, 0)) continue;   // 0.9.13: not through a wall
         bd = dist; best = i;
     }
     return best;
@@ -2647,6 +2658,14 @@ int main(int argc, char **argv) {
                 if (getenv("KIRI_INVSHOT")) { invAdd(IT_COAT, 1); invAdd(IT_HARDHAT, 1); invAdd(IT_BOOTS, 1); invAdd(IT_WORKPANTS, 1); invAdd(IT_STABVEST, 1); invAdd(IT_NAGINATA, 1); invAdd(IT_TETSUBO, 1); invAdd(IT_BEANIE, 1);
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
                 if (getenv("KIRI_INVC")) { for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_FRIDGE) { lootFill(&conts[i]); for (int k = 0; k < 4; k++) if (conts[i].s[k].t < 0) conts[i].s[k] = (Slot){IT_WATER, 1, 0}; conts[i].pos = Vector3Add(pl.pos, V3(1, 0, 0)); pl.openC = i; break; } }
+                if (getenv("KIRI_BEDTEST")) { int ok = 0, tried = 0; for (int i = 0; i < nWBed && tried < 200; i += 7) { tried++; Vector3 mn = wBedMn[i], mx = wBedMx[i], c = V3((mn.x + mx.x) / 2, mn.y, (mn.z + mx.z) / 2);
+                        Vector3 eye = V3(c.x, mn.y + 1.6f, c.z), aim = V3(0, -1, 0); if (facingWBed(eye, aim, 2.0f) >= 0) ok++; }
+                    TraceLog(LOG_INFO, "BEDTEST %d world beds; standing at the bed, sleep offered at %d of %d", nWBed, ok, tried); }
+                if (getenv("KIRI_HOUSEDBG")) for (int h = 0; h < DHOUSES_N; h++) { float x = pads[1 + h].x, z = pads[1 + h].z, w = dHouses[h][2] / 2, d = dHouses[h][3] / 2, py = pads[1 + h].y, mn = 1e9f, mxh = -1e9f, td = 1e9f;
+                    for (int c = 0; c < 9; c++) { float cx = x + (c % 3 - 1) * w, cz = z + (c / 3 - 1) * d, th = terrainH(cx, cz); mn = fminf(mn, th); mxh = fmaxf(mxh, th); td = fminf(td, touge_d(cx, cz)); }
+                    TraceLog(LOG_INFO, "HOUSE %d %.1f %.1f pad %.2f terr %.2f..%.2f touge %.1f lane %.1f", h, x, z, py, mn, mxh, td, pathDist(laneP, nLane, x, z, NULL)); }
+                if (getenv("KIRI_HOUSEDBG")) for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; for (float a = -10; a <= br->len + 10; a += 6) { Vector3 c = boreAt(br, a, 0, 0), s0 = boreAt(br, a, -br->w / 2 - 1, 0), s1 = boreAt(br, a, br->w / 2 + 1, 0);
+                    TraceLog(LOG_INFO, "BOREH %d a %.0f at %.1f %.1f top %.2f terr %.2f side %.2f %.2f skip %d", b, a, c.x, c.z, br->fy + br->h + 0.5f, terrainH(c.x, c.z), terrainH(s0.x, s0.z), terrainH(s1.x, s1.z), terrainSkip(c.x - 1, c.z - 1)); } }
                 if (getenv("KIRI_TOUGE")) for (int i = 0; i < nTouge; i++) TraceLog(LOG_INFO, "TOUGE %d %.2f %.2f y %.2f ground %.2f terr %.2f", i, tougeP[i].x, tougeP[i].z, tougeP[i].y, groundAt(V3(tougeP[i].x, tougeP[i].y + 1.5f, tougeP[i].z), 0.05f, 8), terrainH(tougeP[i].x, tougeP[i].z));
                 if (getenv("KIRI_SOLAT")) { float kx, ky, kz; if (sscanf(getenv("KIRI_SOLAT"), "%f %f %f", &kx, &ky, &kz) == 3) { query(kx - 0.1f, kz - 0.1f, kx + 0.1f, kz + 0.1f); for (int k = 0; k < qn; k++) { Solid *s2 = &sol[qb[k]]; Vector3 L = solL(s2, V3(kx, ky, kz));
                     if (L.x > s2->mn.x && L.x < s2->mx.x && L.z > s2->mn.z && L.z < s2->mx.z && fabsf(s2->mx.y - ky) < 3) TraceLog(LOG_INFO, "SOLAT %.2f..%.2f x %.2f..%.2f z %.2f..%.2f", s2->mn.y, s2->mx.y, s2->mn.x, s2->mx.x, s2->mn.z, s2->mx.z); } } }
@@ -2715,6 +2734,10 @@ int main(int argc, char **argv) {
                 {IT_MACHETE, ANIM_FLOURISH, 0.2f, -1, 0, false, "vm_g_machete_flourish"}, {IT_BAT, ANIM_FLOURISH, 0.45f, -1, 0, false, "vm_g_bat_flourish"},
                 {-1, 104, 0.3f, -1, 3, false, "vm_g_manga1_lift"}, {-1, 104, 0.9f, -1, 3, false, "vm_g_manga2_opening"}, {-1, 104, 1.6f, -1, 3, false, "vm_g_manga3_open"},
                 {-1, 104, 2.15f, -1, 3, false, "vm_g_manga4_turn"}, {-1, 104, 2.45f, -1, 3, false, "vm_g_manga5_turn"}, {-1, 104, 5.0f, -1, 17, false, "vm_g_manga6_other"}, {-1, 104, 6.1f, -1, 17, false, "vm_g_manga7_close"},
+                {-1, 100, 0.42f, -1, 0, false, "vm_p_fist0_jab"}, {-1, 100, 0.42f, -1, 10, false, "vm_p_fist1_leftjab"}, {-1, 100, 0.42f, -1, 20, false, "vm_p_fist2_hook"}, {-1, 100, 0.42f, -1, 30, false, "vm_p_fist3_upper"}, {-1, 100, 0.42f, -1, 40, false, "vm_p_fist4_lefthook"},
+                {IT_KATANA, 100, 0.2f, -1, 10, false, "vm_p_kat1_sweep_a"}, {IT_KATANA, 100, 0.4f, -1, 10, false, "vm_p_kat1_sweep_b"}, {IT_KATANA, 100, 0.2f, -1, 20, false, "vm_p_kat2_diag_a"}, {IT_KATANA, 100, 0.42f, -1, 20, false, "vm_p_kat2_diag_b"},
+                {IT_BAT, 100, 0.2f, -1, 10, false, "vm_p_bat1_sweep_a"}, {IT_BAT, 100, 0.42f, -1, 10, false, "vm_p_bat1_sweep_b"}, {IT_KNIFE, 100, 0.42f, -1, 10, false, "vm_p_knife1_slash"}, {IT_KNIFE, 100, 0.2f, -1, 20, false, "vm_p_knife2_over_a"}, {IT_KNIFE, 100, 0.45f, -1, 20, false, "vm_p_knife2_over_b"},
+                {IT_AXE, 100, 0.2f, -1, 10, false, "vm_p_axe1_side_a"}, {IT_AXE, 100, 0.42f, -1, 10, false, "vm_p_axe1_side_b"},
                 {IT_REVOLVER, -1, 0, 0.01f, 4, false, "vm_g_flash_revolver"}, {IT_PISTOL, -1, 0, 0.01f, 7, false, "vm_g_flash_pistol"}, {IT_SHOTGUN, -1, 0, 0.01f, 1, false, "vm_g_flash_shotgun"}};
             int NV = (int)(sizeof V / sizeof V[0]);
             if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;
@@ -3073,6 +3096,21 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < nScreen; i++) if (screens[i].light >= 0) { float d = Vector3Distance(screens[i].c, cam.position); if (d < bd) { bd = d; best = i; } }
                 if (best >= 0) { SetSoundVolume(sJingle, 0.55f * powf(1 - bd / 38, 1.3f) * gs.amb); SetSoundPitch(sJingle, fr(0.86f, 1.0f)); PlaySound(sJingle); } }
         }
+        if (getenv("KIRI_HOLESCAN") && gameActive && frame > 14) {   // 0.9.13 audit: the whole world drawn straight down (orthographic), magenta behind it; every magenta pixel inside the world is a hole in the ground
+            const int PX = 1024; const float TW = 128.0f; RenderTexture2D hr = LoadRenderTexture(PX, PX); int holes = 0, tiles = 0; FILE *hf2 = fopen("/tmp/claude-0/holes.txt", "w");
+            Camera3D keep = cam; float fz0 = 0.0001f; SetShaderValue(sh, locFogD, &fz0, SHADER_UNIFORM_FLOAT); gFogD = 0;
+            for (float tz = -180; tz < 690; tz += TW) for (float tx = -440; tx < 690; tx += TW) {
+                cam = (Camera3D){V3(tx + TW / 2, 600, tz + TW / 2), V3(tx + TW / 2, 0, tz + TW / 2), V3(0, 0, -1), TW, CAMERA_ORTHOGRAPHIC};
+                rlSetClipPlanes(1, 2000); BeginTextureMode(hr); ClearBackground((Color){255, 0, 255, 255}); BeginMode3D(cam); if (terrainOk) { terrain.transform = MatrixIdentity(); DrawModel(terrain, V3(0, 0, 0), 1, WHITE); } rlDrawRenderBatchActive();   /* the ground alone: everything else left out */ EndMode3D(); EndTextureMode();
+                Image im = LoadImageFromTexture(hr.texture); ImageFlipVertical(&im); Color *px = LoadImageColors(im); tiles++; int th = 0;
+                for (int j = 0; j < PX; j++) for (int i = 0; i < PX; i++) { Color c = px[j * PX + i]; if (c.r != 255 || c.g != 0 || c.b != 255) continue;
+                    float wx = tx + (i + 0.5f) * TW / PX, wz = tz + (j + 0.5f) * TW / PX; if (hfOut(wx, wz) || wx < HF_X0 || wx >= HF_X0 + (HF_N - 1) * HF_S || wz >= HF_X0 + (HF_N - 1) * HF_S) continue;
+                    holes++; th++; if (hf2 && (holes < 4000)) fprintf(hf2, "%.1f %.1f\n", wx, wz); }
+                if (th) { ExportImage(im, TextFormat("/tmp/claude-0/hole_%d_%d.png", (int)tx, (int)tz)); TraceLog(LOG_INFO, "HOLESCAN tile %.0f %.0f: %d pixels", tx, tz, th); }
+                if (getenv("KIRI_HOLEALL")) ExportImage(im, TextFormat("/tmp/claude-0/gnd_%d_%d.png", (int)tx, (int)tz));
+                UnloadImageColors(px); UnloadImage(im); }
+            if (hf2) fclose(hf2); cam = keep; UnloadRenderTexture(hr);
+            TraceLog(LOG_INFO, "HOLESCAN %d tiles, %d hole pixels (%.3f m each)", tiles, holes, TW / PX); break; }
         bool backdrop = !gameActive && (state == ST_MENU || state == ST_SETTINGS || state == ST_CONTROLS || state == ST_LORE || state == ST_TRAITS);
         if (!backdrop) {
         BeginTextureMode(rt);

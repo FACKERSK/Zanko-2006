@@ -824,8 +824,16 @@ static void layoutInit(void) {
         pads[nPad++] = (Pad){HAMLET_X, HAMLET_Z, y1, 12, 10}; }
     // a terrace under every old house, and under each mountain shrine
     for (int h = 0; h < DHOUSES_N && nPad < MAX_PAD; h++) { float x = dHouses[h][0], z = dHouses[h][1], yt, yl;
+        {   // 0.9.13: a house stands clear of the road: its whole footprint off the asphalt and the verge (moved straight back from the road if not)
+            float r = fmaxf(dHouses[h][2], dHouses[h][3]) / 2, need = r + 4.9f;
+            for (int it = 0; it < 12; it++) { float dt2 = pathDist(tougeP, nTouge, x, z, NULL), dl2 = pathDist(laneP, nLane, x, z, NULL), need2 = need - 0.9f;   // (the lane is narrower)
+                const Vector3 *P = dt2 - need < dl2 - need2 ? tougeP : laneP; int n = P == tougeP ? nTouge : nLane; float dd = P == tougeP ? dt2 : dl2, nd = P == tougeP ? need : need2;
+                if (dd >= nd - 0.05f) break;
+                int bi = 0; float bd = 1e18f; for (int i = 0; i < n; i++) { float e = (P[i].x - x) * (P[i].x - x) + (P[i].z - z) * (P[i].z - z); if (e < bd) { bd = e; bi = i; } }
+                float ux = x - P[bi].x, uz = z - P[bi].z, L = sqrtf(ux * ux + uz * uz); if (L < 0.01f) { Vector2 nn = pnorm(P, n, bi); ux = nn.x; uz = nn.y; L = 1; }
+                x += ux / L * (nd - dd + 0.1f); z += uz / L * (nd - dd + 0.1f); } }
         float dt = pathDist(tougeP, nTouge, x, z, &yt), dl = pathDist(laneP, nLane, x, z, &yl);
-        pads[nPad++] = (Pad){x, z, dl < dt ? yl : yt, fmaxf(dHouses[h][2], dHouses[h][3]) / 2 + 1.5f, 6}; }
+        pads[nPad++] = (Pad){x, z, dl < dt ? yl : yt, fmaxf(dHouses[h][2], dHouses[h][3]) / 2 + 3.0f, 6}; }   // (0.9.13: past the corners by a whole terrain cell)
     for (int k = 0; k < DSHRINES_N && nPad < MAX_PAD; k++) { float x = dShrines[k][0], z = dShrines[k][1], yt; pathDist(tougeP, nTouge, x, z, &yt);
         pads[nPad++] = (Pad){x, z, yt + 2, 3.5f, 7}; }
 }
@@ -884,51 +892,68 @@ static void bakeHeightfield(void) {
             if (bTown && bq < 44 && byy > 1.5f) {   // the valley side drops away below the guardrail: the town opens up below the pass
                 float cap = byy - 0.6f - fmaxf(0, bq - 4.2f) * 0.62f, wv = 1 - clampf((bq - 30) / 14, 0, 1);
                 if (h > cap) h = Lerp(h, fmaxf(cap, SIDEH - 0.01f), wv); }
+            if (bq < 9.0f) { float k = clampf((bq - 4.6f) / 4.4f, 0, 1); k = k * k * (3 - 2 * k); h = Lerp(byy - 0.1f, h, k); }   // 0.9.13: under the road and its verges the ground is the road's own height (no other hairpin row pulling it up or down)
             tq = bq;
         }
+        float padW = 0, padY = 0;
         for (int p = 0; p < nPad; p++) { float q = sqrtf((x - pads[p].x) * (x - pads[p].x) + (z - pads[p].z) * (z - pads[p].z));
-            float ww = 1 - clampf((q - pads[p].r) / pads[p].blend, 0, 1); ww = ww * ww * (3 - 2 * ww); { float k3 = clampf((tq - 4.4f) / 3.5f, 0, 1); if (fabsf(pads[p].y - h) > 0.3f) ww *= k3 * k3 * (3 - 2 * k3); }   // a terrace never lifts or sinks the pass itself
-            h = Lerp(h, pads[p].y - 0.05f, ww); }
+            float ww = 1 - clampf((q - pads[p].r) / pads[p].blend, 0, 1); ww = ww * ww * (3 - 2 * ww); { float k3 = clampf((tq - 4.4f) / 0.8f, 0, 1); if (fabsf(pads[p].y - h) > 0.3f) ww *= k3 * k3 * (3 - 2 * k3); }   // a terrace never lifts or sinks the pass itself (0.9.13: but holds right up to its verge)
+            if (ww > padW) { padW = ww; padY = pads[p].y; } }
+        if (padW > 0) h = Lerp(h, padY - 0.05f, padW);   // 0.9.13: the terrace that holds this point most (a neighbouring one never drags a house's ground)
         // ridges over the tunnels so every bore stays underground
         for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); if (br->through == 2) continue;
             if (a < boreDepth(br) - 2 || a > (br->through ? br->len + 0.5f : br->len + 30)) continue;   // a through tunnel: rock right up to its far portal
-            float c = br->fy + br->h + 3.5f, wl = 1 - clampf((fabsf(l) - (br->w / 2 + 5)) / 12, 0, 1); wl = wl * wl * (3 - 2 * wl);
+            float c = br->fy + br->h + 3.5f, wl = 1 - clampf((fabsf(l) - (br->w / 2 + 15)) / 12, 0, 1); wl = wl * wl * (3 - 2 * wl);   // 0.9.13: over the whole headwall: its level top meets the ground behind it
             float wa = clampf((a - (boreDepth(br) - 2)) / 2, 0, 1);
             if (br->kind == 1) {   // the old tunnel goes into the mountain: the slope climbs steeply over and around it
                 c = br->fy + br->h + 4 + fminf(fmaxf(a, 0), 40) * 0.75f + vnoise(x * 0.07f, z * 0.07f, 31) * 3;
-                wl = 1 - clampf((fabsf(l) - (br->w / 2 + 6)) / 30, 0, 1); wl = wl * wl * (3 - 2 * wl);
-                if (fabsf(l) > br->w / 2 + 3) { float td = nTouge > 1 ? pathDist(tougeP, nTouge, x, z, NULL) : 1e9f, k2 = clampf((td - 5) / 10, 0, 1); wl *= k2 * k2 * (3 - 2 * k2); } }   // never a hump across the pass where it climbs beside the tunnel's hill
-            if (c > h) h = Lerp(h, c, wl * wa); }
+                wl = 1 - clampf((fabsf(l) - (br->w / 2 + 15)) / 30, 0, 1); wl = wl * wl * (3 - 2 * wl);
+                if (fabsf(l) > br->w / 2 + 3 && (a < 0 || fabsf(l) > br->w / 2 + 18)) { float td = nTouge > 1 ? pathDist(tougeP, nTouge, x, z, NULL) : 1e9f, k2 = clampf((td - 5) / 10, 0, 1); wl *= k2 * k2 * (3 - 2 * k2); } }   // never a hump across the pass where it climbs beside the tunnel's hill
+            if (br->kind != 1 && fabsf(l) > br->w / 2 + 3) { float td = nTouge > 1 ? pathDist(tougeP, nTouge, x, z, NULL) : 1e9f, k2 = clampf((td - 5) / 10, 0, 1); wl *= k2 * k2 * (3 - 2 * k2); }   // (0.9.13: a rail or road tunnel's hill never buries the pass either)
+            if (c > h) h = Lerp(h, c, wl * wa * (1 - padW)); }
         for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; if (br->kind != 1) continue; float a, l; boreLocal(br, x, z, &a, &l);   // the old tunnel runs into a real mountain: a broad massif rises behind the portal
             if (a < -8 || a > br->len + 200) continue;
             float ac = br->len * 0.45f, r = sqrtf((a - ac) * (a - ac) + l * l * 0.8f), k = clampf(1 - r / 130, 0, 1); k = k * k * (3 - 2 * k);
             float c = br->fy + 6 + 62 * k + vnoise(x * 0.04f, z * 0.04f, 41) * 6 * k, wf = clampf(a / 4, 0, 1); wf = wf * wf * (3 - 2 * wf); if (a < 0) continue;   // only behind the portal face: the road and the cutting in front stay open
             c = fminf(c, br->fy + br->h + 4 + a * 1.1f + fmaxf(fabsf(l) - br->w / 2 - 2, 0) * 0.9f);   // it climbs from the portal at a steep slope, not as a sheer wall
             if (fabsf(l) < br->w / 2 + 10) c = fmaxf(c, br->fy + br->h + 4);   // always rock over the bore
-            { float td = nTouge > 1 ? pathDist(tougeP, nTouge, x, z, NULL) : 1e9f; float k2 = clampf((td - 7) / 14, 0, 1); wf *= k2 * k2 * (3 - 2 * k2); }   // never over the touge where it winds past the mountain
-            if (c > h) h = Lerp(h, c, wf); }
+            if (!(a < br->len && fabsf(l) < br->w / 2 + 18)) { float td = nTouge > 1 ? pathDist(tougeP, nTouge, x, z, NULL) : 1e9f; float k2 = clampf((td - 7) / 14, 0, 1); wf *= k2 * k2 * (3 - 2 * k2); }   // never over the touge where it winds past the mountain (over the tunnel itself it is all rock)
+            if (c > h) h = Lerp(h, c, wf * (1 - padW)); }
         for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; if (br->kind != 1) continue; float a, l; boreLocal(br, x, z, &a, &l);
             if (a > boreDepth(br) || a < -22) continue;   // the cutting: rock rising on both sides of the road in front of the portal
             float side = fabsf(l) - (br->w / 2 + 3.0f); if (side <= 0) continue;
-            float c = br->fy + fminf(side * 1.6f, br->h + 6) + vnoise(x * 0.09f, z * 0.09f, 17) * 1.2f, w = clampf((a + 22) / 16, 0, 1) * clampf(side / 3, 0, 1) * (1 - clampf((side - 10) / 8, 0, 1));   // only the walls of the cutting, not the hills beyond
+            float c = br->fy + fminf(side * 1.6f, br->h + 6) + vnoise(x * 0.09f, z * 0.09f, 17) * 1.2f, w = clampf((a + 22) / 16, 0, 1) * clampf(side / 3, 0, 1) * (1 - clampf((side - 10) / 8, 0, 1)) * (1 - padW);   // only the walls of the cutting, not the hills beyond
             if (c > h) h = Lerp(h, c, w); }
+        for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); float D = boreDepth(br), FW = br->kind == 1 ? br->w / 2 + 14 : br->w / 2 + 6;   // 0.9.13: the ground meets the headwall's level top along its back edge (no gap between the wall and the hill behind it)
+            if (a > D - 1.6f && a < D + 0.6f && fabsf(l) < FW + 1) h = fminf(h, br->fy + br->h + 3.0f - 0.15f); }
         if (inCore(x, z)) h = SIDEH - 0.01f;   // the town: flat paving; streets are drawn on top of it
         else if (terrEdit) h += terrEdit[j * N + i];   // sculpted in the Mod Maker
         hf[j * N + i] = h;
     }
     hfReady = true;
 }
+static float terrainSkipY(float ax, float az) {   // 0.9.13: the ground no longer has holes: a cell that used to be left out (see terrainSkip) is laid this low instead (-1e9: not one of them)
+    float cx = ax + HF_S / 2, cz = az + HF_S / 2;
+    { float h = terrainH(cx, cz); if (h < SIDEH - 0.3f && h > SEA_Y - 0.6f && coast_d(cx, cz) < 10.5f) {
+        float hm = fmaxf(fmaxf(terrainH(ax, az), terrainH(ax + HF_S, az)), fmaxf(terrainH(ax, az + HF_S), terrainH(ax + HF_S, az + HF_S))); if (hm > SIDEH - 0.5f) return SEA_Y - 0.3f; } }
+    for (int b = 0; b < nBore; b++) { if (terrainSkip(ax, az)) { float a, l; boreLocal(&bores[b], cx, cz, &a, &l); if (a > -HF_S - 1 && a < boreDepth(&bores[b]) + HF_S + 1 && fabsf(l) < bores[b].w / 2 + HF_S + 2) return bores[b].fy - 0.3f; } }
+    return terrainSkip(ax, az) ? -1.0f : -1e9f;
+}
 static bool terrainSkip(float ax, float az) {   // terrain cells inside a headwall, over the bore mouth, or against the seawall
     float cx = ax + HF_S / 2, cz = az + HF_S / 2;
     { float h = terrainH(cx, cz); if (h < SIDEH - 0.3f && h > SEA_Y - 0.6f && coast_d(cx, cz) < 10.5f) {   // a cell that drops from road level to the sand: the seawall and its apron stand there
         float hm = fmaxf(fmaxf(terrainH(ax, az), terrainH(ax + HF_S, az)), fmaxf(terrainH(ax, az + HF_S), terrainH(ax + HF_S, az + HF_S))); if (hm > SIDEH - 0.5f) return true; } }
     for (int b = 0; b < nBore; b++) { float a, l; boreLocal(&bores[b], cx, cz, &a, &l);
-        if (a > 0 && a < boreDepth(&bores[b]) && fabsf(l) < bores[b].w / 2 + 1.6f) return true;
+        if (a > 0 && a < boreDepth(&bores[b]) && fabsf(l) < bores[b].w / 2 + 1.6f && terrainH(cx, cz) < bores[b].fy + bores[b].h + 3.0f) return true;   // (0.9.13: the hill over the level headwall top is drawn)
         { float bx, bz; for (int c = 0; c < 4; c++) { bx = ax + (c & 1) * HF_S; bz = az + (c >> 1) * HF_S; float a2, l2; boreLocal(&bores[b], bx, bz, &a2, &l2);   // a cell with a corner in the bore mouth would hang a slope across the opening
-            if (a2 > -0.5f && a2 < boreDepth(&bores[b]) + 0.5f && fabsf(l2) < bores[b].w / 2 + 0.5f && fabsf(l) < bores[b].w / 2 + HF_S + 1) return true; } } }
+            if (a2 > -0.5f && a2 < boreDepth(&bores[b]) + 0.5f && fabsf(l2) < bores[b].w / 2 + 0.5f && fabsf(l) < bores[b].w / 2 + HF_S + 1 && a < boreDepth(&bores[b]) - 0.5f && terrainH(bx, bz) < bores[b].fy + bores[b].h + 3.0f) return true; } } }
     return false;
 }
 
+static bool terrMouth(float x, float z, float y) {   // a point in a tunnel's opening (no ground wall may close it)
+    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); if (a > -HF_S - 1 && a < br->len + 7 && fabsf(l) < br->w / 2 + 0.7f && y > br->fy - 1.5f && y < br->fy + br->h + 0.6f) return true; }
+    return false;
+}
 // ---------------------------------------------------------------- road ribbons
 static const Vector3 *guardRiver = NULL;
 static bool ribbonGuard(const Vector3 *p, float qx, float qz, float o) {   // walls and kerbs never stand in a road
@@ -941,6 +966,36 @@ static bool ribbonGuard(const Vector3 *p, float qx, float qz, float o) {   // wa
 }
 static bool coastStreetGap(float qx, float qz, float o) {   // a street that runs out over the seawall leaves a gap in it
     return fabsf(o) >= 4.4f && nStreet > 0 && coast_d(qx, qz) > 4.0f && mainRoadAt(qx, qz, 0.3f) && (streetAcrossCoast(qx, qz) || streetInside(qx, qz, 0.8f));
+}
+// 0.9.13: nothing is paper. A flat strip is a slab with a thickness under it, an upright strip a wall with a thickness: each piece is
+// closed on all six sides (the faces wound outward from the piece's middle)
+static float ribTh = -1;   // thickness for the strips drawn next (-1: by what they are)
+static int wrGrow = 0; static float wrTh = -1;   // an upright strip: 0 centred on its line, +1 grows away from the path, -1 toward it
+static void hexa(int t, const Vector3 *v, Color c) {   // v[0..3] one face, v[4..7] the opposite face, corner for corner
+    Vector3 ctr = {0}; for (int i = 0; i < 8; i++) ctr = Vector3Add(ctr, v[i]); ctr = Vector3Scale(ctr, 0.125f);
+    static const int F[6][4] = {{0, 1, 2, 3}, {7, 6, 5, 4}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
+    for (int f = 0; f < 6; f++) { Vector3 p0 = v[F[f][0]], p1 = v[F[f][1]], p2 = v[F[f][2]], p3 = v[F[f][3]];
+        Vector3 fc = Vector3Scale(Vector3Add(Vector3Add(p0, p1), Vector3Add(p2, p3)), 0.25f), out = Vector3Subtract(fc, ctr);
+        Vector3 n = Vector3CrossProduct(Vector3Subtract(p1, p0), Vector3Subtract(p2, p0)); if (Vector3Length(n) < 1e-9f) n = Vector3CrossProduct(Vector3Subtract(p2, p0), Vector3Subtract(p3, p0));
+        if (Vector3Length(n) < 1e-9f) continue;
+        if (Vector3DotProduct(n, out) < 0) { Vector3 tq = p0; p0 = p3; p3 = tq; tq = p1; p1 = p2; p2 = tq; n = Vector3Negate(n); }
+        n = Vector3Normalize(n); if (fabsf(n.y) > 0.98f) n = V3(0, n.y > 0 ? 1 : -1, 0);
+        quad(t, p0, p1, p2, p3, n, c); }
+}
+static float stripTh(int t, float w) {
+    if (ribTh > 0) return ribTh;
+    if (t == T_ASPHALT || t == T_CONCRETE || t == T_SIDEWALK || t == T_GRASS || t == T_TILEWALL) return 0.25f;   // a road or a pavement: a slab under it
+    return clampf(w * 0.6f, 0.01f, 0.1f);
+}
+static void flatSlab(int t, Vector3 a0, Vector3 a1, Vector3 b1, Vector3 b0, float th, Color c) {
+    Vector3 v[8] = {a0, a1, b1, b0, a0, a1, b1, b0}; for (int i = 4; i < 8; i++) v[i].y -= th; hexa(t, v, c);
+}
+static void uprightSlab(int t, Vector3 a0, Vector3 a1, Vector3 b1, Vector3 b0, Vector2 n0, Vector2 n1, float o, Color c) {   // a0 a1 the foot, b1 b0 the top, on the line at offset o
+    float th = wrTh > 0 ? wrTh : (t == T_METAL ? 0.04f : t == T_PLAIN ? 0.02f : 0.14f), sg = o >= 0 ? 1.0f : -1.0f, d0, d1;
+    if (wrGrow == 0) { d0 = -th / 2; d1 = th / 2; } else { d0 = 0; d1 = th * sg * (float)wrGrow; }
+    Vector3 v[8] = {a0, a1, b1, b0, a0, a1, b1, b0};
+    for (int i = 0; i < 4; i++) { Vector2 nn = (i == 0 || i == 3) ? n0 : n1; v[i].x += nn.x * d0; v[i].z += nn.y * d0; v[i + 4].x += nn.x * d1; v[i + 4].z += nn.y * d1; }
+    hexa(t, v, c);
 }
 static int coastKept(float oA, float oB, int *idx) {   // coast points whose offset lines do not fold back over the road in a bend
     int k = 0;
@@ -958,10 +1013,11 @@ static void coastRibbon(int t, float oA, float oB, float yA, float yB, Color c, 
         { float oo = fminf(fabsf(oA), fabsf(oB)); bool cut = false; for (int k = 1; k < 4; k++) { float u = k / 4.0f, x0 = a.x + n0.x * oA, z0 = a.z + n0.y * oA, x1 = b.x + n1.x * oA, z1 = b.z + n1.y * oA;
             if (coast_d(Lerp(x0, x1, u), Lerp(z0, z1, u)) < oo - 0.6f) cut = true; } if (cut) continue; }   // a bridged bend must not cut across the road
         if (coastStreetGap(mx, mz, wall ? oA : oB) || coastStreetGap(mx, mz, oA)) continue;
+        if (wall && fabsf(oA) >= 4.4f) { bool cut = false; for (int e = 0; e < 2 && !cut; e++) { Vector3 q = e ? b : a; Vector2 nq = e ? n1 : n0; if (coastStreetGap(q.x + nq.x * oA, q.z + nq.y * oA, oA)) cut = true; } if (cut) continue; }   // 0.9.13: (either end in the street too: no piece of wall left standing in it)
         if (wall) { Vector3 a0 = V3(a.x + n0.x * oA, a.y + yA, a.z + n0.y * oA), a1 = V3(b.x + n1.x * oA, b.y + yA, b.z + n1.y * oA), b0 = V3(a0.x, a.y + yB, a0.z), b1 = V3(a1.x, b.y + yB, a1.z);
-            Vector3 nn = V3(n0.x, 0, n0.y); quad(t, a0, a1, b1, b0, nn, c); quad(t, b0, b1, a1, a0, Vector3Negate(nn), c); }
+            uprightSlab(t, a0, a1, b1, b0, n0, n1, oA, c); }
         else { Vector3 a0 = V3(a.x + n0.x * oA, a.y + yA, a.z + n0.y * oA), a1 = V3(b.x + n1.x * oA, b.y + yA, b.z + n1.y * oA), b0 = V3(a.x + n0.x * oB, a.y + yB, a.z + n0.y * oB), b1 = V3(b.x + n1.x * oB, b.y + yB, b.z + n1.y * oB);
-            quad(t, a0, a1, b1, b0, V3(0, 1, 0), c); quad(t, b0, b1, a1, a0, V3(0, 1, 0), c); } }
+            flatSlab(t, a0, a1, b1, b0, stripTh(t, fabsf(oB - oA)), c); } }
 }
 // ---- the road raster: the drawn height of every road and paved ribbon outside the town grid, 0.5 m cells.
 // Out there the ground is the terrain, which is coarser than the road on it; walking uses the higher of the two.
@@ -996,7 +1052,7 @@ static void ribbon(int t, const Vector3 *p, int n, float oA, float oB, float yA,
         float f0 = 1, f1 = 1; if (p >= stPts && p < stPts + MAX_STPTS) { int ix = (int)(p - stPts) + i; f0 = stFac(ix); f1 = stFac(ix + 1); }   // (a street: its width at each point)
         Vector3 a0 = V3(p[i].x + n0.x * oA * f0, p[i].y + yA, p[i].z + n0.y * oA * f0), a1 = V3(p[i + 1].x + n1.x * oA * f1, p[i + 1].y + yA, p[i + 1].z + n1.y * oA * f1);
         Vector3 b0 = V3(p[i].x + n0.x * oB * f0, p[i].y + yB, p[i].z + n0.y * oB * f0), b1 = V3(p[i + 1].x + n1.x * oB * f1, p[i + 1].y + yB, p[i + 1].z + n1.y * oB * f1);
-        quad(t, a0, a1, b1, b0, V3(0, 1, 0), c); quad(t, b0, b1, a1, a0, V3(0, 1, 0), c);   // both windings: never culled
+        flatSlab(t, a0, a1, b1, b0, stripTh(t, fabsf(oB - oA) * fmaxf(f0, f1)), c);
         if ((t == T_ASPHALT || t == T_CONCRETE || t == T_SIDEWALK) && fabsf(yA - yB) < 0.01f && !curXf) { roadRastTri(a0, a1, b1); roadRastTri(a0, b1, b0); }   // you can stand on it
     }
 }
@@ -1033,8 +1089,7 @@ static void wallRibbon(int t, const Vector3 *p, int n, float o, float y0, float 
             || ribbonGuard(p, (p[i].x + n0.x * o + p[i + 1].x + n1.x * o) / 2, (p[i].z + n0.y * o + p[i + 1].z + n1.y * o) / 2, o))) continue;   // (the face's own middle too: on a long, sharply bent segment it cuts the corner)
         Vector3 a0 = V3(p[i].x + n0.x * o, p[i].y + y0, p[i].z + n0.y * o), a1 = V3(p[i + 1].x + n1.x * o, p[i + 1].y + y0, p[i + 1].z + n1.y * o);
         Vector3 b0 = V3(a0.x, p[i].y + y1, a0.z), b1 = V3(a1.x, p[i + 1].y + y1, a1.z);
-        Vector3 nn = V3(n0.x, 0, n0.y);
-        quad(t, a0, a1, b1, b0, nn, c); quad(t, b0, b1, a1, a0, Vector3Negate(nn), c);
+        uprightSlab(t, a0, a1, b1, b0, n0, n1, o, c);
     }
 }
 
@@ -1210,7 +1265,7 @@ static void trainStation(int stI, int p0, int p1) {
     Color plat = rgb(200, 205, 200), edge = rgb(170, 170, 165), steel = rgb(110, 115, 120);
     // --- the platform: tiled top, a concrete face toward the track, the yellow tactile strip, a back edge, solid all along
     ribbon(T_TILEWALL, railP + p0, p1 - p0 + 1, -2.0f, -5.4f, 1.0f, 1.0f, plat, NULL);
-    wallRibbon(T_CONCRETE, railP + p0, p1 - p0 + 1, -2.0f, SIDEH, 1.0f, edge, NULL); wallRibbon(T_CONCRETE, railP + p0, p1 - p0 + 1, -5.4f, SIDEH, 1.0f, edge, NULL);
+    wrGrow = 1; wallRibbon(T_CONCRETE, railP + p0, p1 - p0 + 1, -2.0f, SIDEH, 1.0f, edge, NULL); wrGrow = -1; wallRibbon(T_CONCRETE, railP + p0, p1 - p0 + 1, -5.4f, SIDEH, 1.0f, edge, NULL); wrGrow = 0;
     ribbon(T_PLAIN, railP + p0, p1 - p0 + 1, -2.08f, -2.4f, 1.026f, 1.026f, rgb(225, 195, 55), NULL);   // (above the station floor's 1.012: no shared height)
     ribbon(T_PLAIN, railP + p0, p1 - p0 + 1, -2.0f, -2.08f, 1.02f, 1.02f, rgb(235, 235, 230), NULL);
     for (int j = p0; j < p1; j++) segBox(T_CONCRETE, j, -1.02f, 1.02f, -2.0f, -5.4f, SIDEH - 0.2f, PY, edge, true, 0);
@@ -1379,12 +1434,18 @@ static void potPlant(float x, float z, float y) {   // a potted plant at a front
 }
 static void townTree(float x, float z, float y, float h, int kind) {   // 0 broadleaf, 1 cherry, 2 clipped garden pine
     if (!groundOk(x, z, y, 0.2f)) return;
-    box(T_WOOD, V3(x - 0.13f, y, z - 0.13f), V3(x + 0.13f, y + h * 0.55f, z + 0.13f), rgb(95, 75, 60), true, ALL);
+    // 0.9.13: nothing floats: the trunk runs up into the highest leaves, and every pad of a clipped pine sits on a branch from it
+    Color bark = rgb(95, 75, 60);
     Color c = kind == 1 ? rgb(232, 178, 196) : kind == 2 ? rgb(48, 88, 58) : rgb(72 + ri(20), 118 + ri(25), 66);
-    if (kind == 2) { for (int k = 0; k < 3; k++) { float ox = fr(-0.8f, 0.8f), oz = fr(-0.8f, 0.8f), yy = y + h * (0.45f + k * 0.2f), r = fr(0.6f, 0.95f);
+    if (kind == 2) { box(T_WOOD, V3(x - 0.13f, y, z - 0.13f), V3(x + 0.13f, y + h * 0.85f + 0.2f, z + 0.13f), bark, true, ALL);
+        for (int k = 0; k < 3; k++) { float ox = fr(-0.8f, 0.8f), oz = fr(-0.8f, 0.8f), yy = y + h * (0.45f + k * 0.2f), r = fr(0.6f, 0.95f);
+            box(T_WOOD, V3(fminf(x, x + ox) - 0.06f, yy - 0.1f, z - 0.06f), V3(fmaxf(x, x + ox) + 0.06f, yy + 0.02f, z + 0.06f), bark, false, ALL);   // the branch out to the pad
+            box(T_WOOD, V3(x + ox - 0.06f, yy - 0.1f, fminf(z, z + oz) - 0.06f), V3(x + ox + 0.06f, yy + 0.02f, fmaxf(z, z + oz) + 0.06f), bark, false, ALL);
             box(T_HEDGE, V3(x + ox - r, yy, z + oz - r), V3(x + ox + r, yy + 0.38f, z + oz + r), c, false, ALLB); } return; }
-    float R = h * 0.33f;
-    for (int k = 0; k < 4; k++) { float ox = fr(-R * 0.5f, R * 0.5f), oz = fr(-R * 0.5f, R * 0.5f), yy = y + h * fr(0.5f, 0.7f), r = R * fr(0.6f, 0.95f);
+    float R = h * 0.33f, ys[4], oxs[4], ozs[4], rs[4], top = y + h * 0.55f;
+    for (int k = 0; k < 4; k++) { oxs[k] = fr(-R * 0.5f, R * 0.5f); ozs[k] = fr(-R * 0.5f, R * 0.5f); ys[k] = y + h * fr(0.5f, 0.7f); rs[k] = R * fr(0.6f, 0.95f); top = fmaxf(top, ys[k] + rs[k] * 0.5f); }
+    box(T_WOOD, V3(x - 0.13f, y, z - 0.13f), V3(x + 0.13f, top, z + 0.13f), bark, true, ALL);
+    for (int k = 0; k < 4; k++) { float ox = oxs[k], oz = ozs[k], yy = ys[k], r = rs[k];
         box(T_HEDGE, V3(x + ox - r, yy, z + oz - r), V3(x + ox + r, yy + r * 1.3f, z + oz + r), k & 1 ? c : (Color){(unsigned char)(c.r * 0.88f), (unsigned char)(c.g * 0.9f), (unsigned char)(c.b * 0.88f), 255}, false, ALLB); }
 }
 static Vector3 opCenter(Open *o);
@@ -1606,7 +1667,7 @@ static void buildBore(Bore *b) {
     int wallT = old ? T_BRICK : rail ? T_CONCRETE : T_TILEWALL;
     // headwall: as tall as the ground anywhere in its footprint
     // headwall in 2 m columns, each as tall as the ground behind it, so it steps down with the hillside
-    float FW = W / 2 + 14, OW = W / 2 + 0.6f;
+    float FW = old ? W / 2 + 14 : W / 2 + 6, OW = W / 2 + 0.6f;   // (0.9.13: a road or rail portal no wider than its frame and wing walls)
     Color hw = old ? rgb(140, 75, 55) : rgb(185, 185, 178);
     float edges[64]; int ne = 0;
     for (float l = -FW; l < -OW - 0.01f; l += 2) edges[ne++] = l;
@@ -1614,10 +1675,10 @@ static void buildBore(Bore *b) {
     for (float l = OW + 2; l < FW - 0.01f; l += 2) edges[ne++] = l;
     edges[ne++] = FW;
     for (int e = 0; e + 1 < ne; e++) {
-        float l0 = edges[e], l1 = edges[e + 1], top = y + H + 1.5f;
-        for (float a = 0; a <= D; a += 1) for (float l = l0; l <= l1 + 0.01f; l += 1) { Vector3 q = boreAt(b, a, l, 0); top = fmaxf(top, terrainH(q.x, q.z) + 0.6f); }
-        bool open = l0 >= -OW - 0.01f && l1 <= OW + 0.01f;
-        boreBox(b, 0, D, l0, l1, open ? y + H + 0.5f : y - 1, top, old ? T_BRICK : T_CONCRETE, old ? rgb(235, 225, 215) : hw, true, ALLB);
+        float l0 = edges[e], l1 = edges[e + 1], top = y + H + 3.0f;   // 0.9.13: the headwall is level along its top; the hill rises behind it
+        bool open = l0 >= -OW - 0.01f && l1 <= OW + 0.01f; float bot = y - 1;
+        for (float a = 0; a <= D; a += 1) for (float l = l0; l <= l1 + 0.01f; l += 1) { Vector3 q = boreAt(b, a, l, 0); bot = fminf(bot, terrainH(q.x, q.z) - 0.5f); }   // down into the ground wherever the hillside falls away
+        boreBox(b, 0, D, l0, l1, open ? y + H + 0.5f : bot, top, old ? T_BRICK : T_CONCRETE, old ? rgb(235, 225, 215) : hw, true, ALLB);
     }
     if (old) {   // a brick arch ring in voussoirs, a keystone, stone springers
         int nv = 9; for (int k = 0; k < nv; k++) { float t0 = (float)k / nv, t1 = (float)(k + 1) / nv, a0 = PI * t0, a1 = PI * t1, R0 = W / 2 + 0.05f, R1 = W / 2 + 0.75f;
@@ -1793,10 +1854,10 @@ static void genLayoutWorld(void) {
     #define CKERB 0.16f
     if (!TOWNSURF && !getenv("KIRI_NOCPAVE")) {
     ribbon(T_SIDEWALK, coastP, nCoast, -6.2f, -3.85f, SIDEH, SIDEH, WHITE, coastSkipPave); ribbon(T_CONCRETE, coastP, nCoast, -3.85f, -3.7f, SIDEH + 0.003f, SIDEH + 0.003f, rgb(222, 220, 212), coastSkipPave);
-    wallRibbon(T_CONCRETE, coastP, nCoast, -3.7f, ROADY - 0.05f, SIDEH, rgb(205, 203, 196), coastSkipPave);
+    wrGrow = 1; wallRibbon(T_CONCRETE, coastP, nCoast, -3.7f, ROADY - 0.05f, SIDEH, rgb(205, 203, 196), coastSkipPave); wrGrow = 0;
     }
     ribbon(T_SIDEWALK, coastP, nCoast, 3.85f, 4.6f, SIDEH, SIDEH, WHITE, coastInTown); ribbon(T_CONCRETE, coastP, nCoast, 3.7f, 3.85f, SIDEH + 0.003f, SIDEH + 0.003f, rgb(222, 220, 212), coastInTown);
-    wallRibbon(T_CONCRETE, coastP, nCoast, 3.7f, ROADY - 0.05f, SIDEH, rgb(205, 203, 196), coastInTown);
+    wrGrow = 1; wallRibbon(T_CONCRETE, coastP, nCoast, 3.7f, ROADY - 0.05f, SIDEH, rgb(205, 203, 196), coastInTown); wrGrow = 0;
     for (int i = 0; i + 1 < nCoast; i++) {   // the slabs you stand on (each turned along its stretch of road)
         Vector3 a = coastP[i], b = coastP[i + 1]; float dx = b.x - a.x, dz = b.z - a.z, L = sqrtf(dx * dx + dz * dz); if (L < 0.05f) continue; dx /= L; dz /= L;
         Vector3 m = Vector3Lerp(a, b, 0.5f); int f = newXf(m.x, m.z, atan2f(-dz, dx));
@@ -1806,7 +1867,7 @@ static void genLayoutWorld(void) {
             if (ribbonGuard(coastP, m.x - dz * oA, m.z + dx * oA, oA) || ribbonGuard(coastP, m.x - dz * oB, m.z + dx * oB, oB) || coast_d(qx, qz) < fabsf(oc) - 0.6f) continue;
             addSolidF(V3(m.x - L / 2 - 0.05f, ROADY - 0.1f, m.z + oA), V3(m.x + L / 2 + 0.05f, SIDEH, m.z + oB), f); } }
     ribbon(T_CONCRETE, coastP, nCoast, 4.6f, 5.2f, 1.05f, 1.05f, rgb(215, 212, 200), NULL);
-    wallRibbon(T_CONCRETE, coastP, nCoast, 4.6f, SIDEH, 1.05f, rgb(200, 198, 188), NULL); wallRibbon(T_CONCRETE, coastP, nCoast, 5.2f, -4.4f, 1.05f, rgb(185, 183, 172), NULL);   // the seawall: about 4 m down to the beach
+    wrGrow = 1; wallRibbon(T_CONCRETE, coastP, nCoast, 4.6f, SIDEH, 1.05f, rgb(200, 198, 188), NULL); wrGrow = -1; wallRibbon(T_CONCRETE, coastP, nCoast, 5.2f, -4.4f, 1.05f, rgb(185, 183, 172), NULL); wrGrow = 0;   // the seawall: about 4 m down to the beach
     for (int i = 0; i + 1 < nCoast; i++) {   // the seawall is solid from the beach to the top of the parapet: nobody walks under the road
         Vector2 n0 = pnorm(coastP, nCoast, i), n1 = pnorm(coastP, nCoast, i + 1); float x0 = coastP[i].x + n0.x * 5.1f, z0 = coastP[i].z + n0.y * 5.1f, x1 = coastP[i + 1].x + n1.x * 5.1f, z1 = coastP[i + 1].z + n1.y * 5.1f;
         float L = sqrtf((x1 - x0) * (x1 - x0) + (z1 - z0) * (z1 - z0)); int m = (int)ceilf(L / 0.4f); if (m < 1) m = 1;
@@ -1876,7 +1937,7 @@ static void genLayoutWorld(void) {
     }
     // a planted verge behind the land-side sidewalk: grass on a low curb, clipped hedges, pines; open where streets meet the road
     ribbon(T_GRASS, coastP, nCoast, -9.4f, -6.2f, SIDEH + 0.06f, SIDEH + 0.06f, rgb(150, 190, 120), coastSkipVerge);
-    wallRibbon(T_CONCRETE, coastP, nCoast, -6.2f, SIDEH - 0.02f, SIDEH + 0.08f, rgb(170, 170, 162), coastSkipVerge); wallRibbon(T_CONCRETE, coastP, nCoast, -9.4f, SIDEH - 0.02f, SIDEH + 0.08f, rgb(170, 170, 162), coastSkipVerge);
+    wrGrow = 1; wallRibbon(T_CONCRETE, coastP, nCoast, -6.2f, SIDEH - 0.02f, SIDEH + 0.08f, rgb(170, 170, 162), coastSkipVerge); wrGrow = -1; wallRibbon(T_CONCRETE, coastP, nCoast, -9.4f, SIDEH - 0.02f, SIDEH + 0.08f, rgb(170, 170, 162), coastSkipVerge); wrGrow = 0;
     for (int i = 2; i + 2 < nCoast; i++) { Vector2 nn = pnorm(coastP, nCoast, i); float x = coastP[i].x - nn.x * 7.8f, z = coastP[i].z - nn.y * 7.8f;
         if (coastSkipVerge(V3(x, 0, z))) continue;
         if (i % 10 == 0) { float h = fr(4.5f, 6.5f); box(T_WOOD, V3(x - 0.18f, SIDEH, z - 0.18f), V3(x + 0.18f, SIDEH + h, z + 0.18f), rgb(110, 85, 70), true, ALL);
@@ -2011,8 +2072,8 @@ static void genLayoutWorld(void) {
                         if (q < m) { Vector3 c = Vector3Lerp(p[0], p[1], (q + 0.5f) / m); float ox = c.x + nb.x * (w / 2) * sd2, oz = c.z + nb.y * (w / 2) * sd2; ok = !mainRoadAtEx(ox, oz, 0.3f, s2); }
                         if (ok && k0 < 0) k0 = q;
                         if (!ok && k0 >= 0) { Vector3 seg[2] = {Vector3Lerp(p[0], p[1], (float)k0 / m), Vector3Lerp(p[0], p[1], (float)q / m)};
-                            wallRibbon(T_CONCRETE, seg, 2, sd2 * w / 2, SIDEH, SIDEH + 1.0f, rgb(200, 198, 190), NULL); railSolids(seg, 2, sd2 * w / 2, SIDEH + 1.0f, 0.12f); k0 = -1; } } } }
-            wallRibbon(T_CONCRETE, p, n, -w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); wallRibbon(T_CONCRETE, p, n, w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); }
+                            wrGrow = -1; wallRibbon(T_CONCRETE, seg, 2, sd2 * w / 2, SIDEH, SIDEH + 1.0f, rgb(200, 198, 190), NULL); wrGrow = 0; railSolids(seg, 2, sd2 * w / 2, SIDEH + 1.0f, 0.12f); k0 = -1; } } } }
+            wrGrow = -1; wallRibbon(T_CONCRETE, p, n, -w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); wallRibbon(T_CONCRETE, p, n, w / 2, RIVER_Y + 0.2f, SIDEH, rgb(150, 150, 145), NULL); wrGrow = 0; }
         else for (int i = 3; i + 3 < n; i += 8) {   // utility poles on one side, a street lamp on every other one
             Vector2 nn = pnorm(p, n, i); float x = p[i].x + nn.x * (w / 2 + 0.9f), z = p[i].z + nn.y * (w / 2 + 0.9f);
             if (!cityLand(x, z) || mainRoadAt(x, z, 0.3f) || !pointFree(x, z, 0.3f, SIDEH + 0.1f) || !groundOk(x, z, SIDEH, 0.2f)) continue;   // never on another street, never off the edge
@@ -2119,7 +2180,7 @@ static void genLayoutWorld(void) {
                 if (n >= 2) {
                     wallRibbon(T_CONCRETE, run, n, 0, RIVER_Y - 1.1f, SIDEH + 0.15f, wc, NULL);
                     ribbon(T_CONCRETE, run, n, sg > 0 ? -0.12f : -0.95f, sg > 0 ? 0.95f : 0.12f, SIDEH + 0.15f, SIDEH + 0.15f, cc, NULL);                  // coping
-                    wallRibbon(T_CONCRETE, run, n, 0.95f * sg, SIDEH - 0.02f, SIDEH + 0.15f, cc, NULL); wallRibbon(T_CONCRETE, run, n, -0.12f * sg, SIDEH - 0.1f, SIDEH + 0.15f, cc, NULL);
+                    wrGrow = -1; wallRibbon(T_CONCRETE, run, n, 0.95f * sg, SIDEH - 0.02f, SIDEH + 0.15f, cc, NULL); wallRibbon(T_CONCRETE, run, n, -0.12f * sg, SIDEH - 0.1f, SIDEH + 0.15f, cc, NULL); wrGrow = 0;
                     for (int e = 0; e < 2; e++) { int k = e ? j : i, kn = e ? j + 1 : i - 1; if (kn < 0 || kn >= ns || off[kn] > 0.95f) continue;   // a street crosses here: the headwall, from this bank to the middle
                         Vector3 a = run[e ? n - 1 : 0], b = st[k]; Vector3 cap[2] = {a, V3(b.x - sn[k].x * 0.2f * sg, 0, b.z - sn[k].y * 0.2f * sg)}; wallRibbon(T_CONCRETE, cap, 2, 0, RIVER_Y - 1.1f, SIDEH, rgb(128, 128, 122), NULL); }
                     // the railing: posts every 2 m, a top rail and a mid rail, where the bank is a full bank (not the tapering edge of a crossing)
@@ -2307,8 +2368,7 @@ static void genLayoutWorld(void) {
         for (; k < nLane; k++) lp[nl++] = laneP[k];
         ribbon(T_CONCRETE, lp, nl, -2.4f, 2.4f, 0.06f, 0.06f, rgb(170, 165, 150), NULL); }
     for (int h = 0; h < DHOUSES_N; h++) {   // old wooden houses along the pass and in the hamlet, doors facing the nearest road
-        float x = dHouses[h][0], z = dHouses[h][1], w = dHouses[h][2], d = dHouses[h][3];
-        Pad *pd = &pads[1 + h]; Vector3 q = tougeP[0]; float best = 1e9f;
+        Pad *pd = &pads[1 + h]; float x = pd->x, z = pd->z, w = dHouses[h][2], d = dHouses[h][3]; Vector3 q = tougeP[0]; float best = 1e9f;
         for (int i = 0; i < nTouge; i++) { float dd = (tougeP[i].x - x) * (tougeP[i].x - x) + (tougeP[i].z - z) * (tougeP[i].z - z); if (dd < best) { best = dd; q = tougeP[i]; } }
         for (int i = 0; i < nLane; i++) { float dd = (laneP[i].x - x) * (laneP[i].x - x) + (laneP[i].z - z) * (laneP[i].z - z); if (dd < best) { best = dd; q = laneP[i]; } }
         float dx = q.x - x, dz = q.z - z; int face = fabsf(dx) > fabsf(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0);
