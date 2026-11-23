@@ -1,4 +1,42 @@
-ZANKO 2006 - Afterglow  (v0.9.13, fixes)
+ZANKO 2006 - Afterglow  (v0.9.14, survival update)
+
+- 0.9.14: survival, saves, loading.
+  * Saved games: eight single-player slots (Main Menu > Saved
+    Games) to load, start, rename and delete. Continue loads the
+    slot played last; a new game goes in a free slot. Your old
+    save becomes slot 1.
+  * Multiplayer worlds: hosting opens eight world slots of their
+    own. Start a new world or carry on a saved one; renaming and
+    deleting work the same. A host who dies no longer loses the
+    world.
+  * A loading screen with progress and a survival tip while the
+    town loads.
+  * Days are longer: a day lasts about an hour of play (it was
+    twenty minutes). A night's sleep still takes about half a
+    minute.
+  * Going mad takes days, not minutes: living rough with nothing
+    going right breaks you in about three in-game days. What you
+    see up close still hits harder than the slow grind.
+  * Food goes off. Onigiri keep three days, daikon six. Stale
+    food fills you less and may make you sick; rotten food likely
+    will. The item card shows how old it is. Canned food, ramen
+    and drinks keep.
+  * Fishing: craft a rod (planks, rags, nails), hold it facing the
+    river or the sea and attack to cast. When the line tugs,
+    strike. Raw fish is risky; grill it at a fire.
+  * Relief drops: once a day the radio announces a helicopter drop
+    somewhere along the roads. The crate is on the map with a red
+    flare beside it. It holds food, water and medicine, sometimes
+    ammunition, and the flare draws creatures.
+  * Panic: creatures in sight and close by make your heart race.
+    Your aim shakes and your breath comes back slower until you
+    are clear. Painkillers take the edge off.
+  * Roads and pavements out of town sit on banks of earth, and
+    town ground lies just under the paving: no road, pavement or
+    kerb stands on thin air, and the paving itself is solid. The
+    tunnel mouths are clear of grass, and the ground meets the
+    level headwall tops.
+
 
 - 0.9.13: fixes from play.
   * Nothing is paper-thin: every piece of the world is at least

@@ -254,9 +254,40 @@ static void shootEx(Vector3 eye, Vector3 aim, float dmg, float range, bool fx) {
     } else if (best < range && fx) spawnParts(Vector3Add(eye, Vector3Scale(aim, best - 0.05f)), 4, T_CONCRETE, rgb(150, 150, 150), 1.2f, 0.04f);
 }
 static void shoot(Vector3 eye, Vector3 aim) { shootEx(eye, aim, 3.5f, 120, true); alertAll(pl.pos, 70); }
+// 0.9.14: fishing. Facing open water (the river or the sea) a few metres off with the rod in hand, attack casts; after a wait the line
+// tugs and attack within the window lands a fish (a better chance by day and in the rain, worse in the cold small hours). Walking off, or
+// putting the rod away, reels in.
+static struct { bool on; float waitT, biteT; Vector3 at; } fish;
+static bool waterAhead(Vector3 aim, Vector3 *where) {
+    Vector2 f = {aim.x, aim.z}; float L = sqrtf(f.x * f.x + f.y * f.y); if (L < 0.01f) return false; f.x /= L; f.y /= L;
+    for (float d = 2.5f; d <= 8; d += 0.75f) { float x = pl.pos.x + f.x * d, z = pl.pos.z + f.y * d;
+        bool river = inRiverRaw(x, z), sea = !cityLand(x, z) && terrainH(x, z) < SEA_Y - 0.2f;
+        float wy = river ? RIVER_Y : SEA_Y;
+        if ((river || sea) && pl.pos.y - wy < 7 && pl.pos.y - wy > -0.5f) { if (where) *where = V3(x, wy, z); return true; } }
+    return false;
+}
+static bool fishTick(Vector3 eye, Vector3 aim, bool press) {   // true: the button was fishing's (no swing)
+    (void)eye; float dt = GetFrameTime(); if (dt > 0.1f) dt = 0.1f;
+    if (fish.on && (Vector3Distance(V3(pl.pos.x, 0, pl.pos.z), V3(fish.at.x, 0, fish.at.z)) > 9.5f || pl.hands.t != IT_ROD)) { fish.on = false; say("You reel the line in."); }
+    if (fish.on) {
+        if (fish.biteT > 0) { fish.biteT -= dt; if (press) { fish.on = false;
+                float chance = 0.72f + (pl.rest > 50 ? 0.08f : 0) - (pl.fracture == 1 ? 0.15f : 0);
+                if (fr(0, 1) < chance) { int left = invAdd(IT_FISH, 1); if (left) addItem(V3(pl.pos.x, pl.pos.y + 0.02f, pl.pos.z), IT_FISH, 1); say("You land a fish."); play(sPick, 0.6f); pl.hands.w = (short)(pl.hands.w + 40); if (pl.hands.w >= 1000) { pl.hands = (Slot){-1, 0, 0}; say("The rod snaps."); } }
+                else { say("It slips the hook."); play(sSwing, 0.4f); }
+                return true; }
+            if (fish.biteT <= 0) { say("It took the bait and got away."); fish.waitT = fr(10, 25); } return press; }
+        fish.waitT -= dt * (1 + 0.6f * rainK) * (pl.tod > 1 && pl.tod < 4 ? 0.5f : 1);
+        if (fish.waitT <= 0) { fish.biteT = 1.3f; play(sClick, 0.9f); pl.shake = fmaxf(pl.shake, 0.08f); say(TextFormat("The line tugs! %s to strike.", actKey(A_ATTACK))); }
+        if (press) { fish.on = false; say("You reel the line in."); }
+        return true; }
+    if (!press) return false;
+    Vector3 w; if (!waterAhead(aim, &w)) return false;   // no water: the rod swings like a stick
+    fish.on = true; fish.at = w; fish.biteT = 0; fish.waitT = fr(8, 30); play(sSwing, 0.5f); say("You cast the line and wait."); alertAll(pl.pos, 6);
+    return true;
+}
 static Vector3 spreadDir(Vector3 aim, float sp) {   // a direction within a cone around aim
     Vector3 up = fabsf(aim.y) < 0.95f ? V3(0, 1, 0) : V3(1, 0, 0), rt = Vector3Normalize(Vector3CrossProduct(aim, up)), u2 = Vector3CrossProduct(rt, aim);
-    float a = fr(0, 2 * PI), r = sqrtf(fr(0, 1)) * sp;
+    float a = fr(0, 2 * PI), r = sqrtf(fr(0, 1)) * sp * (1 + gPanic / 70.0f);   // (0.9.14: panic shakes the aim)
     return Vector3Normalize(Vector3Add(aim, Vector3Add(Vector3Scale(rt, cosf(a) * r), Vector3Scale(u2, sinf(a) * r)))); }
 static void shootGun(int t, Vector3 eye, Vector3 aim) {   // the pistol and the shotgun
     const ItemDef *g = &idef[t];
@@ -559,7 +590,7 @@ static void updatePlayer(float dt) {
     if (pl.sick > 40) spd *= 0.9f;
     float stamMul = encStam() * (1 - 0.07f * skLvl(SK_FIT)) * trMul(0);
     if (sprint) { pl.stam -= 10 * dt * stamMul;   /* 0.9.8: was 18 */ if (pl.stam <= 0) { pl.stam = 0; pl.exhausted = true; } alertAll(pl.pos, 13 * (1 - 0.08f * skLvl(SK_STEALTH)) * trMul(6)); skGain(SK_FIT, dt * 0.25f); }
-    else pl.stam = fminf(100, pl.stam + (moving ? 3.5f : 7) * dt * (pl.stage >= 1 ? 0.75f : 1.0f) / encStam());   // 0.9.8: slower back (was 8 / 15)
+    else pl.stam = fminf(100, pl.stam + (moving ? 3.5f : 7) * dt * (pl.stage >= 1 ? 0.75f : 1.0f) * (1 - 0.4f * gPanic / 100.0f) / encStam());   // (0.9.14: panic: short of breath)   // 0.9.8: slower back (was 8 / 15)
     if (sneak && moving) { bool near = false; for (int i = 0; i < nCr; i++) if (crs[i].on && crs[i].state == CS_WANDER && Vector3Distance(crs[i].pos, pl.pos) < 14) near = true; if (near) skGain(SK_STEALTH, dt * 0.35f); }
     if (pl.exhausted && pl.stam > 30) pl.exhausted = false;
     if (pl.food <= 0 || pl.water <= 0) spd *= 0.85f;
@@ -734,7 +765,8 @@ static void updatePlayer(float dt) {
         if (want) { if (!pl.blocking) pl.blockT = 0; pl.blocking = true; pl.blockT += dt; } else pl.blocking = false;
     }
     if (actP(A_INSPECT) && !animBusy() && pl.swingT <= 0 && !pl.build && !isConsumable(pl.hands.t)) animPlay(ANIM_INSPECT);
-    if (pl.build) { if (actP(A_ATTACK)) placeBuild(); }
+    if (pl.hands.t == IT_ROD && fishTick(eye, aim, actP(A_ATTACK))) { }   // 0.9.14: fishing (the attack button casts and strikes)
+    else if (pl.build) { if (actP(A_ATTACK)) placeBuild(); }
     else if (isConsumable(pl.hands.t)) { if (actP(A_ATTACK)) useHeld(); }
     else if (actD(A_ATTACK) && !pl.blocking && !(animBusy() && animId != ANIM_EQUIP)) {
         if (pl.hands.t >= 0 && idef[pl.hands.t].cat == CAT_THROW) { if (actP(A_ATTACK) && pl.swingCd <= 0) throwHeld(eye, aim); }

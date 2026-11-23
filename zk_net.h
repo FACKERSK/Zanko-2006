@@ -354,9 +354,7 @@ static void mpPanel(void) {
     aText("Host a game", x, y, 16, C_CYAN, true); y += 30 * s;
     netPvp = aToggle(x, y, "Players can hurt each other (PvP)", netPvp); y += 36 * s;
     aTextBox((Rectangle){x, y + 18 * s, 150 * s, 34 * s}, "Port (UDP)", &mpPort); y += 66 * s;
-    if (aButton((Rectangle){x, y, w, 42 * s}, "Host a new game (up to 8 players)", netMode == NM_OFF)) {
-        int port = atoi(mpPort.buf); if (port <= 0 || port > 65535) port = MP_PORT;
-        gSeedArg = 0; newGame(); if (netHost(port)) { state = ST_PLAY; DisableCursor(); } }
+    if (aButton((Rectangle){x, y, w, 42 * s}, "Host a world (up to 8 players)...", netMode == NM_OFF)) { savesKind = 1; savesConfirm = savesRename = -1; state = ST_SAVES; }   // 0.9.14: pick or start one of the saved worlds
     y += 64 * s;
     aText("Join a game", x, y, 16, C_CYAN, true); y += 30 * s;
     aTextBox((Rectangle){x, y + 18 * s, 300 * s, 34 * s}, "Host IP or name", &mpIP); y += 66 * s;
@@ -367,6 +365,7 @@ static void mpPanel(void) {
     aText("Over the internet the host forwards the UDP port, or both use a VPN such as Radmin VPN.", x, p.y + p.height - 44 * s, 12, C_BONE2, false);
     p3End(3);
 }
+static bool savesHost(void) { int port = atoi(mpPort.buf); if (port <= 0 || port > 65535) port = MP_PORT; return netHost(port); }
 static void startClientWorld(unsigned int seed) {   // the host's town, an empty street: creatures come from the host
     gSeedArg = seed; newGame(); gSeedArg = 0;
     for (int i = 0; i < nCr; i++) crs[i].on = false; nCr = 0;

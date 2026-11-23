@@ -137,6 +137,7 @@ static void slotTooltip(Rectangle panel) {
     aText(TextFormat("%.2f kg each", d->weight), tp.x + 12 * s, tp.y + 30 * s, 11, C_BONE2, false);
     if (d->cat == CAT_MELEE) aText(TextFormat("Damage %.1f   Swing %.2fs   Reach %.1fm   Condition %d%%", d->dmg, d->cd, d->range, 100 - sl->w / 10), tp.x + 12 * s, tp.y + 46 * s, 11, C_CYAN, false);
     else if (d->cat == CAT_BAG) aText(TextFormat("+%d slots", d->bag), tp.x + 12 * s, tp.y + 46 * s, 11, C_CYAN, false);
+    else if (perishLife(sl->t) > 0) { float a = sl->w / (perishLife(sl->t) * 10); aText(TextFormat("Condition: %s  (%d h old of %d)", freshWord(a), sl->w / 10, (int)perishLife(sl->t)), tp.x + 12 * s, tp.y + 46 * s, 11, a >= 0.6f ? C_RED : C_CYAN, false); }
     else if (d->cat == CAT_CLOTHES) aText(TextFormat("%s   Protection %d%%   Warmth +%d%s", wsName[d->wslot], (int)lroundf(d->armor * 100), (int)lroundf(d->warm), d->stam > 0 ? TextFormat("   Stamina -%d%%", (int)d->stam) : ""), tp.x + 12 * s, tp.y + 46 * s, 11, C_CYAN, false);
     aText(d->desc ? d->desc : "", tp.x + 12 * s, tp.y + 64 * s, 11, C_BONE, false);
 }
@@ -403,6 +404,8 @@ static void drawHUD(Vector2 cross, float t) {
     if (pl.painT > 0) { aText("Painkillers", sx, sy - 2 * s, 12, C_BONE2, false); sx += 90 * s; }
     if (pl.sick > 0) { aText(pl.sick > 30 ? "Sick" : "Queasy", sx, sy - 2 * s, 14, (Color){170, 200, 90, 255}, true); sx += 64 * s; }
     if (pl.infect > 0) { aText(pl.infect >= 35 ? "Fever" : "Infected", sx, sy - 2 * s, 14, (Color){230, 150, 60, 255}, true); sx += 80 * s; }
+    if (gPanic > 25) { aText(gPanic > 65 ? "Panicking" : "Panicky", sx, sy - 2 * s, 14, (Color){235, 120, 140, 255}, true); sx += 96 * s; }   // 0.9.14
+    if (fish.on) { aText(fish.biteT > 0 ? "Bite!" : "Fishing", sx, sy - 2 * s, 14, fish.biteT > 0 ? (Color){255, 220, 120, 255} : C_CYAN, true); sx += 80 * s; }
     if (pl.fracture) { aText(pl.fracture == 1 ? "Broken leg" : "Splinted", sx, sy - 2 * s, 14, pl.fracture == 1 ? (Color){230, 100, 80, 255} : C_BONE2, true); sx += 100 * s; }
     if (pl.roof || pl.nearFire) aText(pl.nearFire ? "Fire" : "Sheltered", sx, sy - 2 * s, 12, C_AMBER, false);
     if (wk > 0.15f) aTextC("This place should not exist.", W / 2, H * 0.17f, 15, (Color){230, 240, 255, (unsigned char)(255 * clampf(wk * 1.5f, 0, 1))}, false);

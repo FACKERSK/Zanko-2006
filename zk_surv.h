@@ -94,6 +94,8 @@ static const Recipe recipes[] = {
     {"Nail Bat", {{IT_BAT, 1}, {IT_NAILS, 12}, {-1, 0}}, IT_NAILBAT, 1, RQ_HAMMER},
     {"Repair held weapon", {{IT_SCRAP, 1}, {IT_NAILS, 4}, {-1, 0}}, -1, 0, RQ_HAMMER | RQ_WORN},
     {"Molotov (x2)", {{IT_BOTTLE, 2}, {IT_RAG, 2}, {IT_FUEL, 1}}, IT_MOLOTOV, 2, 0},
+    {"Fishing rod", {{IT_PLANKS, 1}, {IT_RAG, 2}, {IT_NAILS, 3}}, IT_ROD, 1, 0},   // 0.9.14
+    {"Grill fish", {{IT_FISH, 1}, {-1, 0}, {-1, 0}}, IT_GRILLFISH, 1, RQ_FIRE},
 };
 #define N_RECIPE ((int)(sizeof recipes / sizeof recipes[0]))
 static bool nearShrine(void) { return baseShrine >= 0 && builds[baseShrine].alive && Vector3Distance(builds[baseShrine].mn, pl.pos) < 4.5f; }
@@ -187,6 +189,42 @@ static bool survPrompt(Vector3 eye, Vector3 aim, bool act) {
 // ============================================================ map
 #define MAX_MARK 8
 static Vector2 marks[MAX_MARK]; static int nMark;
+// 0.9.14: relief drops. Once a day, at an hour picked at midnight, the radio and TVs carry a broadcast: a helicopter has left a relief crate
+// on a road somewhere out of sight. It is on the map, a red flare burns beside it and its hiss and light draw creatures; it holds food,
+// water, medicine and sometimes ammunition, and it is gone by the next drop.
+static struct { bool on; int cont, light; Vector3 p; float hour, flareT, noiseT; int day; } drop = {false, -1, -1, {0}, 13, 0, 0, -1};
+static void dropPlace(void) {
+    Vector3 best = {0}; bool got = false;
+    for (int tries = 0; tries < 400 && !got; tries++) {   // a point on a road, 90-320 m off, not in the old town core
+        const Vector3 *P; int n; int k = ri(6); if (k < 4) { P = ringP[k]; n = nRing[k]; } else if (k == 4) { P = coastP; n = nCoast; } else { P = tougeP; n = nTouge; }
+        if (n < 2) continue; Vector3 q = P[ri(n)]; float d = Vector3Distance(V3(q.x, 0, q.z), V3(pl.pos.x, 0, pl.pos.z));
+        if (d < 90 || d > 320) continue; best = q; got = true; }
+    if (!got) return;
+    if (drop.cont >= 0 && drop.cont < nCont) conts[drop.cont].on = false;   // yesterday's crate is gone
+    if (drop.light >= 0) lights[drop.light].mode = 2;
+    float y = baseGroundY(best.x, best.z, best.y + 2) + 0.02f; if (y < -50) y = best.y;
+    int c = addCont(CK_CHEST, V3(best.x + 2.5f, y, best.z), fr(0, PI), 0, true); if (c < 0) return;
+    Cont *C = &conts[c]; C->filled = true; C->searched = false; for (int i = 0; i < CSLOTS; i++) C->s[i] = (Slot){-1, 0, 0};
+    int k = 0; C->s[k++] = (Slot){IT_CANNED, (short)(2 + ri(3)), 0}; C->s[k++] = (Slot){IT_WATER, 2, 0}; C->s[k++] = (Slot){IT_BANDAGE, (short)(2 + ri(3)), 0};
+    if (ri(2)) C->s[k++] = (Slot){IT_DISINFECT, 1, 0}; if (ri(2)) C->s[k++] = (Slot){IT_PAINKILLER, (short)(2 + ri(3)), 0}; if (ri(3) == 0) C->s[k++] = (Slot){IT_BATTERY, 2, 0};
+    if (ri(3) == 0) C->s[k++] = (Slot){ri(2) ? IT_ACP : IT_SHELLS, (short)(6 + ri(8)), 0}; if (ri(4) == 0) C->s[k++] = (Slot){IT_RAINCOAT, 1, 0};
+    drop.on = true; drop.cont = c; drop.p = C->pos; drop.flareT = 360; drop.noiseT = 0; drop.day = pl.day;
+    drop.light = addLight(V3(drop.p.x - 1.2f, drop.p.y + 0.6f, drop.p.z), V3(1.0f, 0.15f, 0.1f), 16, 1);
+    const char *where = best.x < -60 ? "west of the town" : best.x > 420 ? "on the mountain road" : best.z > 480 ? "down by the southern shore" : "on the edge of town";
+    say(TextFormat("Radio: \"...relief supplies dropped by helicopter %s. Look for the red flare...\"", where)); play(sStatic, 0.6f);
+    TraceLog(LOG_INFO, "DROP: crate at %.1f %.1f (%s), %d items", drop.p.x, drop.p.z, where, k);
+}
+static void dropTick(float hours, float dt) {
+    if (netMode == NM_CLIENT) return;
+    if (drop.day != pl.day && pl.tod >= drop.hour && pl.tod < drop.hour + 3) { drop.day = pl.day; dropPlace(); drop.hour = fr(9, 17); }
+    if (!drop.on) return;
+    if (drop.cont >= 0 && drop.cont < nCont && conts[drop.cont].searched && drop.flareT > 30) drop.flareT = 30;   // opened: the flare burns down
+    drop.flareT -= dt; drop.noiseT -= dt;
+    if (drop.flareT > 0 && drop.noiseT <= 0) { drop.noiseT = 25; alertAll(drop.p, 45); }
+    if (drop.flareT > 0 && ri(6) == 0) spawnParts(V3(drop.p.x - 1.2f, drop.p.y + 0.5f, drop.p.z), 1, T_PLAIN, (Color){230, 60, 40, 255}, 0.8f, 0.05f);
+    if (drop.flareT <= 0 && drop.light >= 0) { lights[drop.light].mode = 2; drop.light = -1; }
+    (void)hours;
+}
 // ---- the 3D map: a miniature of the town in the reference palette (blue ground, peach roads, glassy blue blocks, white pins)
 static RenderTexture2D mapRT; static bool mapRTok = false; static float mapYaw = 0.6f, mapZoom = 1.0f, mapPitch = 0.95f; static Vector2 mapTgt = {220, 280}; static Vector2 mapDrag; static bool mapDragging, mapMoved;
 static Camera3D mapCamera(void) {
@@ -322,6 +360,7 @@ static void renderMapScene(float t) {
         DrawCube(V3(c.x, c.y + 2.6f, c.z), 1.4f, 1.4f, 4.6f, (Color){236, 240, 236, 255}); DrawCube(V3(c.x, c.y + 2.6f, c.z), 4.6f, 1.4f, 1.4f, (Color){236, 240, 236, 255}); }
     for (int i = 0; i < nWs; i++) DrawSphere(V3(wsrc[i].pos.x, fmaxf(0, wsrc[i].pos.y * 0.5f) + 1.5f, wsrc[i].pos.z), 1.6f, MP_CYAN);
     if (baseShrine >= 0 && builds[baseShrine].alive) { Vector3 c = builds[baseShrine].mn; mapPin(V3(c.x, fmaxf(0, c.y * 0.5f), c.z), (Color){220, 60, 50, 255}, 1.2f); }
+    if (drop.on && drop.flareT > -600) mapPin(V3(drop.p.x, drop.p.y > 0 ? drop.p.y * 0.5f : 0, drop.p.z), MP_X, 1.8f);   // 0.9.14: the relief drop
     for (int i = 0; i < nMark; i++) mapPin(V3(marks[i].x, terrainH(marks[i].x, marks[i].y) > 0 ? terrainH(marks[i].x, marks[i].y) * 0.5f : 0, marks[i].y), MP_TUN, 1.2f);
     {   Vector3 pp = V3(pl.pos.x, fmaxf(0, pl.pos.y * 0.5f) + sinf(t * 3) * 0.8f, pl.pos.z); mapPin(pp, MP_CYAN, 1.6f);   // you, facing the way you look
         Vector3 d = V3(sinf(pl.yaw), 0, cosf(pl.yaw)); DrawCylinderEx(Vector3Add(pp, V3(0, 0.6f, 0)), Vector3Add(pp, Vector3Add(V3(0, 0.6f, 0), Vector3Scale(d, 12))), 1.6f, 0.1f, 4, MP_CYAN); }
@@ -375,7 +414,45 @@ static void drawMap(float W, float H) {
 }
 
 // ============================================================ save / load
-static const char *savePath(void) { static char rel[160]; snprintf(rel, sizeof rel, "Data/Userdata/%s/save.dat", prof.name[0] ? prof.name : "Guest"); return P(rel); }
+static int pendingLoad, pendTrS, pendTrW;   // 0.9.14: 1 load the chosen slot, 2 a new single-player game, 3 host a new world, 4 host the saved one: done at the top of the next frame so the loading screen can show
+// 0.9.14: save slots. Single player keeps SAVE_SLOTS saves (sp_N.dat), a host keeps as many multiplayer worlds (mp_N.dat); each can be named.
+#define SAVE_SLOTS 8
+static int saveKind = 0, saveSlot = 1;   // 0 single player, 1 a hosted multiplayer world; slot 1..SAVE_SLOTS
+static const char *profDir(void) { static char rel[128]; snprintf(rel, sizeof rel, "Data/Userdata/%s", prof.name[0] ? prof.name : "Guest"); return rel; }
+static const char *slotPath(int kind, int slot) {
+    static char rel[200]; snprintf(rel, sizeof rel, "%s/%s_%d.dat", profDir(), kind ? "mp" : "sp", slot);
+    if (kind == 0 && slot == 1) { char legacy[200]; snprintf(legacy, sizeof legacy, "%s/save.dat", profDir()); char *nw = strdup(P(rel)); char *lg = strdup(P(legacy));   // the one save from before 0.9.14 becomes single-player slot 1
+        if (FileExists(lg) && !FileExists(nw)) rename(lg, nw); free(nw); free(lg); }
+    return P(rel);
+}
+static const char *savePath(void) { return slotPath(saveKind, saveSlot); }
+static char slotNames[2][SAVE_SLOTS + 1][48]; static int slotLast[2] = {1, 1}; static bool slotNamesRead; static char slotNamesFor[64];
+static void slotNamesLoad(void) {
+    if (slotNamesRead && !strcmp(slotNamesFor, prof.name)) return;
+    slotNamesRead = true; snprintf(slotNamesFor, sizeof slotNamesFor, "%s", prof.name); memset(slotNames, 0, sizeof slotNames); slotLast[0] = slotLast[1] = 1;
+    char *t = LoadFileText(P(TextFormat("%s/slots.txt", profDir()))); if (!t) return;
+    for (char *ln = strtok(t, "\n"); ln; ln = strtok(NULL, "\n")) { char k[4]; int n, off = 0;
+        if (sscanf(ln, "last %3s %d", k, &n) == 2) { if (n >= 1 && n <= SAVE_SLOTS) slotLast[k[0] == 'm'] = n; }
+        else if (sscanf(ln, "%3s %d %n", k, &n, &off) == 2 && off > 0 && n >= 1 && n <= SAVE_SLOTS) snprintf(slotNames[k[0] == 'm'][n], 48, "%s", ln + off); }
+    UnloadFileText(t);
+}
+static void slotNamesSave(void) {
+    ensureDir("Data"); ensureDir("Data/Userdata"); ensureDir(profDir());
+    FILE *f = fopen(P(TextFormat("%s/slots.txt", profDir())), "w"); if (!f) return;
+    for (int k = 0; k < 2; k++) { fprintf(f, "last %s %d\n", k ? "mp" : "sp", slotLast[k]); for (int n = 1; n <= SAVE_SLOTS; n++) if (slotNames[k][n][0]) fprintf(f, "%s %d %s\n", k ? "mp" : "sp", n, slotNames[k][n]); }
+    fclose(f);
+}
+typedef struct { bool exists, ok; int day, kills; float tod, time; long mtime; } SlotInfo;
+static SlotInfo slotInfo(int kind, int slot) {
+    SlotInfo si = {0}; const char *path = slotPath(kind, slot); if (!FileExists(path)) return si;
+    si.exists = true; si.mtime = GetFileModTime(path);
+    FILE *f = fopen(path, "rb"); if (!f) return si;
+    unsigned int magic = 0, ver = 0, seed; int ws; static Player p;
+    if (fread(&magic, 4, 1, f) == 1 && magic == 0x3034485Au && fread(&ver, 4, 1, f) == 1 && ver == 7 && fread(&seed, 4, 1, f) == 1 && fread(&ws, 4, 1, f) == 1 && fread(&p, sizeof p, 1, f) == 1) {
+        si.ok = true; si.day = p.day; si.tod = p.tod; si.time = p.time; si.kills = p.kills; }
+    fclose(f); return si;
+}
+static int slotFirstFree(int kind) { for (int n = 1; n <= SAVE_SLOTS; n++) if (!FileExists(slotPath(kind, n))) return n; return 0; }
 static bool saveExists(void) { return FileExists(savePath()); }
 static void deleteSave(void) { if (saveExists()) remove(savePath()); }
 #define SAVE_MAGIC 0x3034485Au   // "ZH04"
@@ -385,9 +462,9 @@ static void deleteSave(void) { if (saveExists()) remove(savePath()); }
 static bool saveGame(void) {
     if (netMode == NM_CLIENT) return false;   // a guest in someone else's game keeps no save
     if (!gameActive || pl.hp <= 0) return false;
-    ensureDir("Data"); ensureDir("Data/Userdata");
-    { char rel[128]; snprintf(rel, sizeof rel, "Data/Userdata/%s", prof.name[0] ? prof.name : "Guest"); ensureDir(rel); }
+    ensureDir("Data"); ensureDir("Data/Userdata"); ensureDir(profDir());
     FILE *f = fopen(savePath(), "wb"); if (!f) return false;
+    slotNamesLoad(); if (slotLast[saveKind] != saveSlot) { slotLast[saveKind] = saveSlot; slotNamesSave(); }
     unsigned int magic = SAVE_MAGIC, ver = 7; WR(magic); WR(ver); WR(worldSeed); WR(worldSolids);
     Player p = pl; p.invOpen = false; p.mapOpen = false; p.openC = -1; p.searchC = -1; p.dragFrom = -1; p.drag.t = -1; p.build = false; WR(p);
     unsigned char *bits = calloc((size_t)worldSolids, 1); for (int i = 0; i < worldSolids; i++) bits[i] = sol[i].off; fwrite(bits, 1, (size_t)worldSolids, f); free(bits);
@@ -433,6 +510,48 @@ static bool loadGame(void) {
     cheatsReset(); return true;
 }
 
+// ---- 0.9.14: the save manager (single player) and the host's world manager (multiplayer): one list, eight slots
+static int savesKind = 0, savesConfirm = -1, savesRename = -1; static TextBox savesName = {"", 0, false, false, 40};
+static bool savesHost(void);   // (zk_net.h: host the chosen world)
+static void savesPanel(void) {
+    slotNamesLoad();
+    Rectangle p = p3Panel(5, 0, 0, 760, 600, true); float s = aU;
+    if (aWindow(p, savesKind ? "Multiplayer worlds" : "Saved games")) { state = savesKind ? ST_MP : ST_MENU; savesRename = savesConfirm = -1; }
+    float x = p.x + 28 * s, w = 704 * s, y = p.y + 60 * s; bool busy = netMode != NM_OFF;
+    aText(savesKind ? "Host a world: an empty slot starts a new town, a saved one carries on where it was left." : "Load, start, rename or delete a save. Dying ends the run in that slot.", x, y, 13, C_BONE2, false); y += 30 * s;
+    for (int n = 1; n <= SAVE_SLOTS; n++) {
+        SlotInfo si = slotInfo(savesKind, n); float rh = 56 * s;
+        DrawRectangleLinesEx((Rectangle){x, y, w, rh - 6 * s}, 1, (Color){90, 110, 110, 160});
+        if (savesRename == n) { aTextBox((Rectangle){x + 10 * s, y + 8 * s, 300 * s, 34 * s}, "", &savesName);
+            if (aButton((Rectangle){x + 320 * s, y + 8 * s, 90 * s, 34 * s}, "OK", true) || IsKeyPressed(KEY_ENTER)) { snprintf(slotNames[savesKind][n], 48, "%s", savesName.buf); slotNamesSave(); savesRename = -1; }
+            if (aButton((Rectangle){x + 420 * s, y + 8 * s, 100 * s, 34 * s}, "Cancel", true)) savesRename = -1;
+            y += rh; continue; }
+        const char *nm = slotNames[savesKind][n][0] ? slotNames[savesKind][n] : TextFormat("Slot %d", n);
+        aText(nm, x + 12 * s, y + 6 * s, 16, si.exists ? C_BONE : C_BONE2, true);
+        if (!si.exists) aText("empty", x + 12 * s, y + 28 * s, 12, C_BONE2, false);
+        else if (!si.ok) aText("from an older version: cannot be loaded", x + 12 * s, y + 28 * s, 12, C_RED, false);
+        else { time_t mt = (time_t)si.mtime; struct tm *tm = localtime(&mt); char when[32] = ""; if (tm) strftime(when, sizeof when, "%d.%m %H:%M", tm);
+            aText(TextFormat("Day %d %02d:%02d  |  %d:%02d played  |  %d kills  |  %s", si.day, (int)si.tod, (int)((si.tod - (int)si.tod) * 60), (int)si.time / 60, (int)si.time % 60, si.kills, when), x + 12 * s, y + 28 * s, 12, C_BONE2, false); }
+        float bx = x + w - 10 * s; bool mine = gameActive && saveKind == savesKind && saveSlot == n;
+        bx -= 104 * s;
+        if (si.exists && aButton((Rectangle){bx, y + 8 * s, 100 * s, 34 * s}, savesConfirm == n ? "Sure?" : "Delete", !(busy && mine))) {
+            if (savesConfirm == n) { remove(slotPath(savesKind, n)); slotNames[savesKind][n][0] = 0; slotNamesSave(); savesConfirm = -1; if (mine) gameActive = false; } else savesConfirm = n; }
+        bx -= 104 * s;
+        if (aButton((Rectangle){bx, y + 8 * s, 100 * s, 34 * s}, "Rename", true)) { savesRename = n; snprintf(savesName.buf, sizeof savesName.buf, "%s", slotNames[savesKind][n]); savesName.len = (int)strlen(savesName.buf); savesName.active = true; }
+        bx -= 134 * s;
+        const char *act = savesKind ? (si.exists ? "Host" : "New world") : (si.exists ? (mine ? "Resume" : "Load") : "New game");
+        if (aButton((Rectangle){bx, y + 8 * s, 130 * s, 34 * s}, act, !busy && (!si.exists || si.ok))) {
+            savesConfirm = -1;
+            if (mine && !savesKind) { state = ST_PLAY; DisableCursor(); }
+            else {
+                if (gameActive && netMode == NM_OFF) saveGame();   // the game that was running is kept first
+                saveKind = savesKind; saveSlot = n; slotLast[savesKind] = n; slotNamesSave(); gameActive = false;
+                if (!savesKind) { if (si.exists) pendingLoad = 1; else state = ST_TRAITS; }
+                else pendingLoad = si.exists ? 4 : 3; } }
+        y += rh; }
+    p3End(5);
+}
+
 // ============================================================ the per-frame tick for all of the above
 static float trapCd[MAX_BUILD];
 static void restock(void) {   // each midnight: some far-away searched places have something in them again
@@ -444,8 +563,9 @@ static void restock(void) {   // each midnight: some far-away searched places ha
     TraceLog(LOG_INFO, "RESTOCK: %d containers", n);
 }
 static void survivalTick(float dt) {
-    // ---- clock: one in-game hour per 50 s; sleep runs it 12x faster
-    float hours = dt / 50.0f * (pl.sleeping ? 12 : 1);
+    // ---- clock: 0.9.14: one in-game hour per 150 s (a day lasts an hour); sleep runs it 36x faster (a night's sleep still takes about half a minute)
+    float hours = dt / 150.0f * (pl.sleeping ? 36 : 1);
+    spoilTick(hours); dropTick(hours, dt);   // 0.9.14
     pl.tod += hours;
     if (pl.tod >= 24) { pl.tod -= 24; pl.day++; restock(); }
     if (pl.tod > 18.3f && pl.tod < 19.5f) showHint(2);
@@ -525,7 +645,7 @@ static void traitsPanel(void) {
     }
     if (aButton((Rectangle){p.x + p.width / 2 - 230 * s, p.y + p.height - 66 * s, 200 * s, 44 * s}, "Back", true)) state = ST_MENU;
     if (aButton((Rectangle){p.x + p.width / 2 + 30 * s, p.y + p.height - 66 * s, 200 * s, 44 * s}, "Start", true)) {
-        newGame(); pl.trS = selS + 1; pl.trW = selW + 1; applyTraits(); saveGame(); state = ST_PLAY; DisableCursor();
+        pendTrS = selS + 1; pendTrW = selW + 1; pendingLoad = 2;   // (0.9.14: started on the next frame, behind the loading screen)
     }
     p3End(3);
 }

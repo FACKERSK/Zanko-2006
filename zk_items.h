@@ -5,7 +5,7 @@ enum { IT_FOOD, IT_DRINK, IT_BANDAGE, IT_BATTERY, IT_AMMO, IT_PLANKS, IT_OFUDA, 
        IT_SCHOOLBAG, IT_DUFFEL, IT_HIKEPACK,
        IT_WAKIZASHI, IT_NAGINATA, IT_BOKKEN, IT_GOLFCLUB, IT_SHOVEL, IT_MACHETE, IT_CLEAVER, IT_SICKLE, IT_WRENCH, IT_BATON, IT_TETSUBO, IT_PICKAXE, IT_SCALPEL, IT_FIREEXT, IT_UMBRELLA, IT_STOPSIGN,
        IT_HARDHAT, IT_RIOTHELM, IT_BEANIE, IT_COAT, IT_LEATHER, IT_STABVEST, IT_GAKURAN, IT_HANTEN, IT_WORKPANTS, IT_BIKEPANTS, IT_BOOTS, IT_RUBBERBOOTS,
-       IT_PISTOL, IT_SHOTGUN, IT_ACP, IT_SHELLS, IT_ROCK, IT_FIRECRACKER, IT_MOLOTOV, IT_KEY, IT_FUEL, IT_RAINCOAT, IT_N };
+       IT_PISTOL, IT_SHOTGUN, IT_ACP, IT_SHELLS, IT_ROCK, IT_FIRECRACKER, IT_MOLOTOV, IT_KEY, IT_FUEL, IT_RAINCOAT, IT_ROD, IT_FISH, IT_GRILLFISH, IT_N };
 enum { CAT_FOOD, CAT_DRINK, CAT_MED, CAT_TOOL, CAT_MELEE, CAT_GUN, CAT_AMMO, CAT_MAT, CAT_SPIRIT, CAT_COMFORT, CAT_BAG, CAT_CLOTHES, CAT_THROW };
 enum { WS_HEAD, WS_BODY, WS_LEGS, WS_FEET, WS_N };
 static const char *wsName[WS_N] = {"Head", "Body", "Legs", "Feet"};
@@ -87,6 +87,9 @@ static ItemDef idef[IT_N] = {   // mutable: Data/items.ini (or a mod's) changes 
     [IT_RAINCOAT]  = {"Raincoat", 0.7f, 1, CAT_CLOTHES, .stam = 0, .wslot = 1, .armor = 0.02f, .warm = 5.0f, .dry = 0.85f, .desc = "Clear vinyl from a konbini rack. Keeps the rain off, not much else."},
     [IT_PISTOL]    = {"Police Pistol", 0.6f, 1, CAT_GUN, 2.6f, 0.2f, 90, .cap = 8, .ammo = IT_ACP, .desc = "SIG P230 from a koban. Eight rounds, quick follow-ups, weak per shot."},
     [IT_SHOTGUN]   = {"Hunting Shotgun", 3.2f, 1, CAT_GUN, 1.3f, 0.6f, 45, .cap = 2, .ammo = IT_SHELLS, .desc = "Over-under 12 gauge from a hunter's cabinet. Two shells, nine pellets each. Deafening."},
+    [IT_ROD]       = {"Fishing Rod", 0.9f, 1, CAT_MELEE, 0.35f, 0.6f, 2.2f, 4, 0.2f, .style = 3, .desc = "Hold it and face the river or the sea, then attack to cast. When the line tugs, strike."},
+    [IT_FISH]      = {"Raw Fish", 0.5f, 4, CAT_FOOD, .desc = "Food +20 eaten raw, and it may make you sick. Grill it at a fire (Crafting). Spoils in a day and a half."},
+    [IT_GRILLFISH] = {"Grilled Fish", 0.4f, 4, CAT_FOOD, .desc = "Food +45 and a little warmth. Keeps for two and a half days."},
     [IT_ACP]       = {".32 Rounds", 0.015f, 40, CAT_AMMO, .desc = "Pistol ammunition."},
     [IT_SHELLS]    = {"12ga Shells", 0.04f, 20, CAT_AMMO, .desc = "Buckshot for the shotgun."},
     [IT_ROCK]      = {"Rock", 0.4f, 8, CAT_THROW, 1.5f, .desc = "Throw it [LMB] to make a noise somewhere else. Hurts a little if it lands on one."},

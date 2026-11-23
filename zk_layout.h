@@ -925,9 +925,11 @@ static void bakeHeightfield(void) {
             float c = br->fy + fminf(side * 1.6f, br->h + 6) + vnoise(x * 0.09f, z * 0.09f, 17) * 1.2f, w = clampf((a + 22) / 16, 0, 1) * clampf(side / 3, 0, 1) * (1 - clampf((side - 10) / 8, 0, 1)) * (1 - padW);   // only the walls of the cutting, not the hills beyond
             if (c > h) h = Lerp(h, c, w); }
         for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); float D = boreDepth(br), FW = br->kind == 1 ? br->w / 2 + 14 : br->w / 2 + 6;   // 0.9.13: the ground meets the headwall's level top along its back edge (no gap between the wall and the hill behind it)
-            if (a > D - 1.6f && a < D + 0.6f && fabsf(l) < FW + 1) h = fminf(h, br->fy + br->h + 3.0f - 0.15f); }
+            if (a > D - 1.6f && a < D + 0.6f && fabsf(l) < FW + 1) h = br->fy + br->h + 3.0f - 0.15f; }   // (exactly there: never lower, so no slope hangs down into the mouth)
         if (inCore(x, z)) h = SIDEH - 0.01f;   // the town: flat paving; streets are drawn on top of it
         else if (terrEdit) h += terrEdit[j * N + i];   // sculpted in the Mod Maker
+        for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); float D = boreDepth(br), FW = br->kind == 1 ? br->w / 2 + 14 : br->w / 2 + 6;
+            if (a > D - 1.6f && a < D + 0.6f && fabsf(l) < FW + 1 && !inCore(x, z)) h = br->fy + br->h + 3.0f - 0.15f; }   // (0.9.14: after any sculpting too: the ground always meets the headwall top)
         hf[j * N + i] = h;
     }
     hfReady = true;
@@ -935,8 +937,12 @@ static void bakeHeightfield(void) {
 static float terrainSkipY(float ax, float az) {   // 0.9.13: the ground no longer has holes: a cell that used to be left out (see terrainSkip) is laid this low instead (-1e9: not one of them)
     float cx = ax + HF_S / 2, cz = az + HF_S / 2;
     { float h = terrainH(cx, cz); if (h < SIDEH - 0.3f && h > SEA_Y - 0.6f && coast_d(cx, cz) < 10.5f) {
-        float hm = fmaxf(fmaxf(terrainH(ax, az), terrainH(ax + HF_S, az)), fmaxf(terrainH(ax, az + HF_S), terrainH(ax + HF_S, az + HF_S))); if (hm > SIDEH - 0.5f) return SEA_Y - 0.3f; } }
-    for (int b = 0; b < nBore; b++) { if (terrainSkip(ax, az)) { float a, l; boreLocal(&bores[b], cx, cz, &a, &l); if (a > -HF_S - 1 && a < boreDepth(&bores[b]) + HF_S + 1 && fabsf(l) < bores[b].w / 2 + HF_S + 2) return bores[b].fy - 0.3f; } }
+        float hm = fmaxf(fmaxf(terrainH(ax, az), terrainH(ax + HF_S, az)), fmaxf(terrainH(ax, az + HF_S), terrainH(ax + HF_S, az + HF_S))); if (hm > SIDEH - 0.5f) return 1e8f; } }   // at the seawall: the ground as it is (the wall stands in front of it)
+    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float D = boreDepth(br), a, l; boreLocal(br, cx, cz, &a, &l);
+        // the opening under the headwall and right in front of it: always down at the road (no slope of hill hanging into the mouth)
+        bool over = false; for (int c = 0; c < 5 && !over; c++) { float px = c == 4 ? cx : ax + (c & 1) * HF_S, pz = c == 4 ? cz : az + (c >> 1) * HF_S, pa, plv; boreLocal(br, px, pz, &pa, &plv); if (pa > -0.5f && pa < D && fabsf(plv) < br->w / 2 + 1.6f) over = true; }
+        if (over && a < D - 0.3f) return br->fy - 0.12f;
+        if (terrainSkip(ax, az) && a > -HF_S - 1 && a < D + HF_S + 1 && fabsf(l) < br->w / 2 + HF_S + 2) return br->fy - 0.12f; }
     return terrainSkip(ax, az) ? -1.0f : -1e9f;
 }
 static bool terrainSkip(float ax, float az) {   // terrain cells inside a headwall, over the bore mouth, or against the seawall
@@ -950,8 +956,8 @@ static bool terrainSkip(float ax, float az) {   // terrain cells inside a headwa
     return false;
 }
 
-static bool terrMouth(float x, float z, float y) {   // a point in a tunnel's opening (no ground wall may close it)
-    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); if (a > -HF_S - 1 && a < br->len + 7 && fabsf(l) < br->w / 2 + 0.7f && y > br->fy - 1.5f && y < br->fy + br->h + 0.6f) return true; }
+static bool terrMouth(float x, float z, float lo, float hi) {   // an upright piece of ground from lo to hi here would cross a tunnel's opening (none may close it)
+    for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; float a, l; boreLocal(br, x, z, &a, &l); if (a > -HF_S - 2 && a < br->len + HF_S + 2 && fabsf(l) < br->w / 2 + 1.2f && hi > br->fy - 1.0f && lo < br->fy + br->h + 0.6f) return true; }
     return false;
 }
 // ---------------------------------------------------------------- road ribbons
@@ -971,6 +977,7 @@ static bool coastStreetGap(float qx, float qz, float o) {   // a street that run
 // closed on all six sides (the faces wound outward from the piece's middle)
 static float ribTh = -1;   // thickness for the strips drawn next (-1: by what they are)
 static int wrGrow = 0; static float wrTh = -1;   // an upright strip: 0 centred on its line, +1 grows away from the path, -1 toward it
+// (hexaNoBottom, kirimachi.c) 0.9.14: leave out the face that points down (a ground slab's underside, never seen)
 static void hexa(int t, const Vector3 *v, Color c) {   // v[0..3] one face, v[4..7] the opposite face, corner for corner
     Vector3 ctr = {0}; for (int i = 0; i < 8; i++) ctr = Vector3Add(ctr, v[i]); ctr = Vector3Scale(ctr, 0.125f);
     static const int F[6][4] = {{0, 1, 2, 3}, {7, 6, 5, 4}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
@@ -980,6 +987,7 @@ static void hexa(int t, const Vector3 *v, Color c) {   // v[0..3] one face, v[4.
         if (Vector3Length(n) < 1e-9f) continue;
         if (Vector3DotProduct(n, out) < 0) { Vector3 tq = p0; p0 = p3; p3 = tq; tq = p1; p1 = p2; p2 = tq; n = Vector3Negate(n); }
         n = Vector3Normalize(n); if (fabsf(n.y) > 0.98f) n = V3(0, n.y > 0 ? 1 : -1, 0);
+        if (hexaNoBottom && n.y < -0.98f) continue;
         quad(t, p0, p1, p2, p3, n, c); }
 }
 static float stripTh(int t, float w) {
@@ -988,7 +996,7 @@ static float stripTh(int t, float w) {
     return clampf(w * 0.6f, 0.01f, 0.1f);
 }
 static void flatSlab(int t, Vector3 a0, Vector3 a1, Vector3 b1, Vector3 b0, float th, Color c) {
-    Vector3 v[8] = {a0, a1, b1, b0, a0, a1, b1, b0}; for (int i = 4; i < 8; i++) v[i].y -= th; hexa(t, v, c);
+    Vector3 v[8] = {a0, a1, b1, b0, a0, a1, b1, b0}; for (int i = 4; i < 8; i++) v[i].y -= th; hexaNoBottom = th > 0.05f; hexa(t, v, c); hexaNoBottom = false;   // (a road's underside is in the ground)
 }
 static void uprightSlab(int t, Vector3 a0, Vector3 a1, Vector3 b1, Vector3 b0, Vector2 n0, Vector2 n1, float o, Color c) {   // a0 a1 the foot, b1 b0 the top, on the line at offset o
     float th = wrTh > 0 ? wrTh : (t == T_METAL ? 0.04f : t == T_PLAIN ? 0.02f : 0.14f), sg = o >= 0 ? 1.0f : -1.0f, d0, d1;
@@ -1845,6 +1853,7 @@ static void subwayPlace(void) {
     TraceLog(LOG_INFO, "SUBWAY line x %.0f..%.0f at z %.1f, %d entrances", LX0, LX1, SUB_Z, nSubEx);
 }
 static void genLayoutWorld(void) {
+    quadSlab = getenv("KIRI_NOQSLAB") ? 0 : 0.12f; memset(quadLastSig, 0, sizeof quadLastSig);   // 0.9.14: no bare ground faces (see quad)
     // coast road: two lanes, pavement on the land side, seawall on the sea side
     Color asp = rgb(255, 255, 255);
     ribbon(T_ASPHALT, coastP, nCoast, -3.7f, 3.7f, ROADY + 0.03f, ROADY + 0.03f, asp, NULL);
@@ -2397,6 +2406,7 @@ static void genLayoutWorld(void) {
         if ((!rv && (mn > SEA_Y || (cityLand(x0 + 1, z0 + 1) && coast_d(x0 + 1, z0 + 1) > 4.0f && !seaSide(x0 + 1, z0 + 1)))) || inBore(x0 + 1, z0 + 1, 0)) continue;   // (the water runs on under the beach's edge: the shore is where the sand rises out of it, not a cell edge)
         quad(T_PLAIN, V3(x0, wy, z0 + HF_S), V3(x0 + HF_S, wy, z0 + HF_S), V3(x0 + HF_S, wy, z0), V3(x0, wy, z0), V3(0, 1, 0), rv ? rgb(60, 112, 120) : rgb(46, 98, 128));
     }
+    quadSlab = 0;
 }
 static void spawnTunnels(void) {
     for (int b = 0; b < nBore; b++) { Bore *br = &bores[b]; int n = br->kind == 1 ? 2 : 3;

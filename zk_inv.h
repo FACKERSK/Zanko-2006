@@ -96,7 +96,7 @@ static void getSick(float amount, const char *why);
 static void giveBack(int t, int n) { int left = invAdd(t, n); if (left) addItem(V3(pl.pos.x, pl.pos.y + 0.02f, pl.pos.z), t, left); }
 static const char *noNeed(int t) {   // why using it now would do nothing (NULL: it would help)
     switch (t) {
-    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: return pl.food >= 95 ? "You are full." : NULL;
+    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: return pl.food >= 95 ? "You are full." : NULL;
     case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: return pl.water >= 95 ? "You are not thirsty." : NULL;
     case IT_PAINKILLER: return (pl.hp >= 99 && pl.fracture == 0 && pl.painT <= 0) ? "Nothing hurts." : NULL;
     case IT_SPLINT: return pl.fracture != 1 ? (pl.fracture == 2 ? "The leg is already splinted." : "Nothing is broken.") : NULL;
@@ -106,6 +106,23 @@ static const char *noNeed(int t) {   // why using it now would do nothing (NULL:
     }
     return NULL;
 }
+// 0.9.14: food goes off. A perishable stack ages (Slot.w, tenths of an in-game hour); past 60% of its life it is stale (less food, a chance of
+// sickness), past its life rotten (little food, likely sick). Canned food, ramen and drinks keep.
+static float perishLife(int t) { switch (t) { case IT_FOOD: return 72; case IT_DAIKON: return 144; case IT_FISH: return 36; case IT_GRILLFISH: return 60; } return 0; }
+static float foodAge(int t) {   // 0 fresh .. 1 at the end of its life (and on) for the piece about to be eaten
+    float life = perishLife(t); if (life <= 0) return 0; Slot *s = NULL;
+    if (pl.hands.t == t) s = &pl.hands; else for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t == t) { if (!s || pl.sl[i].w > s->w) s = &pl.sl[i]; }
+    return s ? s->w / (life * 10) : 0;
+}
+static const char *freshWord(float a) { return a >= 1 ? "rotten" : a >= 0.6f ? "stale" : a >= 0.3f ? "a little old" : "fresh"; }
+static float spoilEat(int t, float food) {   // what eating it gives (and may cost)
+    float a = foodAge(t); if (a < 0.6f) return food;
+    if (a >= 1) { if (fr(0, 1) < 0.7f * trMul(1)) getSick(55, "It was rotten. Your stomach turns."); else say("It was rotten. You kept it down."); return food * 0.4f; }
+    if (fr(0, 1) < 0.25f * trMul(1)) getSick(30, "It had gone off."); else say("Stale, but it will do."); return food * 0.7f;
+}
+static void spoilTick(float hours) { short d = (short)fmaxf(1, lroundf(hours * 10)); static float acc = 0; acc += hours * 10; if (acc < 1) return; d = (short)acc; acc -= d;
+    if (perishLife(pl.hands.t) > 0) pl.hands.w = (short)(pl.hands.w + d > 30000 ? 30000 : pl.hands.w + d);
+    for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t >= 0 && perishLife(pl.sl[i].t) > 0) pl.sl[i].w = (short)(pl.sl[i].w + d > 30000 ? 30000 : pl.sl[i].w + d); }
 static void consumeItem(int t);
 static void useItem(int t) {   // inventory right-click and the quickbar: weapons and consumables go to the hand, other things are used
     if (t < 0 || !invHas(t)) { if (t >= 0) say(TextFormat("No %s.", idef[t].name)); return; }
@@ -125,17 +142,19 @@ static void useHeld(void) {   // the attack button with a consumable in hand
 static void consumeItem(int t) {
     if (t < 0 || !invHas(t)) return;
     { const char *why = noNeed(t); if (why) { say(why); return; } }   // nothing to gain: no animation, nothing used
-    { int a = 0; switch (t) { case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: a = ANIM_EAT; break; case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: a = ANIM_DRINK; break;
+    { int a = 0; switch (t) { case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: a = ANIM_EAT; break; case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: a = ANIM_DRINK; break;
         case IT_PAINKILLER: case IT_CHARCOAL: a = ANIM_PILL; break; case IT_BANDAGE: case IT_RAG: case IT_SPLINT: case IT_DISINFECT: a = ANIM_BANDAGE; break; }
       if (a) animUse(a, t); }
     switch (t) {
-    case IT_FOOD: invTake(t, 1); pl.food = fminf(100, pl.food + 30); say("Ate an onigiri."); break;
+    case IT_FOOD: { float g = spoilEat(t, 30); invTake(t, 1); pl.food = fminf(100, pl.food + g); if (g >= 30) say("Ate an onigiri."); } break;
+    case IT_FISH: { float g = spoilEat(t, 20); invTake(t, 1); pl.food = fminf(100, pl.food + g); if (fr(0, 1) < 0.35f * trMul(1)) getSick(35, "Raw fish. Something in it disagrees with you."); else if (g >= 20) say("Raw fish. Chewy, cold, filling enough."); } break;
+    case IT_GRILLFISH: { float g = spoilEat(t, 45); invTake(t, 1); pl.food = fminf(100, pl.food + g); pl.warmth = fminf(100, pl.warmth + 8); pl.sanity = fminf(100, pl.sanity + 3); if (g >= 45) say("Grilled fish. Smoky and hot."); } break;
     case IT_CANNED: invTake(t, 1); pl.food = fminf(100, pl.food + 50); pl.water = fmaxf(0, pl.water - 5); say("Canned mackerel. Salty."); break;
     case IT_DRINK: invTake(t, 1); pl.water = fminf(100, pl.water + 35); say("Drank green tea."); giveBack(IT_BOTTLE, 1); break;
     case IT_WATER: invTake(t, 1); pl.water = fminf(100, pl.water + 55); say("Drank water."); giveBack(IT_BOTTLE, 1); break;
     case IT_DIRTYWATER: invTake(t, 1); pl.water = fminf(100, pl.water + 40); giveBack(IT_BOTTLE, 1);
         if (fr(0, 1) < 0.45f * trMul(1)) getSick(45, "The water tasted wrong."); else say("Unboiled water. You got lucky this time."); break;
-    case IT_DAIKON: invTake(t, 1); pl.food = fminf(100, pl.food + 25); pl.water = fminf(100, pl.water + 10); pl.sanity += 4; say("Fresh daikon. Something you grew yourself."); break;
+    case IT_DAIKON: { float g = spoilEat(t, 25); invTake(t, 1); pl.food = fminf(100, pl.food + g); } pl.water = fminf(100, pl.water + 10); pl.sanity += 4; say("Fresh daikon. Something you grew yourself."); break;
     case IT_SPLINT: if (pl.fracture != 1) { say(pl.fracture == 2 ? "The leg is already splinted." : "Nothing is broken."); return; } invTake(t, 1); pl.fracture = 2; pl.fracT = 0; say("Leg splinted. It will heal over the next half day."); skGain(SK_MED, 6); break;
     case IT_CHARCOAL: if (pl.sick <= 0) { say("Your stomach is fine."); return; } invTake(t, 1); pl.sick = fmaxf(0, pl.sick - 55); say("Charcoal. The nausea fades."); break;
     case IT_DISINFECT: if (pl.infect <= 0 && pl.wounds <= 0) { say("No wound to clean."); return; } invTake(t, 1); pl.infect = 0; pl.woundT = 0; say(pl.wounds ? "Wounds cleaned. They still need bandaging." : "Infection cleaned out. The fever breaks."); skGain(SK_MED, 4); break;
@@ -156,7 +175,7 @@ static void consumeItem(int t) {
     default: say(idef[t].desc); return;
     }
     switch (t) {   // what using it sounds like
-    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: play(sEat, 0.6f); break;
+    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: play(sEat, 0.6f); break;
     case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: play(sDrink, 0.6f); break;
     case IT_PAINKILLER: case IT_CHARCOAL: play(sPill, 0.6f); break;
     case IT_BANDAGE: case IT_RAG: case IT_SPLINT: case IT_DISINFECT: play(sBandage, 0.6f); break;

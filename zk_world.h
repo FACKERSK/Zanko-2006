@@ -11,6 +11,8 @@ static float SUB_Z = 0, subX0, subX1; static float subEx[3]; static int nSubEx; 
 // ---------------------------------------------------------------- ground holes (subway stairwells)
 #define MAX_HOLE 8
 static Rectangle holes[MAX_HOLE]; static int nHole;
+#define MAX_MAPFOOT 2400
+static Rectangle mapFoot[MAX_MAPFOOT]; static float mapFootH[MAX_MAPFOOT], mapFootY[MAX_MAPFOOT]; static short mapFootF[MAX_MAPFOOT]; static int nMapFoot;   // footprints in their building's frame
 static bool inHole(float x, float z) { for (int i = 0; i < nHole; i++) if (x > holes[i].x && x < holes[i].x + holes[i].width && z > holes[i].y && z < holes[i].y + holes[i].height) return true; return false; }
 // basement stairwells: openings in a building's ground floor (in the building's own frame) where the ground drops to the basement
 #define MAX_PIT 600
@@ -127,11 +129,13 @@ static int inBore(float x, float z, float y) {   // index+1 when (x,z,y) is insi
 }
 static float coast_d(float x, float z); static float coastSigned(float x, float z); static bool coastSeaward(float x, float z); static bool mainRoadAt(float x, float z, float m); static float polyEdgeDist(const float (*p)[2], int n, float x, float z);
 static float roadRastAt(float x, float z);
+static float bankAt(float x, float z);
 static float baseGroundY(float x, float z, float y) {
     if (cityLand(x, z)) { if (inHole(x, z) || inPit(x, z)) return -1e9f; float r = roadRastAt(x, z); return (r > SIDEH + 0.05f || (r > ROADY - 0.05f && r < SIDEH - 0.06f)) && y > r - 1.0f ? r : SIDEH; }   // the streets lie a kerb below the town (a road climbing out of town starts on town land)
     int b = inBore(x, z, y); if (b) return bores[b - 1].fy;
     float h = terrainH(x, z);
-    { float r = roadRastAt(x, z); if (r > h && y > r - 1.0f) return r; }   // a road or paved strip out of town: the drawn surface, not the coarser terrain under it
+    { float r = roadRastAt(x, z); if (r > -1e8f && y > r - 1.0f) return r; }   // a road or paved strip out of town: the drawn surface (0.9.14: the ground under it is laid just below it)
+    { float bk = bankAt(x, z); if (bk > h) h = bk; }   // (0.9.14: the bank built up beside a road)
     if (h > -4.0f && h < SIDEH - 0.3f && !cityLand(x, z) && coast_d(x, z) < 11 && coast_d(x, z) > 5.0f && coastSeaward(x, z)) return fminf(h, -3.64f);   // below road level on the sea side: the flat apron at the foot of the seawall
     return h;
 }
@@ -150,6 +154,10 @@ static float wildK(Vector3 p) {
     return k;
 }
 static Model terrain; static bool terrainOk = false; static Texture2D blissTex;
+// 0.9.14: the ground in 64 m tiles, so only what is in front of you and short of the fog is drawn (it was one model of millions of vertices)
+#define TER_TILE 64.0f
+#define TER_MAXT 400
+static Model terTiles[TER_MAXT]; static Vector3 terTMn[TER_MAXT], terTMx[TER_MAXT]; static int nTerT;
 static Texture2D makeBliss(void) {   // saturated XP-wallpaper grass
     int S = 64; Image im = GenImageColor(S, S, (Color){72, 168, 52, 255});
     unsigned int r = 31;
@@ -161,7 +169,8 @@ static Texture2D makeBliss(void) {   // saturated XP-wallpaper grass
     return t;
 }
 static bool terrainSkip(float ax, float az);   // zk_layout.h: cells hidden behind tunnel headwalls
-static float terrainSkipY(float ax, float az); static bool terrMouth(float x, float z, float y);
+static float terrainSkipY(float ax, float az); static bool terrMouth(float x, float z, float lo, float hi);
+static bool terPaveTint;   // 0.9.14: town ground under the paving: concrete grey, not grass
 static void terrVert(Mesh *m, int *vp, float x, float z, float y, Vector3 nn) {
     int v = *vp; if (!m->vertices) { *vp = v + 1; return; }   // (counting pass)
     m->vertices[v * 3] = x; m->vertices[v * 3 + 1] = y; m->vertices[v * 3 + 2] = z;
@@ -177,6 +186,7 @@ static void terrVert(Mesh *m, int *vp, float x, float z, float y, Vector3 nn) {
         r = Lerp(r, sr, flat); g = Lerp(g, sg, flat); b = Lerp(b, sb, flat); }
     float mt = clampf((y - 12) / 14, 0, 1); r = Lerp(r, 0.55f, mt); g = Lerp(g, 0.72f, mt); b = Lerp(b, 0.62f, mt);
     float rk = clampf((y - 34) / 10, 0, 1); r = Lerp(r, 1.45f, rk); g = Lerp(g, 0.95f, rk); b = Lerp(b, 1.05f, rk);
+    if (terPaveTint) { r = 0.66f; g = 0.66f; b = 0.64f; flat = 1; }
     m->colors[v * 4] = (unsigned char)clampf(255 * sh * r, 0, 255); m->colors[v * 4 + 1] = (unsigned char)clampf(255 * sh * g, 0, 255);
     m->colors[v * 4 + 2] = (unsigned char)clampf(255 * sh * b, 0, 255); m->colors[v * 4 + 3] = flat > 0.01f ? (unsigned char)(255 * (0.6f - 0.09f * flat)) : 255;
     *vp = v + 1;
@@ -193,14 +203,28 @@ static int terNS;              // columns along a side
 static int terIdx(int I, int J) { return J * terNS + I; }
 static float terTop(int t, float base, int ci, int cj, int n) {
     if (t & 8) base = fminf(base, -2.3f);
-    switch (t & 7) { case 2: return -12.0f; case 3: return base - 0.15f; case 4: return fminf(base, terLow[cj * n + ci]); default: return base; }
+    switch (t & 7) { case 2: return -12.0f; case 5: return SIDEH - 0.2f; case 3: return base - 0.15f; case 4: return fminf(base, terLow[cj * n + ci]); default: return base; }
 }
 static float terBase(int ci, int cj, float uu, float ww) {   // the heightfield over cell (ci, cj) at (uu, ww) in 0..1
     float h00 = hf[cj * HF_N + ci], h10 = hf[cj * HF_N + ci + 1], h01 = hf[(cj + 1) * HF_N + ci], h11 = hf[(cj + 1) * HF_N + ci + 1];
     return (h00 * (1 - uu) + h10 * uu) * (1 - ww) + (h01 * (1 - uu) + h11 * uu) * ww;
 }
+// 0.9.14: the ground meets every road and pavement out of town: under one it lies just below the drawn surface (never above it, never far below),
+// and beside one it is built up in a bank that falls away at about 30 degrees to the natural ground (no road or pavement standing on air)
+static float *terEmb; static unsigned char *terPave; static int terNV;
+static float bankAt(float x, float z) {
+    if (!terEmb) return -1e9f; int I = (int)lroundf((x - HF_X0) / (HF_S / TSUB)), J = (int)lroundf((z - HF_X0) / (HF_S / TSUB));
+    if (I < 0 || J < 0 || I >= terNV || J >= terNV) return -1e9f; size_t k = (size_t)J * terNV + I; return terPave[k] ? -1e9f : terEmb[k];
+}
+static float terH(int t, int ci, int cj, int n, float uu, float ww) {
+    float base = terBase(ci, cj, uu, ww);
+    if (terEmb && (t & 7) != 2) { int vi = ci * TSUB + (int)lroundf(uu * TSUB), vj = cj * TSUB + (int)lroundf(ww * TSUB); size_t k = (size_t)vj * terNV + vi; float e = terEmb[k];
+        if (terPave[k]) { if ((t & 7) == 4) return fminf(e, terLow[cj * n + ci]); return e; }   // under a road or pavement: just below it
+        if (e > base && (t & 7) == 1 && !(t & 8)) return e; }
+    return terTop(t, base, ci, cj, n);
+}
 static void genTerrain(void) {
-    if (terrainOk) { UnloadModel(terrain); terrainOk = false; }
+    if (terrainOk) { for (int k = 0; k < nTerT; k++) UnloadModel(terTiles[k]); nTerT = 0; terrainOk = false; }
     const float S = HF_S, q = S / TSUB; int n = HF_N - 1, NS = n * TSUB; terNS = NS;
     free(terT); free(terLow); terT = calloc((size_t)NS * NS, 1); terLow = malloc(sizeof(float) * (size_t)n * n);
     bool *uni = calloc((size_t)n * n, 1);   // the whole cell one kind: one quad
@@ -213,9 +237,53 @@ static void genTerrain(void) {
         int whole = sy > -1e8f ? 4 : (nl == 4 || np2 == 4) ? 2 : (nl == 0 && np2 == 0 && !road) ? 1 : 0;
         if (whole && !rc) { uni[j * n + i] = 1; for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) terT[terIdx(i * TSUB + a, j * TSUB + b)] = (unsigned char)whole; continue; }
         for (int b = 0; b < TSUB; b++) for (int a = 0; a < TSUB; a++) { float x = ax + (a + 0.5f) * q, z = az + (b + 0.5f) * q;
-            int t = whole ? whole : (cityLand(x, z) || inCore(x, z)) ? 2 : (hfReady && mainRoadAt(x, z, 0.05f)) ? 3 : 1;
+            int t = whole && whole != 2 ? whole : (cityLand(x, z) || inCore(x, z)) ? 2 : (hfReady && mainRoadAt(x, z, 0.05f)) ? 3 : 1;
             if (rvCorridor(x, z) && t != 2) t |= 8;
             terT[terIdx(i * TSUB + a, j * TSUB + b)] = (unsigned char)t; } }
+    if (getenv("KIRI_TERRDBG")) { float tx, tz; sscanf(getenv("KIRI_TERRDBG"), "%f %f", &tx, &tz);
+        for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) { float ax = HF_X0 + i * S, az = HF_X0 + j * S; if (fabsf(ax + 1 - tx) > 9 || fabsf(az + 1 - tz) > 9) continue;
+            TraceLog(LOG_INFO, "TCELL %.0f %.0f type %d uni %d low %.2f h %.2f..%.2f", ax, az, terT[terIdx(i * TSUB, j * TSUB)], uni[j * n + i], terLow[j * n + i], fminf(hf[j * HF_N + i], hf[(j + 1) * HF_N + i + 1]), fmaxf(hf[j * HF_N + i], hf[(j + 1) * HF_N + i + 1])); } }
+    {   // 0.9.14: town ground lies just under the paving (no void under a gap in it), except under buildings (basements), holes, pits and the river, where it stays far down
+        unsigned char *fm = calloc((size_t)NS * NS, 1);
+        for (int f = 0; f < nMapFoot; f++) { Rectangle r = mapFoot[f]; Vector3 c4[4] = {V3(r.x, 0, r.y), V3(r.x + r.width, 0, r.y), V3(r.x, 0, r.y + r.height), V3(r.x + r.width, 0, r.y + r.height)};
+            float mnx = 1e9f, mxx = -1e9f, mnz = 1e9f, mxz = -1e9f; for (int k = 0; k < 4; k++) { Vector3 w4 = mapFootF[f] ? xfP(mapFootF[f], c4[k]) : c4[k]; mnx = fminf(mnx, w4.x); mxx = fmaxf(mxx, w4.x); mnz = fminf(mnz, w4.z); mxz = fmaxf(mxz, w4.z); }
+            int i0 = (int)floorf((mnx - 0.6f - HF_X0) / q), i1 = (int)ceilf((mxx + 0.6f - HF_X0) / q), j0 = (int)floorf((mnz - 0.6f - HF_X0) / q), j1 = (int)ceilf((mxz + 0.6f - HF_X0) / q);
+            for (int J = j0 < 0 ? 0 : j0; J <= j1 && J < NS; J++) for (int I = i0 < 0 ? 0 : i0; I <= i1 && I < NS; I++) fm[terIdx(I, J)] = 1; }
+        #define FMRECT(mnx_, mnz_, mxx_, mxz_) do { int i0 = (int)floorf(((mnx_) - 0.6f - HF_X0) / q), i1 = (int)ceilf(((mxx_) + 0.6f - HF_X0) / q), j0 = (int)floorf(((mnz_) - 0.6f - HF_X0) / q), j1 = (int)ceilf(((mxz_) + 0.6f - HF_X0) / q); \
+            for (int J = j0 < 0 ? 0 : j0; J <= j1 && J < NS; J++) for (int I = i0 < 0 ? 0 : i0; I <= i1 && I < NS; I++) fm[terIdx(I, J)] = 1; } while (0)
+        for (int h2 = 0; h2 < nHole; h2++) FMRECT(holes[h2].x, holes[h2].y, holes[h2].x + holes[h2].width, holes[h2].y + holes[h2].height);
+        for (int p2 = 0; p2 < nPit; p2++) FMRECT(pits[p2].x0, pits[p2].z0, pits[p2].x1, pits[p2].z1);
+        #undef FMRECT
+        int n5 = 0;
+        for (int J = 0; J < NS; J++) for (int I = 0; I < NS; I++) { size_t k = terIdx(I, J); if ((terT[k] & 7) != 2 || fm[k]) continue;
+            float x = HF_X0 + (I + 0.5f) * q, z = HF_X0 + (J + 0.5f) * q;
+            if (rvCorridor(x, z)) continue;
+            terT[k] = 5; n5++; uni[(J / TSUB) * n + I / TSUB] = 0; }
+        free(fm); TraceLog(LOG_INFO, "TERRAIN town ground under the paving: %d pieces", n5); }
+    {   // the banks along roads and pavements (see terH)
+        int NV = NS + 1; terNV = NV; free(terEmb); free(terPave); terEmb = malloc(sizeof(float) * (size_t)NV * NV); terPave = calloc((size_t)NV * NV, 1); float *bv = malloc(sizeof(float) * (size_t)NV * NV);
+        for (int J = 0; J < NV; J++) for (int I = 0; I < NV; I++) { int ci = I / TSUB, cj = J / TSUB; if (ci >= n) ci = n - 1; if (cj >= n) cj = n - 1;
+            float uu = (float)(I - ci * TSUB) / TSUB, ww = (float)(J - cj * TSUB) / TSUB, x = HF_X0 + I * q, z = HF_X0 + J * q; size_t k = (size_t)J * NV + I;
+            bv[k] = terBase(ci, cj, uu, ww); terEmb[k] = -1e9f;
+            float r = fmaxf(fmaxf(roadRastAt(x - 0.25f, z - 0.25f), roadRastAt(x + 0.25f, z - 0.25f)), fmaxf(roadRastAt(x - 0.25f, z + 0.25f), roadRastAt(x + 0.25f, z + 0.25f)));
+            if (r > -1e8f && !inCore(x, z)) { terEmb[k] = r - 0.12f; terPave[k] = 1; } }
+        const float SL = 0.6f * q, SD = 0.6f * q * 1.41421f;
+        for (int pass = 0; pass < 4; pass++) { bool fw = !(pass & 1);
+            for (int jj = 0; jj < NV; jj++) { int J = fw ? jj : NV - 1 - jj; for (int ii = 0; ii < NV; ii++) { int I = fw ? ii : NV - 1 - ii; size_t k = (size_t)J * NV + I; if (terPave[k]) continue;
+                float best = terEmb[k]; int dj = fw ? -1 : 1;
+                for (int di = -1; di <= 1; di++) { int I2 = I + di, J2 = J + dj; if (I2 >= 0 && I2 < NV && J2 >= 0 && J2 < NV) { float c = terEmb[(size_t)J2 * NV + I2] - (di ? SD : SL); if (c > best) best = c; } }
+                { int I2 = I + (fw ? -1 : 1); if (I2 >= 0 && I2 < NV) { float c = terEmb[(size_t)J * NV + I2] - SL; if (c > best) best = c; } }
+                if (best > bv[k] + 0.01f) terEmb[k] = best; } } }
+        int nb = 0; for (size_t k = 0; k < (size_t)NV * NV; k++) if (!terPave[k] && terEmb[k] > -1e8f) nb++;
+        for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) if (uni[j * n + i]) { bool any = false;   // a cell with a bank or a road in it is drawn in its 0.5 m pieces
+            for (int b = 0; b <= TSUB && !any; b++) for (int a = 0; a <= TSUB && !any; a++) { size_t k = (size_t)(j * TSUB + b) * NV + i * TSUB + a; if (terEmb[k] > -1e8f) any = true; }
+            if (any) uni[j * n + i] = 0; }
+        free(bv); TraceLog(LOG_INFO, "TERRAIN banks: %d points raised beside roads", nb); }
+    for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) {   // a cell all of one kind, with no road or bank in it, is one quad again
+        int t0 = terT[terIdx(i * TSUB, j * TSUB)]; bool same = true;
+        for (int b = 0; b < TSUB && same; b++) for (int a = 0; a < TSUB && same; a++) if (terT[terIdx(i * TSUB + a, j * TSUB + b)] != t0) same = false;
+        for (int b = 0; b <= TSUB && same; b++) for (int a = 0; a <= TSUB && same; a++) if (terEmb[(size_t)(j * TSUB + b) * terNV + i * TSUB + a] > -1e8f) same = false;
+        uni[j * n + i] = same && !rvCorridor(HF_X0 + i * S + S / 2, HF_X0 + j * S + S / 2); }
     #define HFN(gi, gj) ({ int gi_ = (gi), gj_ = (gj); float hx_ = hf[gj_ * HF_N + (gi_ < HF_N - 1 ? gi_ + 1 : gi_)] - hf[gj_ * HF_N + (gi_ > 0 ? gi_ - 1 : gi_)], hz_ = hf[(gj_ < HF_N - 1 ? gj_ + 1 : gj_) * HF_N + gi_] - hf[(gj_ > 0 ? gj_ - 1 : gj_) * HF_N + gi_]; Vector3Normalize(V3(-hx_, 2 * HF_S, -hz_)); })
     Mesh m = {0}; int v = 0, walls = 0;
     for (int pass = 0; pass < 2; pass++) {
@@ -226,10 +294,10 @@ static void genTerrain(void) {
             Vector3 n00 = HFN(i, j), n10 = HFN(i + 1, j), n01 = HFN(i, j + 1), n11 = HFN(i + 1, j + 1); float ax = HF_X0 + i * S, az = HF_X0 + j * S;
             int sub = uni[j * n + i] ? 1 : TSUB;
             for (int b = 0; b < sub; b++) for (int a = 0; a < sub; a++) {
-                int t = uni[j * n + i] ? t0 : terT[terIdx(i * TSUB + a, j * TSUB + b)]; if (!t) continue;
+                int t = uni[j * n + i] ? t0 : terT[terIdx(i * TSUB + a, j * TSUB + b)]; if (!t) continue; terPaveTint = (t & 7) == 5;
                 float u[4] = {(float)a / sub, (float)a / sub, (float)(a + 1) / sub, (float)(a + 1) / sub}, w[4] = {(float)b / sub, (float)(b + 1) / sub, (float)(b + 1) / sub, (float)b / sub};
                 int ord[6] = {0, 1, 2, 0, 2, 3};
-                for (int k = 0; k < 6; k++) { float uu = u[ord[k]], ww = w[ord[k]], y = terTop(t, terBase(i, j, uu, ww), i, j, n);
+                for (int k = 0; k < 6; k++) { float uu = u[ord[k]], ww = w[ord[k]], y = terH(t, i, j, n, uu, ww);
                     Vector3 nn = Vector3Normalize(Vector3Add(Vector3Scale(Vector3Add(Vector3Scale(n00, 1 - uu), Vector3Scale(n10, uu)), 1 - ww), Vector3Scale(Vector3Add(Vector3Scale(n01, 1 - uu), Vector3Scale(n11, uu)), ww)));
                     terrVert(&m, &v, ax + uu * S, az + ww * S, y, nn); } } }
         // the sides: between every two 0.5 m columns whose tops do not meet, and along the edge of the world (down to the floor)
@@ -240,30 +308,47 @@ static void genTerrain(void) {
                 int t2 = (I2 < 0 || J2 < 0 || I2 >= NS || J2 >= NS) ? 0 : terT[terIdx(I2, J2)];
                 if (e >= 2 && t2) continue;
                 float u0, w0, u1, w1; if (e == 0 || e == 2) { u0 = u1 = ua + (e == 0 ? 1.0f / TSUB : 0); w0 = wa; w1 = wa + 1.0f / TSUB; } else { w0 = w1 = wa + (e == 1 ? 1.0f / TSUB : 0); u0 = ua; u1 = ua + 1.0f / TSUB; }
-                float b0 = terBase(ci, cj, u0, w0), b1 = terBase(ci, cj, u1, w1);
-                float a0 = terTop(t, b0, ci, cj, n), a1 = terTop(t, b1, ci, cj, n), c0, c1;
-                if (t2) { int ci2 = I2 / TSUB, cj2 = J2 / TSUB; c0 = terTop(t2, b0, ci2, cj2, n); c1 = terTop(t2, b1, ci2, cj2, n); } else { c0 = c1 = TER_BOT; }
+                float a0 = terH(t, ci, cj, n, u0, w0), a1 = terH(t, ci, cj, n, u1, w1), c0, c1;
+                if (t2) { int ci2 = I2 / TSUB, cj2 = J2 / TSUB; float x0w = ci + u0, z0w = cj + w0, x1w = ci + u1, z1w = cj + w1;   // the same two points, seen from the neighbouring cell
+                    c0 = terH(t2, ci2, cj2, n, x0w - ci2, z0w - cj2); c1 = terH(t2, ci2, cj2, n, x1w - ci2, z1w - cj2); } else { c0 = c1 = TER_BOT; }
                 if (fabsf(a0 - c0) < 0.003f && fabsf(a1 - c1) < 0.003f) continue;
                 float x0 = HF_X0 + (ci + u0) * S, z0 = HF_X0 + (cj + w0) * S, x1 = HF_X0 + (ci + u1) * S, z1 = HF_X0 + (cj + w1) * S;
-                if (terrMouth((x0 + x1) / 2, (z0 + z1) / 2, (fminf(a0, c0) + fmaxf(a0, c0)) / 2)) continue;   // the tunnel's mouth stays open
-                Vector3 nn = e == 0 ? V3(1, 0, 0) : e == 1 ? V3(0, 0, 1) : e == 2 ? V3(-1, 0, 0) : V3(0, 0, -1);
+                if (terrMouth((x0 + x1) / 2, (z0 + z1) / 2, fminf(fminf(a0, c0), fminf(a1, c1)), fmaxf(fmaxf(a0, c0), fmaxf(a1, c1)))) continue;   // the tunnel's mouth stays open
+                Vector3 nn = e == 0 ? V3(1, 0, 0) : e == 1 ? V3(0, 0, 1) : e == 2 ? V3(-1, 0, 0) : V3(0, 0, -1); terPaveTint = (t & 7) == 5 || (t2 & 7) == 5;
                 Vector3 P[4] = {V3(x0, c0, z0), V3(x1, c1, z1), V3(x1, a1, z1), V3(x0, a0, z0)};
                 int o1[6] = {0, 1, 2, 0, 2, 3}, o2[6] = {0, 2, 1, 0, 3, 2};
                 for (int k = 0; k < 6; k++) terrVert(&m, &v, P[o1[k]].x, P[o1[k]].z, P[o1[k]].y, nn);
                 for (int k = 0; k < 6; k++) terrVert(&m, &v, P[o2[k]].x, P[o2[k]].z, P[o2[k]].y, Vector3Negate(nn));
                 walls++; } }
+        terPaveTint = false;
         {   // the floor under it all
             float x0 = HF_X0, x1 = HF_X0 + n * S, z0 = HF_X0, z1 = HF_X0 + n * S; Vector3 P[4] = {V3(x0, TER_BOT, z0), V3(x1, TER_BOT, z0), V3(x1, TER_BOT, z1), V3(x0, TER_BOT, z1)}; int o[6] = {0, 1, 2, 0, 2, 3};
             for (int k = 0; k < 6; k++) terrVert(&m, &v, P[o[k]].x, P[o[k]].z, P[o[k]].y, V3(0, -1, 0)); }
     }
     #undef HFN
-    free(uni);
+    free(uni);   // (terEmb / terPave stay: walking follows the banks too)
     TraceLog(LOG_INFO, "TERRAIN closed: %d vertices, %d side pieces", v, walls);
-    UploadMesh(&m, false);
-    terrain = LoadModelFromMesh(m);
-    terrain.materials[0].shader = sh;
     if (!blissTex.id) blissTex = makeBliss();
-    terrain.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = blissTex;
+    {   // cut into tiles by where each triangle lies
+        int TS = (int)ceilf(n * S / TER_TILE); if (TS * TS > TER_MAXT - 1) TS = 19; int nt = TS * TS + 1;   // (+1: the floor under it all)
+        int *cnt = calloc((size_t)nt, sizeof(int)), *tri = malloc(sizeof(int) * (size_t)(v / 3));
+        for (int k = 0; k < v / 3; k++) { float cx = (m.vertices[k * 9] + m.vertices[k * 9 + 3] + m.vertices[k * 9 + 6]) / 3, cz = (m.vertices[k * 9 + 2] + m.vertices[k * 9 + 5] + m.vertices[k * 9 + 8]) / 3, cy = m.vertices[k * 9 + 1];
+            int ti = (int)((cx - HF_X0) / TER_TILE), tj = (int)((cz - HF_X0) / TER_TILE); ti = ti < 0 ? 0 : ti >= TS ? TS - 1 : ti; tj = tj < 0 ? 0 : tj >= TS ? TS - 1 : tj;
+            int id = (cy <= TER_BOT + 0.01f && m.vertices[k * 9 + 4] <= TER_BOT + 0.01f && m.vertices[k * 9 + 7] <= TER_BOT + 0.01f && fabsf(m.vertices[k * 9] - m.vertices[k * 9 + 3]) > 100) ? TS * TS : tj * TS + ti;
+            tri[k] = id; cnt[id]++; }
+        nTerT = 0;
+        for (int id = 0; id < nt; id++) { if (!cnt[id]) continue;
+            Mesh t = {0}; t.vertexCount = cnt[id] * 3; t.triangleCount = cnt[id]; t.vertices = MemAlloc(t.vertexCount * 3 * sizeof(float)); t.texcoords = MemAlloc(t.vertexCount * 2 * sizeof(float)); t.normals = MemAlloc(t.vertexCount * 3 * sizeof(float)); t.colors = MemAlloc(t.vertexCount * 4);
+            Vector3 mn = {1e9f, 1e9f, 1e9f}, mx = {-1e9f, -1e9f, -1e9f}; int o = 0;
+            for (int k = 0; k < v / 3; k++) { if (tri[k] != id) continue;
+                for (int q2 = 0; q2 < 3; q2++) { int src = k * 3 + q2, dst = o * 3 + q2;
+                    memcpy(&t.vertices[dst * 3], &m.vertices[src * 3], 12); memcpy(&t.normals[dst * 3], &m.normals[src * 3], 12); memcpy(&t.texcoords[dst * 2], &m.texcoords[src * 2], 8); memcpy(&t.colors[dst * 4], &m.colors[src * 4], 4);
+                    Vector3 P = {m.vertices[src * 3], m.vertices[src * 3 + 1], m.vertices[src * 3 + 2]}; mn = Vector3Min(mn, P); mx = Vector3Max(mx, P); }
+                o++; }
+            UploadMesh(&t, false); Model md = LoadModelFromMesh(t); md.materials[0].shader = sh; md.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = blissTex;
+            terTiles[nTerT] = md; terTMn[nTerT] = mn; terTMx[nTerT] = mx; nTerT++; }
+        free(cnt); free(tri); MemFree(m.vertices); MemFree(m.texcoords); MemFree(m.normals); MemFree(m.colors);
+        TraceLog(LOG_INFO, "TERRAIN in %d tiles", nTerT); }
     terrainOk = true;
 }
 static void genWilds(void) {   // lone trees, white info pylons and a dead Aero billboard on the hills
@@ -1855,8 +1940,6 @@ static void spawnUnderground(void) {
 }
 
 // ---------------------------------------------------------------- v0.4: map footprints, water sources, day light
-#define MAX_MAPFOOT 2400
-static Rectangle mapFoot[MAX_MAPFOOT]; static float mapFootH[MAX_MAPFOOT], mapFootY[MAX_MAPFOOT]; static short mapFootF[MAX_MAPFOOT]; static int nMapFoot;   // footprints in their building's frame
 typedef struct { Vector3 pos; int kind; } WSrc;   // kind 0 rain barrel, 1 park fountain, 2 hill spring
 #define MAX_WS 200
 static WSrc wsrc[MAX_WS]; static int nWs;

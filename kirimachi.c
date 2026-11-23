@@ -48,7 +48,7 @@ static float texSV[T_COUNT] = {4, 1.5f, 3, 3.2f, 3.2f, 1.5f, 0.4f, 2, 4, 1.5f, 2
 #include "zk_jp.h"
 #include "zk_settings.h"
 
-enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS, ST_MP };
+enum { ST_MENU, ST_PLAY, ST_PAUSE, ST_SETTINGS, ST_CONTROLS, ST_DEAD, ST_WIN, ST_LORE, ST_TRAITS, ST_MP, ST_SAVES };
 
 // ============================================================ utils
 static float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }
@@ -419,7 +419,18 @@ static void coverTri(Vector3 a, Vector3 b, Vector3 c) {
 }
 #define MAX_UPS 400000
 static float (*upS)[4]; static int nUps = -1;   // audit (KIRI_UPAUDIT): sample points of upward faces big enough to stand on, to check there is ground under each
+// 0.9.14: while the town's ground surfaces are laid (genLayoutWorld), a paving, road, kerb or lawn face drawn as a bare face becomes a
+// slab quadSlab thick behind it (a flat one downward, an upright one backward), closed on all sides; the second winding of a pair is dropped
+static float quadSlab; static bool quadInSlab; static float quadLastSig[2][4];
+static void hexa(int t, const Vector3 *v, Color c); static bool hexaNoBottom;
 static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color col) {
+    if (quadSlab > 0 && !quadInSlab && (t == T_ASPHALT || t == T_CONCRETE || t == T_SIDEWALK || t == T_GRASS || t == T_TILEWALL)) {
+        float sig[4] = {a.x + b.x + c.x + d.x, a.y + b.y + c.y + d.y, a.z + b.z + c.z + d.z, a.x * b.z + b.x * c.z + c.x * d.z + d.x * a.z + b.x * a.z + c.x * b.z + d.x * c.z + a.x * d.z};   // (the same four corners in any order)
+        for (int k = 0; k < 2; k++) if (fabsf(sig[0] - quadLastSig[k][0]) < 1e-3f && fabsf(sig[1] - quadLastSig[k][1]) < 1e-3f && fabsf(sig[2] - quadLastSig[k][2]) < 1e-3f && fabsf(sig[3] - quadLastSig[k][3]) < 1e-2f) return;
+        memcpy(quadLastSig[1], quadLastSig[0], sizeof sig); memcpy(quadLastSig[0], sig, sizeof sig);
+        Vector3 off = fabsf(n.y) > 0.7f ? (Vector3){0, -quadSlab, 0} : Vector3Scale(Vector3Normalize((Vector3){n.x, 0, n.z}), -quadSlab);
+        Vector3 v[8] = {a, b, c, d, Vector3Add(a, off), Vector3Add(b, off), Vector3Add(c, off), Vector3Add(d, off)};
+        quadInSlab = true; hexaNoBottom = fabsf(n.y) > 0.7f; hexa(t, v, col); hexaNoBottom = false; quadInSlab = false; return; }
     Vector3 q[6] = {a, b, c, a, c, d};
     if (nUps < 0) { nUps = 0; if (getenv("KIRI_UPAUDIT")) upS = malloc(sizeof(float) * 4 * MAX_UPS); }
     if (upS && n.y > 0.7f && nUps < MAX_UPS - 5) { Vector3 ab = Vector3Subtract(b, a), ad = Vector3Subtract(d, a); float area = Vector3Length(Vector3CrossProduct(ab, ad));
@@ -459,12 +470,14 @@ static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
       mn = Vector3Subtract(mn, (Vector3){e, e, e}); mx = Vector3Add(mx, (Vector3){e, e, e}); }
     if ((mask & 16) && !(mask & 32) && mn.y > SIDEH + 0.2f && mask != 16) mask |= 32;   // anything off the ground can be seen from below: a lintel, a frame head, a shelf, an eave
     float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
+    bool keepIn = quadInSlab; quadInSlab = true;   // (a box's own faces are never thickened)
     if (mask & 1) quad(t, (Vector3){x1, y0, z1}, (Vector3){x1, y0, z0}, (Vector3){x1, y1, z0}, (Vector3){x1, y1, z1}, (Vector3){1, 0, 0}, col);
     if (mask & 2) quad(t, (Vector3){x0, y0, z0}, (Vector3){x0, y0, z1}, (Vector3){x0, y1, z1}, (Vector3){x0, y1, z0}, (Vector3){-1, 0, 0}, col);
     if (mask & 4) quad(t, (Vector3){x0, y0, z1}, (Vector3){x1, y0, z1}, (Vector3){x1, y1, z1}, (Vector3){x0, y1, z1}, (Vector3){0, 0, 1}, col);
     if (mask & 8) quad(t, (Vector3){x1, y0, z0}, (Vector3){x0, y0, z0}, (Vector3){x0, y1, z0}, (Vector3){x1, y1, z0}, (Vector3){0, 0, -1}, col);
     if (mask & 16) quad(t, (Vector3){x0, y1, z1}, (Vector3){x1, y1, z1}, (Vector3){x1, y1, z0}, (Vector3){x0, y1, z0}, (Vector3){0, 1, 0}, col);
     if (mask & 32) quad(t, (Vector3){x0, y0, z0}, (Vector3){x1, y0, z0}, (Vector3){x1, y0, z1}, (Vector3){x0, y0, z1}, (Vector3){0, -1, 0}, col);
+    quadInSlab = keepIn;
 }
 #define ALL 31
 #define ALLB 63
@@ -1162,7 +1175,7 @@ static void finalizeMeshes(void) {
         int hsh = (int)(r.x * 7 + r.y * 13) & 3; Color wc = (Color[]){{196, 192, 184, 255}, {176, 172, 166, 255}, {206, 200, 186, 255}, {160, 162, 166, 255}}[hsh];
         lodBlock(&lod[ch], P, rgb(90, 90, 92), wc); }
     for (int c = 0; c < NCH * NCH; c++) if (lod[c].cnt) { chLod[c] = mbModel(&lod[c], T_PLAIN); chLodOk[c] = true; }
-    TraceLog(LOG_INFO, "WORLD: %d chunk meshes", nm);
+    { long tv = 0; for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) tv += mb[c][t].cnt; TraceLog(LOG_INFO, "WORLD: %d chunk meshes, %ld vertices", nm, tv); }
 }
 #include "zk_layout.h"
 #include "zk_objs.h"
@@ -1204,6 +1217,7 @@ static bool roadCentreAt(float x, float z) {   // inside the driven part of a st
     return false; }
 static bool lineOfSight(Vector3 a, Vector3 b); static float groundAt(Vector3 p, float r, float step);
 static bool reachClear(Vector3 a, Vector3 b, float stop);   // (zk_creat.h)
+static float gPanic;   // 0.9.14: 0..100
 static void worldPrint(const char *tag) {   // 0.9.12: what the world answers when asked (a built world and a baked one must match)
     if (!getenv("KIRI_FPRINT")) return; {   // 0.9.12: what the world answers when asked (a built world and a baked one must match)
                 unsigned int h[10] = {0}; const char *nm[10] = {"groundAt", "baseGround", "cityLand", "mainRoad", "river", "sea", "pit", "roadRast", "bore/touge/coast", "los"};
@@ -1285,8 +1299,28 @@ static bool bakeLoad(void) {
     TraceLog(LOG_INFO, "BAKE loaded: %d solids, %d containers, %d openings", nSol, nCont, nOps);
     return true;
 }
+// 0.9.14: a loading screen while the town is read in or built: what is being done, how far along, and a survival tip
+static const char *loadTips[] = {"Boil river water before you drink it, or filter it through cloth and charcoal.", "A roof over your head and a lit room keep your mind together.",
+    "Sleep in a bed: it rests you best, and you wake when something comes close.", "Cold drains you. Warm clothes, a fire, or a heated room keep you going.",
+    "Creatures hear you run. Crouch and walk when you are close.", "A flashlight in one hand means one-handed swings. Put it away to hit harder.",
+    "Searched places fill again some nights, far from where you are.", "Rotten food makes you sick. Cook meat, and eat what spoils first.",
+    "Barricade a door and you can sleep behind it.", "Your mind goes over days, not minutes: keep fed, warm and under a roof."};
+static void loadScreen(const char *what, float frac) {
+    if (!IsWindowReady() || getenv("KIRI_NOLOADSCR")) return;
+    static int tip = -1; if (tip < 0 || frac <= 0.01f) tip = GetRandomValue(0, (int)(sizeof loadTips / sizeof loadTips[0]) - 1);
+    int w = GetScreenWidth(), h = GetScreenHeight(); float s = h / 720.0f;
+    BeginDrawing(); ClearBackground((Color){8, 10, 12, 255});
+    const char *tt = "A F T E R G L O W"; int fs = (int)(42 * s); DrawText(tt, (w - MeasureText(tt, fs)) / 2, (int)(h * 0.30f), fs, (Color){210, 205, 190, 255});
+    int bw = (int)(w * 0.5f), bh = (int)(14 * s), bx = (w - bw) / 2, by = (int)(h * 0.55f);
+    DrawRectangle(bx, by, bw, bh, (Color){30, 36, 38, 255}); DrawRectangle(bx, by, (int)(bw * clampf(frac, 0, 1)), bh, (Color){111, 214, 208, 255}); DrawRectangleLines(bx - 1, by - 1, bw + 2, bh + 2, (Color){80, 100, 100, 255});
+    int f2 = (int)(18 * s); DrawText(what, bx, by - f2 - (int)(8 * s), f2, (Color){180, 176, 165, 255});
+    const char *pc = TextFormat("%d%%", (int)(clampf(frac, 0, 1) * 100)); DrawText(pc, bx + bw - MeasureText(pc, f2), by - f2 - (int)(8 * s), f2, (Color){180, 176, 165, 255});
+    int f3 = (int)(16 * s); const char *tp = loadTips[tip]; DrawText(tp, (w - MeasureText(tp, f3)) / 2, (int)(h * 0.70f), f3, (Color){140, 150, 150, 255});
+    EndDrawing();
+    if (getenv("KIRI_LOADSHOT") && frac > 0.55f && frac < 0.65f) TakeScreenshot("shot_loading.png");
+}
 static void genWorld(unsigned int seed) {
-    double gwT0 = GetTime();
+    double gwT0 = GetTime(); loadScreen("Laying out the town", 0.02f);
     freeWorld();
     if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
     handDoorsCollect(); jpDoorsHand = 0;
@@ -1294,9 +1328,9 @@ static void genWorld(unsigned int seed) {
     free(cover); cover = calloc((size_t)CV_W * CV_H, 1);
     rs = 20031103u;   // 0.9.12: the town plan too comes out the same every time (it used whatever the generator was left at)
     { static bool warm = false; bool haveBake = !getenv("KIRI_NOBAKE") && !getenv("KIRI_BAKE") && (FileExists(P("Data/world.bake")) || FileExists(P(TextFormat("Data/Userdata/world_%08x.bake", bakeKey())))); if (!warm && !haveBake) { warm = true; hfReady = false; layoutInit(); bakeHeightfield(); rs = 20031103u; } }   // 0.9.12: the plan reads masks its own first pass leaves behind: a first pass makes every build the same
-    hfReady = false; layoutInit(); TraceLog(LOG_INFO, "GENTIME layoutInit %.2f s rs %u", GetTime() - gwT0, rs);
+    hfReady = false; layoutInit(); TraceLog(LOG_INFO, "GENTIME layoutInit %.2f s rs %u", GetTime() - gwT0, rs); loadScreen("Loading the town", 0.3f);
     rs = 20031103u; worldSeed = seed;   // the town is fixed: same streets, buildings and rooms every run
-    if (bakeLoad()) { free(cover); cover = NULL; finalizeMeshes(); genTerrain(); rs = seed ? seed : 1; TraceLog(LOG_INFO, "GENTIME baked world %.2f s", GetTime() - gwT0); worldPrint("baked"); return; }   // 0.9.12: the baked world
+    if (bakeLoad()) { free(cover); cover = NULL; loadScreen("Building the streets", 0.6f); finalizeMeshes(); loadScreen("Shaping the ground", 0.8f); genTerrain(); loadScreen("Waking up", 1.0f); rs = seed ? seed : 1; TraceLog(LOG_INFO, "GENTIME baked world %.2f s", GetTime() - gwT0); worldPrint("baked"); return; }   // 0.9.12: the baked world
     // subway stairwells cut holes into the ground; the city opens onto the wilds (no perimeter wall)
     nHole = 0;
     {   // road surface: tiles only where no sidewalk block covers it
@@ -1345,7 +1379,7 @@ static void genWorld(unsigned int seed) {
         }
     }
     bakeHeightfield();
-    genLayoutWorld(); TraceLog(LOG_INFO, "GENTIME after genLayoutWorld %.2f s rs %u nSol %d nCont %d", GetTime() - gwT0, rs, nSol, nCont);
+    loadScreen("Building the town (first start: it is kept for next time)", 0.4f); genLayoutWorld(); TraceLog(LOG_INFO, "GENTIME after genLayoutWorld %.2f s rs %u nSol %d nCont %d", GetTime() - gwT0, rs, nSol, nCont);
     genObjs();   // placed objects (Mod Maker Build tab)
     // scarce extras: 2 axes, 1 katana, 3 ammo stashes
     int want[6] = {IT_AXE, IT_AXE, IT_KATANA, IT_AMMO, IT_AMMO, IT_AMMO};
@@ -1386,8 +1420,8 @@ static void genWorld(unsigned int seed) {
         TraceLog(LOG_INFO, "GROUNDFILL %d half-metre cells of bare town ground paved", filled);
         free(cover); cover = NULL; }
     bakeSave();
-    finalizeMeshes();
-    genTerrain();
+    loadScreen("Building the streets", 0.75f); finalizeMeshes();
+    loadScreen("Shaping the ground", 0.88f); genTerrain(); loadScreen("Waking up", 1.0f);
     worldPrint("built");
     rs = seed ? seed : 1;   // runs differ from here on: creatures, weather, events
 }
@@ -1572,6 +1606,10 @@ static void updateSanity(float dt, Vector3 aim) {
         if (L < 30 && Vector3DotProduct(Vector3Scale(d, 1 / L), aim) > 0.75f && (L < 12 || pl.flash) && L < gFogSight && lineOfSight(eye, crCenter(c))) visible++;   // (only what you can actually see wears on you)
     }
     pl.peaceT = nearest > 25 ? pl.peaceT + dt : 0;
+    {   // 0.9.14: panic (heart racing): what you can see coming, and how close, drives it up fast; it ebbs slowly once you are clear
+        float tgt = fminf(100, (float)visible * 22 + (nearest < 6 ? 35 : nearest < 12 ? 15 : 0)) * (pl.painT > 0 ? 0.6f : 1) * (pl.trS == 0 ? 1 : 1);
+        if (pl.sleeping) tgt = 0;
+        gPanic += (tgt - gPanic) * (tgt > gPanic ? 1.2f : 0.06f) * dt; gPanic = clampf(gPanic, 0, 100); }
     float g = 0, l = 0;
     if (pl.food > 60 && pl.water > 60) g += 0.25f;
     if (pl.peaceT > 20) g += 0.35f;
@@ -1581,20 +1619,22 @@ static void updateSanity(float dt, Vector3 aim) {
     if (pl.sleeping) g += 0.6f;
     // (+ human connection: no other humans exist until multiplayer — reserved)
     if (pl.food < 25 || pl.water < 25) l += 0.5f;
-    l += fminf((float)visible, 4) * 0.35f;
+    float la = fminf((float)visible, 4) * 0.35f;   // (0.9.14: what is acute wears faster than the slow grind below)
     if (!pl.roof) l += 0.12f;
     if (pl.warmth < 35) l += 0.4f;
     if (pl.rest < 25) l += 0.4f;
     if (pl.boredom > 70) l += 0.35f;
-    { float wk = wildK(pl.pos); l += wk * 3.2f; if (wk > 0.3f) g *= 0.2f; }   // the hills eat your mind
+    { float wk = wildK(pl.pos); la += wk * 3.2f; if (wk > 0.3f) g *= 0.2f; }   // the hills eat your mind
     if (pl.pos.y < -40) l += 0.3f;
     if (pl.stage >= 2) g *= 0.5f;
     if (pl.sick > 30) l += 0.25f;
     if (pl.fracture == 1) l += 0.2f;
     if (dayK() < 0.2f && !pl.roof) l += 0.15f;   // the dark outside
-    pl.sanity = clampf(pl.sanity + (g - l * trMul(8)) * dt, 0, 100);
+    // 0.9.14: going mad takes days, not minutes: the steady grind (hunger, cold, the dark, no roof) an eightieth as fast as before, what you
+    // see and the hills a tenth (a day is an hour of play: living rough with nothing going right takes some three days to break you)
+    pl.sanity = clampf(pl.sanity + (g / 60.0f - (l / 80.0f + la / 10.0f) * trMul(8)) * dt, 0, 100);
     // permanent stages
-    float thr = pl.stage == 0 ? 50 : pl.stage == 1 ? 30 : 12, need = pl.stage == 1 ? 90 : 60;
+    float thr = pl.stage == 0 ? 50 : pl.stage == 1 ? 30 : 12, need = pl.stage == 1 ? 900 : 600;   // (0.9.14: ten minutes or more down there before it sets in)
     if (pl.stage < 3) {
         if (pl.sanity < thr) pl.lowT += dt; else pl.lowT = fmaxf(0, pl.lowT - dt * 0.5f);
         if (pl.lowT > need) {
@@ -1971,7 +2011,14 @@ static void setupLights(Vector3 eye, float t) {
 static void drawRemotePlayers(float dt);
 static void drawWorld(Vector3 eye, float t) {
     curEmis = -1; setEmis(0);
-    if (terrainOk) { terrain.transform = MatrixIdentity(); DrawModel(terrain, V3(0, 0, 0), 1, WHITE); }
+    if (terrainOk) {   // 0.9.14: the ground by tile: what is short of the fog's far edge and not behind you
+        float fd = gFogD > 1e-4f ? gFogD : 0, far = fd > 0 ? clampf(3.2f / fd, 160, 5000) : 1e9f;
+        Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool bc = fd > 0 && Vector3Length(fw) > 0.25f; if (bc) fw = Vector3Normalize(fw);
+        for (int k = 0; k < nTerT; k++) {
+            float dx = fmaxf(fmaxf(terTMn[k].x - eye.x, eye.x - terTMx[k].x), 0), dz = fmaxf(fmaxf(terTMn[k].z - eye.z, eye.z - terTMx[k].z), 0), d = sqrtf(dx * dx + dz * dz);
+            if (d > far) continue;
+            if (bc && d > 30) { bool ahead = false; for (int c = 0; c < 4 && !ahead; c++) { float cx = (c & 1) ? terTMx[k].x : terTMn[k].x, cz = (c & 2) ? terTMx[k].z : terTMn[k].z; if ((cx - eye.x) * fw.x + (cz - eye.z) * fw.z > -16) ahead = true; } if (!ahead) continue; }
+            terTiles[k].transform = MatrixIdentity(); DrawModel(terTiles[k], V3(0, 0, 0), 1, WHITE); } }
     {   // the static world by chunk: full detail near, a block model in the fog, nothing beyond it or behind you
         float fd = gFogD > 1e-4f ? gFogD : 0, lodN = fd > 0 ? clampf(1.35f / fd, 70, 3000) : 1e9f, lodF = fd > 0 ? clampf(2.5f / fd, 110, 4000) : 1e9f;
         Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool behindCull = fd > 0 && Vector3Length(fw) > 0.25f; if (behindCull) fw = Vector3Normalize(fw);
@@ -2566,6 +2613,15 @@ int main(int argc, char **argv) {
     int frame = 0; bool quitReq = false; int stTest = -1; int pauseFrame = -1;
     if (argNewGame) { newGame(); state = ST_PLAY; DisableCursor(); }
     while (!WindowShouldClose()) {
+        if (getenv("KIRI_PERF")) { static double acc = 0; static int nf = 0; if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; }
+            if (frame > 40 && frame <= 160) { acc += GetFrameTime(); nf++; } if (frame == 161) { TraceLog(LOG_INFO, "PERF %.1f ms per frame over %d frames at the spawn", acc / nf * 1000, nf); break; } }
+        if (getenv("KIRI_SAVESHOT")) { if (frame == 8) { savesKind = 0; state = ST_SAVES; } if (frame == 30) TakeScreenshot("shot_saves.png"); if (frame == 31) { savesKind = 1; } if (frame == 50) TakeScreenshot("shot_mpsaves.png");
+            if (frame == 51) { savesKind = 0; saveKind = 0; saveSlot = 2; pendTrS = 1; pendTrW = 1; pendingLoad = 2; } if (frame == 60) { saveGame(); state = ST_SAVES; } if (frame == 80) TakeScreenshot("shot_saves2.png"); if (frame == 81) break; }
+        if (pendingLoad) { int pk = pendingLoad; pendingLoad = 0;   // 0.9.14: a load or a new game, behind the loading screen
+            if (pk == 1) { if (loadGame()) { state = ST_PLAY; DisableCursor(); } else say("The save could not be read."); }
+            else if (pk == 2) { newGame(); pl.trS = pendTrS; pl.trW = pendTrW; applyTraits(); saveGame(); state = ST_PLAY; DisableCursor(); }
+            else { bool ok = pk == 4 ? loadGame() : (gSeedArg = 0, newGame(), saveGame(), true);
+                if (!ok) say("The world could not be read."); else if (savesHost()) { state = ST_PLAY; DisableCursor(); } } }
         frame++;
         padMenuNav = padActive && !IsCursorHidden() && (state != ST_PLAY || cht.menu);
         inputUpdate(); uiFrame = frame;
@@ -2658,6 +2714,15 @@ int main(int argc, char **argv) {
                 if (getenv("KIRI_INVSHOT")) { invAdd(IT_COAT, 1); invAdd(IT_HARDHAT, 1); invAdd(IT_BOOTS, 1); invAdd(IT_WORKPANTS, 1); invAdd(IT_STABVEST, 1); invAdd(IT_NAGINATA, 1); invAdd(IT_TETSUBO, 1); invAdd(IT_BEANIE, 1);
                     pl.invOpen = true; EnableCursor(); TraceLog(LOG_INFO, "INVSHOT armor %.2f warm %.1f stam %.2f weight %.1f", wearArmor(), wearWarm(), wearStam(), invWeight()); }
                 if (getenv("KIRI_INVC")) { for (int i = 0; i < nCont; i++) if (conts[i].on && conts[i].kind == CK_FRIDGE) { lootFill(&conts[i]); for (int k = 0; k < 4; k++) if (conts[i].s[k].t < 0) conts[i].s[k] = (Slot){IT_WATER, 1, 0}; conts[i].pos = Vector3Add(pl.pos, V3(1, 0, 0)); pl.openC = i; break; } }
+                if (getenv("KIRI_MECHTEST")) {   // 0.9.14 mechanics: spoilage, fishing water, relief drop
+                    invAdd(IT_FOOD, 2); spoilTick(30); float a1 = foodAge(IT_FOOD); spoilTick(20); float a2 = foodAge(IT_FOOD); spoilTick(30); float a3 = foodAge(IT_FOOD);
+                    TraceLog(LOG_INFO, "MECHTEST spoil onigiri after 30h %.2f (%s), 50h %.2f (%s), 80h %.2f (%s)", a1, freshWord(a1), a2, freshWord(a2), a3, freshWord(a3));
+                    int found = 0, tried = 0; for (int i = 0; i < DRIVER_N && found < 3; i++) for (int d8 = 0; d8 < 8 && found < 3; d8++) { tried++; float an = d8 * PI / 4; Vector3 p = V3(dRiver[i][0] + cosf(an) * 3, 0, dRiver[i][1] + sinf(an) * 3);
+                            if (inRiverRaw(p.x, p.z)) continue; p.y = baseGround(p.x, p.z); pl.pos = p; Vector3 w;
+                            for (int a8 = 0; a8 < 8; a8++) { float b = a8 * PI / 4; if (waterAhead(V3(cosf(b), -0.2f, sinf(b)), &w)) { found++; TraceLog(LOG_INFO, "MECHTEST fishing: water ahead from %.1f %.1f %.1f -> %.1f %.1f", p.x, p.y, p.z, w.x, w.z); break; } } }
+                    TraceLog(LOG_INFO, "MECHTEST fishing spots found %d (tried %d river points)", found, tried);
+                    pl.pos = V3(SPAWN_X, SIDEH + 0.1f, SPAWN_Z); dropPlace(); TraceLog(LOG_INFO, "MECHTEST drop on %d cont %d searched %d", drop.on, drop.cont, drop.cont >= 0 ? conts[drop.cont].searched : -1);
+                    TraceLog(LOG_INFO, "MECHTEST panic %.1f", gPanic); }
                 if (getenv("KIRI_BEDTEST")) { int ok = 0, tried = 0; for (int i = 0; i < nWBed && tried < 200; i += 7) { tried++; Vector3 mn = wBedMn[i], mx = wBedMx[i], c = V3((mn.x + mx.x) / 2, mn.y, (mn.z + mx.z) / 2);
                         Vector3 eye = V3(c.x, mn.y + 1.6f, c.z), aim = V3(0, -1, 0); if (facingWBed(eye, aim, 2.0f) >= 0) ok++; }
                     TraceLog(LOG_INFO, "BEDTEST %d world beds; standing at the bed, sleep offered at %d of %d", nWBed, ok, tried); }
@@ -3029,7 +3094,7 @@ int main(int argc, char **argv) {
             if (evacOn) { evacT -= dt; if (evacT <= 0) { state = ST_WIN; EnableCursor(); prof.wins++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; } }
             if (pl.hp <= 0 && shotMode) TraceLog(LOG_INFO, "SHOT: died at frame %d pos %.1f %.1f %.1f", frame, pl.pos.x, pl.pos.y, pl.pos.z);
             if (pl.hp <= 0 && netMode != NM_OFF) { dropPlayerBody(); state = ST_DEAD; EnableCursor(); prof.deaths++; profSave(); play(sScreech, 1); }   // in a session the town goes on: respawn
-            else if (pl.hp <= 0) { deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
+            else if (pl.hp <= 0) { if (netMode == NM_OFF) deleteSave(); state = ST_DEAD; EnableCursor(); prof.deaths++; prof.kills += pl.kills; prof.playtime += pl.time; if (pl.time > prof.best) prof.best = pl.time; profSave(); gameActive = false; play(sScreech, 1); }
             }
         } else {
             float tt = t * 0.05f;
@@ -3101,7 +3166,7 @@ int main(int argc, char **argv) {
             Camera3D keep = cam; float fz0 = 0.0001f; SetShaderValue(sh, locFogD, &fz0, SHADER_UNIFORM_FLOAT); gFogD = 0;
             for (float tz = -180; tz < 690; tz += TW) for (float tx = -440; tx < 690; tx += TW) {
                 cam = (Camera3D){V3(tx + TW / 2, 600, tz + TW / 2), V3(tx + TW / 2, 0, tz + TW / 2), V3(0, 0, -1), TW, CAMERA_ORTHOGRAPHIC};
-                rlSetClipPlanes(1, 2000); BeginTextureMode(hr); ClearBackground((Color){255, 0, 255, 255}); BeginMode3D(cam); if (terrainOk) { terrain.transform = MatrixIdentity(); DrawModel(terrain, V3(0, 0, 0), 1, WHITE); } rlDrawRenderBatchActive();   /* the ground alone: everything else left out */ EndMode3D(); EndTextureMode();
+                rlSetClipPlanes(1, 2000); BeginTextureMode(hr); ClearBackground((Color){255, 0, 255, 255}); BeginMode3D(cam); if (terrainOk) for (int k = 0; k < nTerT; k++) { terTiles[k].transform = MatrixIdentity(); DrawModel(terTiles[k], V3(0, 0, 0), 1, WHITE); } rlDrawRenderBatchActive();   /* the ground alone: everything else left out */ EndMode3D(); EndTextureMode();
                 Image im = LoadImageFromTexture(hr.texture); ImageFlipVertical(&im); Color *px = LoadImageColors(im); tiles++; int th = 0;
                 for (int j = 0; j < PX; j++) for (int i = 0; i < PX; i++) { Color c = px[j * PX + i]; if (c.r != 255 || c.g != 0 || c.b != 255) continue;
                     float wx = tx + (i + 0.5f) * TW / PX, wz = tz + (j + 0.5f) * TW / PX; if (hfOut(wx, wz) || wx < HF_X0 || wx >= HF_X0 + (HF_N - 1) * HF_S || wz >= HF_X0 + (HF_N - 1) * HF_S) continue;
@@ -3141,17 +3206,20 @@ int main(int argc, char **argv) {
             aCorrupt = gameActive ? pl.stage : 0;
             p3Begin(t);
             if (state == ST_MENU) {
-                const char *l[] = {"Continue", "New Game", "Multiplayer", "Settings", "Controls", "Lore", "Quit"}; bool en[] = {gameActive || saveExists(), netMode == NM_OFF,
+                slotNamesLoad(); if (!gameActive && netMode == NM_OFF) { saveKind = 0; saveSlot = slotLast[0]; }   // Continue: the single-player slot played last
+                const char *l[] = {"Continue", "New Game", "Saved Games", "Multiplayer", "Settings", "Controls", "Lore", "Quit"}; bool en[] = {gameActive || saveExists(), netMode == NM_OFF, netMode == NM_OFF,
 #ifdef PLATFORM_WEB
                     false,   // browsers cannot open UDP sockets: multiplayer is in the Windows build
 #else
                     true,
 #endif
                     true, true, true, true};
-                int r = menuPanel("Seiry\xC5\xAB - Menu", l, 7, en);
+                int r = menuPanel("Seiry\xC5\xAB - Menu", l, 8, en); if (r >= 2) r = r == 2 ? 100 : r - 1;
                 profilePanel();
-                if (r == 0) { if (gameActive || loadGame()) { state = ST_PLAY; DisableCursor(); } else say("The save could not be read."); }
-                if (r == 1) { if (videoMode) { newGame(); vSetupScene(); vT = 0; state = ST_PLAY; DisableCursor(); } else state = ST_TRAITS; }
+                if (r == 0) { if (gameActive) { state = ST_PLAY; DisableCursor(); } else pendingLoad = 1; }
+                if (r == 1) { if (videoMode) { newGame(); vSetupScene(); vT = 0; state = ST_PLAY; DisableCursor(); }
+                    else { int fs = slotFirstFree(0); if (fs) { if (gameActive) saveGame(); gameActive = false; saveKind = 0; saveSlot = fs; state = ST_TRAITS; } else { say("Every save slot is in use: delete one to start a new game."); savesKind = 0; state = ST_SAVES; } } }   // 0.9.14: a new game goes in a free slot
+                if (r == 100) { savesKind = 0; savesConfirm = savesRename = -1; state = ST_SAVES; }
                 if (r == 2) state = ST_MP;
                 if (r == 3) { settingsBack = ST_MENU; state = ST_SETTINGS; }
                 if (r == 4) { settingsBack = ST_MENU; state = ST_CONTROLS; }
@@ -3167,6 +3235,7 @@ int main(int argc, char **argv) {
                 if (r == 3) { saveGame(); if (netMode != NM_OFF) { netStop("Left the game."); gameActive = false; } state = ST_MENU; }
             } else if (state == ST_LORE) { lorePanel(); if (escP()) state = ST_MENU; }
             else if (state == ST_MP) mpPanel();
+            else if (state == ST_SAVES) { savesPanel(); if (state == ST_SAVES && escP() && savesRename < 0) state = savesKind ? ST_MP : ST_MENU; }
             else if (state == ST_TRAITS) traitsPanel();
             else if (state == ST_SETTINGS) { settingsPanel(); if (state == ST_SETTINGS && escP()) state = settingsBack; }
             else if (state == ST_CONTROLS) { bool wasCap = capA >= 0; controlsPanel(); if (state == ST_CONTROLS && !wasCap && capA < 0 && escP()) { keysSave(); state = settingsBack; } }

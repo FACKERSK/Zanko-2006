@@ -1,4 +1,5 @@
 # version|channel|zip|date|title  (newest first; the launcher version selector reads this)
+0.9.14|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.14.zip|2026-11-23|Save slots (single player and multiplayer), loading screen, longer days, slower madness, food spoilage, fishing, relief drops, panic, solid roads and ground
 0.9.13|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.13.zip|2026-11-18|Solid ground and objects, no use through walls, touge and tunnels, stairwell doors, beds, sleep, punches
 0.9.12|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.12.zip|2026-11-17|Prebuilt world (loads at start), no floating signs/trees/bikes/poles by rivers, blocked rooms fixed
 0.9.11|stable|https://raw.githubusercontent.com/FACKERSK/Zanko-2006/main/releases/Zanko2006_v0.9.11.zip|2026-11-17|Fixes: doors through floors, stairwell doors, bathrooms, two-handed grip, small weapons
