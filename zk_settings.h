@@ -13,15 +13,16 @@ typedef struct {
     int reduceFlash; float dmgOverlay, insanityFx;
     int autoReload, pauseUnfocus, muteUnfocus, centered;
     float hudScale;      // size of the HUD (panels, hotbar, text)
+    float godrays;       // sun ray strength (0 off)
 } GameSet;
 static GameSet gs;
 static void gsDefaults(void) {
     gs = (GameSet){.fpsCap = 144, .smooth = 0, .bright = 1, .fog = 1, .wobble = 1, .showFps = 0, .sfx = 1, .amb = 1, .ui = 1,
         .bob = 1, .sway = 1, .shake = 1, .sprintTgl = 0, .sneakTgl = 0, .hints = 1, .hitMarks = 1, .crossStyle = 0, .crossCol = 0, .disturb = 1,
-        .invertY = 0, .reduceFlash = 0, .dmgOverlay = 1, .insanityFx = 1, .autoReload = 1, .pauseUnfocus = 1, .muteUnfocus = 0, .centered = 0, .hudScale = 1};
+        .invertY = 0, .reduceFlash = 0, .dmgOverlay = 1, .insanityFx = 1, .autoReload = 1, .pauseUnfocus = 1, .muteUnfocus = 0, .centered = 0, .hudScale = 1, .godrays = 1};
 }
 #define GS_INTS X(fpsCap) X(smooth) X(wobble) X(showFps) X(sprintTgl) X(sneakTgl) X(hints) X(hitMarks) X(crossStyle) X(crossCol) X(disturb) X(invertY) X(reduceFlash) X(autoReload) X(pauseUnfocus) X(muteUnfocus) X(centered)
-#define GS_FLOATS X(bright) X(fog) X(sfx) X(amb) X(ui) X(bob) X(sway) X(shake) X(dmgOverlay) X(insanityFx) X(hudScale)
+#define GS_FLOATS X(bright) X(fog) X(sfx) X(amb) X(ui) X(bob) X(sway) X(shake) X(dmgOverlay) X(insanityFx) X(hudScale) X(godrays)
 static void gsSave(void) {
     ensureDir("Data"); FILE *f = fopen(P("Data/game.ini"), "w"); if (!f) return;
     fprintf(f, "# Zanko 2006 game settings (the launcher keeps config.ini)\n");
@@ -47,7 +48,7 @@ static void gsLoad(void) {
 #undef X
     }
     fclose(f);
-    gs.bright = fminf(fmaxf(gs.bright, 0.5f), 1.8f); gs.fog = fminf(fmaxf(gs.fog, 0.3f), 1.6f);
+    gs.bright = fminf(fmaxf(gs.bright, 0.5f), 1.8f); gs.fog = fminf(fmaxf(gs.fog, 0.3f), 1.6f); gs.godrays = fminf(fmaxf(gs.godrays, 0), 1.5f);
 }
 static const int fpsChoices[] = {30, 60, 90, 120, 144, 165, 240, 0};
 static const char *crossStyleNames[] = {"Lines", "Dot", "Lines + dot", "Off"};

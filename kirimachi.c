@@ -316,7 +316,7 @@ GLSL_HEAD
 "uniform sampler2D texture0; uniform vec4 colDiffuse;\n"
 "uniform vec3 viewPos; uniform vec3 flashDir; uniform float flashOn; uniform float muzzle;\n"
 "uniform vec3 fogColor; uniform float fogDensity; uniform float emissive; uniform float ambient; uniform float desat; uniform float rage;\n"
-"uniform vec3 lightPos[8]; uniform vec3 lightCol[8]; uniform float lightRange[8]; uniform int numLights;\n"
+"uniform vec3 lightPos[8]; uniform vec3 lightCol[8]; uniform float lightRange[8]; uniform float lightSpot[8]; uniform int numLights;\n"
 "out vec4 finalColor;\n"
 "const float bay[16]=float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.);\n"
 "void main(){\n"
@@ -332,7 +332,9 @@ GLSL_HEAD
 "  light+=vec3(1.0,0.95,0.85)*flashOn*cone/(1.0+0.012*dist*dist)*max(dot(n,-dir),0.2)*2.4;\n"
 "  light+=vec3(1.0,0.75,0.4)*muzzle*2.5/(1.0+0.08*dist*dist);\n"
 "  for(int i=0;i<8;i++){ if(i>=numLights) break; vec3 L=lightPos[i]-fragPos; float d=length(L);\n"
-"   float a=clamp(1.0-d/lightRange[i],0.0,1.0); a*=a; light+=lightCol[i]*a*(0.3+0.7*max(dot(n,L/max(d,0.001)),0.0)); }\n"
+"   float a=clamp(1.0-d/lightRange[i],0.0,1.0); a*=a;\n"
+"   if(lightSpot[i]>0.0){ float c=L.y/max(d,0.001); a*=0.08+0.92*smoothstep(lightSpot[i],lightSpot[i]+0.3,c); }\n"   // street lamps light downward: a pool on the street, little on the walls above
+"   light+=lightCol[i]*a*(0.3+0.7*max(dot(n,L/max(d,0.001)),0.0)); }\n"
 "  col=tx.rgb*light; }\n"
 " if(emissive<1.5){ float f=1.0-exp(-pow(dist*fogDensity,2.0)); col=mix(col,fogColor,clamp(f,0.0,1.0)); }\n"
 " ivec2 q=ivec2(mod(gl_FragCoord.xy,4.0)); col+=(bay[q.y*4+q.x]/16.0-0.5)/24.0;\n"
@@ -340,7 +342,7 @@ GLSL_HEAD
 " col=floor(clamp(col,0.0,1.0)*31.0+0.5)/31.0;\n"
 " finalColor=vec4(col,1.0); }\n";
 static Shader sh;
-static int locView, locFlashDir, locFlashOn, locMuzzle, locFog, locFogD, locEmis, locAmb, locLP, locLC, locLR, locNL, locSnap, locDesat, locRage;
+static int locView, locFlashDir, locFlashOn, locMuzzle, locFog, locFogD, locEmis, locAmb, locLP, locLC, locLR, locLS, locNL, locSnap, locDesat, locRage;
 static float curEmis = -1;
 static void setEmis(float e) { if (e != curEmis) { SetShaderValue(sh, locEmis, &e, SHADER_UNIFORM_FLOAT); curEmis = e; } }
 
@@ -544,7 +546,7 @@ typedef struct { Vector3 pos, col; float range, cur, seed; int mode; } Light;   
 static Light lights[MAX_LIGHT]; static int nLight;
 typedef struct { Vector3 mn, mx; Color tint; int light, tex, text, face; bool plate; short f; } Sign;   // text: index into the sign atlas; face 0 -z 1 +x 2 +z 3 -x
 static Sign signs[MAX_SIGN]; static int nSign;
-typedef struct { Vector3 pos; int light; } Lamp;
+typedef struct { Vector3 pos, dir; int light, kind; } Lamp;   // pos: the end of the arm, where the head starts; dir: along the arm, away from the pole; kind 0 small LED on a utility pole, 1 tall cobra-head lamp
 static Lamp lamps[MAX_LAMP]; static int nLamp;
 typedef struct { Vector3 pos; float s, hp; int sid; bool alive; } Crate;
 static Crate crates[MAX_CRATE]; static int nCrate;
@@ -988,7 +990,7 @@ static void genPoles(float x0, float z0) {
                 box(T_CONCRETE, V3(mn.x - 0.05f, 6.25f, mn.z - 0.05f), V3(mx.x + 0.05f, 6.35f, mx.z + 0.05f), rgb(120, 120, 115), false, ALLB);
                 float r = fr(0, 1);
                 int li = addLight(V3(head.x, 5.9f, head.z), V3(1.0f, 0.62f, 0.28f), 12, r < 0.4f ? 0 : r < 0.7f ? 1 : 2);
-                lamps[nLamp++] = (Lamp){head, li};
+                lamps[nLamp++] = (Lamp){V3(head.x, 6.12f, head.z), outd, li, 0};
             }
             prev = u;
         }
@@ -1240,7 +1242,7 @@ static void worldPrint(const char *tag) {   // 0.9.12: what the world answers wh
 // The town is built once, like a compiled map: the generator's output (geometry, collision, doors, furniture, lights, stairs, ...)
 // is written to Data/world.bake and every later start loads it instead of building again. It belongs to one map, one set of
 // placed objects and one game version (the key); anything else builds and bakes anew. KIRI_NOBAKE=1 always builds.
-#define BAKE_VER 4
+#define BAKE_VER 5   // 5: street lamps keep their arm direction
 static unsigned int bakeKey(void) { unsigned int h = mapHash() ^ (BAKE_VER * 0x9E3779B9u); for (const char *c = GAME_VERSION; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; } return h; }
 typedef struct { unsigned char *p; size_t n, cap; } BkBuf;
 static void bkPut(BkBuf *b, const void *d, size_t n) { if (b->n + n > b->cap) { b->cap = (b->n + n) * 2 + 65536; b->p = realloc(b->p, b->cap); } memcpy(b->p + b->n, d, n); b->n += n; }
@@ -2066,8 +2068,18 @@ static void drawPlanks(Vector3 mn, Vector3 mx, int axis) {
         ADRAW("props/barricade_plank", TRS(c, yaw + (k % 2 ? 0.04f : -0.04f), V3(len, sz.y / 0.2f, fmaxf(th, 0.05f) / 0.06f)), ((Color){230, 210, 190, 255}), BX(T_WOOD, 0, 0, 0, 1.0f, 0.2f, 0.06f, CWH));
     }
 }
+// street lamps: a photocell switches each on at dusk and off at dawn (each at a slightly different moment); three kinds of lamp
+// (white LED, orange sodium, old greenish mercury); they light downward
+static unsigned char lampOf[MAX_LIGHT];   // 1 + lamp kind for a street lamp's light, 0 for others (rebuilt each frame: cheap)
+static int lampKind(int i) { float h = hash2(i, 77, 5); return h < 0.45f ? 0 : h < 0.8f ? 1 : 2; }
+static Vector3 lampColor(int kind) { return kind == 0 ? V3(0.92f, 0.96f, 1.05f) : kind == 1 ? V3(1.05f, 0.6f, 0.24f) : V3(0.78f, 0.98f, 0.86f); }
+static float lampOnK(int i) { float th = 0.22f + 0.16f * hash2(i, 91, 3), dk = dayK(); return clampf((th - dk) / 0.05f, 0, 1); }
 static void setupLights(Vector3 eye, float t) {
     int idx[8]; float dd[8]; int n = 0;
+    memset(lampOf, 0, sizeof lampOf);
+    for (int i = 0; i < nLamp; i++) if (lamps[i].light >= 0 && lamps[i].light < MAX_LIGHT) lampOf[lamps[i].light] = (unsigned char)(1 + lampKind(i));
+    static float lampOnT[MAX_LAMP]; static bool lampInit = false; if (!lampInit) { lampInit = true; for (int i = 0; i < MAX_LAMP; i++) lampOnT[i] = 1; }
+    for (int i = 0; i < nLamp; i++) { float k = lampOnK(i); lampOnT[i] += (k - lampOnT[i]) * clampf(GetFrameTime() * (k > lampOnT[i] ? 0.6f : 3), 0, 1); }   // they warm up slowly, go out quickly
     for (int i = 0; i < nLight; i++) {
         Light *L = &lights[i];
         if (L->mode == 2) { L->cur = 0; continue; }
@@ -2075,15 +2087,98 @@ static void setupLights(Vector3 eye, float t) {
         else L->cur = 1;
         float d = Vector3DistanceSqr(L->pos, eye);
         if (d > 50 * 50 || L->cur < 0.2f) continue;
+        if (lampOf[i]) d *= 0.45f;   // street lamps light the most ground: they win a place among the eight first
         if (n < 8) { idx[n] = i; dd[n] = d; n++; }
         else { int w = 0; for (int k = 1; k < 8; k++) if (dd[k] > dd[w]) w = k; if (d < dd[w]) { idx[w] = i; dd[w] = d; } }
     }
-    Vector3 lp[8], lc[8]; float lr[8];
-    for (int k = 0; k < n; k++) { Light *L = &lights[idx[k]]; lp[k] = L->pos; lc[k] = Vector3Scale(L->col, L->cur * 1.3f); lr[k] = L->range; }
+    for (int i = 0; i < nLamp; i++) { int li = lamps[i].light; if (li >= 0 && li < nLight) lights[li].cur *= lampOnT[i]; }
+    int m = 0; for (int k = 0; k < n; k++) if (lights[idx[k]].cur >= 0.05f) { idx[m] = idx[k]; m++; } n = m;   // (the lamps switched off by daylight)
+    Vector3 lp[8], lc[8]; float lr[8], ls[8];
+    for (int k = 0; k < n; k++) { Light *L = &lights[idx[k]]; int lk = lampOf[idx[k]]; lp[k] = L->pos; lc[k] = Vector3Scale(lk ? lampColor(lk - 1) : L->col, L->cur * (lk ? 2.4f : 1.3f)); lr[k] = lk ? L->range * 1.75f : L->range; ls[k] = lk ? 0.5f : 0; }
     SetShaderValueV(sh, locLP, lp, SHADER_UNIFORM_VEC3, n > 0 ? n : 1);
     SetShaderValueV(sh, locLC, lc, SHADER_UNIFORM_VEC3, n > 0 ? n : 1);
     SetShaderValueV(sh, locLR, lr, SHADER_UNIFORM_FLOAT, n > 0 ? n : 1);
+    SetShaderValueV(sh, locLS, ls, SHADER_UNIFORM_FLOAT, n > 0 ? n : 1);
     SetShaderValue(sh, locNL, &n, SHADER_UNIFORM_INT);
+}
+// ============================================================ 0.9.17: lamp glow, light shafts under the lamps, sun rays
+static Texture2D glowTex; static bool glowOk;
+static void fxQuad(Vector3 c, Vector3 r, Vector3 u, float sz, Color col) {   // a camera-facing square
+    Vector3 a = Vector3Add(c, Vector3Scale(Vector3Add(r, u), -sz)), b = Vector3Add(c, Vector3Scale(Vector3Subtract(r, u), sz)), d = Vector3Add(c, Vector3Scale(Vector3Add(r, u), sz)), e = Vector3Add(c, Vector3Scale(Vector3Subtract(u, r), sz));
+    rlSetTexture(glowTex.id); rlBegin(RL_QUADS); rlColor4ub(col.r, col.g, col.b, col.a); rlNormal3f(0, 0, 1);
+    rlTexCoord2f(0, 1); rlVertex3f(a.x, a.y, a.z); rlTexCoord2f(1, 1); rlVertex3f(b.x, b.y, b.z); rlTexCoord2f(1, 0); rlVertex3f(d.x, d.y, d.z); rlTexCoord2f(0, 0); rlVertex3f(e.x, e.y, e.z);
+    rlEnd(); rlSetTexture(0);
+}
+static void fxCone(Vector3 top, float h, float r0, float r1, Vector3 col, float a0) {   // a hollow cone of light, bright at the lamp and gone at the ground
+    const int N = 14; rlBegin(RL_TRIANGLES);
+    for (int k = 0; k < N; k++) { float t0 = k * 2 * PI / N, t1 = (k + 1) * 2 * PI / N;
+        Vector3 p0 = V3(top.x + cosf(t0) * r0, top.y, top.z + sinf(t0) * r0), p1 = V3(top.x + cosf(t1) * r0, top.y, top.z + sinf(t1) * r0),
+                q0 = V3(top.x + cosf(t0) * r1, top.y - h, top.z + sinf(t0) * r1), q1 = V3(top.x + cosf(t1) * r1, top.y - h, top.z + sinf(t1) * r1);
+        unsigned char R = cb(col.x * 255 * a0), G = cb(col.y * 255 * a0), B = cb(col.z * 255 * a0);
+        rlColor4ub(R, G, B, 255); rlVertex3f(p0.x, p0.y, p0.z); rlColor4ub(0, 0, 0, 255); rlVertex3f(q0.x, q0.y, q0.z); rlVertex3f(q1.x, q1.y, q1.z);
+        rlColor4ub(R, G, B, 255); rlVertex3f(p0.x, p0.y, p0.z); rlColor4ub(0, 0, 0, 255); rlVertex3f(q1.x, q1.y, q1.z); rlColor4ub(R, G, B, 255); rlVertex3f(p1.x, p1.y, p1.z); }
+    rlEnd();
+}
+static void drawLampFx(Vector3 eye) {
+    if (!glowOk) { Image im = GenImageGradientRadial(64, 64, 0.0f, WHITE, BLANK); glowTex = LoadTextureFromImage(im); UnloadImage(im); SetTextureFilter(glowTex, TEXTURE_FILTER_BILINEAR); glowOk = true; }
+    if (eye.y < -40) return;   // (the subway)
+    rlDrawRenderBatchActive();
+    Matrix V = rlGetMatrixModelview(); Vector3 r = V3(V.m0, V.m4, V.m8), u = V3(V.m1, V.m5, V.m9);
+    float fd = gFogD > 1e-4f ? gFogD : 0.002f, haze = 0.55f + 0.9f * rainK + clampf((fd - 0.02f) * 12, 0, 0.6f);   // light shows in the air more in rain and thick fog
+    rlDisableDepthMask(); rlDisableBackfaceCulling(); BeginBlendMode(BLEND_ADDITIVE);
+    for (int i = 0; i < nLamp; i++) {
+        Lamp *l = &lamps[i]; int li = l->light; if (li < 0 || li >= nLight) continue;
+        float on = lights[li].cur; if (lights[li].mode == 2 || on < 0.5f) continue;
+        float d = Vector3Distance(l->pos, eye); if (d > 160) continue;
+        float fog = expf(-powf(d * fd * 0.55f, 2.0f)); if (fog < 0.02f) continue;   // a lamp shows through fog further than the street under it
+        Vector3 c = lampColor(lampKind(i)), d0 = Vector3LengthSqr(l->dir) > 0.5f ? l->dir : V3(1, 0, 0), lens = Vector3Add(V3(l->pos.x, l->pos.y + (l->kind ? -0.03f : -0.06f), l->pos.z), Vector3Scale(d0, l->kind ? 0.37f : 0.2f));
+        Vector3 toE = Vector3Normalize(Vector3Subtract(eye, lens)); float below = clampf(-toE.y * 1.4f + 0.25f, 0.15f, 1);   // the lens faces down: brightest seen from under it
+        float g = fog * below * on;
+        fxQuad(lens, r, u, l->kind ? 0.6f : 0.42f, (Color){cb(c.x * 255 * g), cb(c.y * 255 * g), cb(c.z * 255 * g), 255});
+        fxQuad(lens, r, u, 2.2f + d * 0.02f, (Color){cb(c.x * 120 * g * haze * 0.5f), cb(c.y * 120 * g * haze * 0.5f), cb(c.z * 120 * g * haze * 0.5f), 255});
+        if (d < 70) { float near = clampf((d - 1.5f) / 4, 0, 1), k = 0.05f * haze * fog * on * near;
+            float h = lens.y - SIDEH, w = l->kind ? 1.25f : 1.0f;
+            fxCone(lens, h, 0.18f * w, 0.43f * h * w, c, k);
+            fxCone(lens, h, 0.12f * w, 0.23f * h * w, c, k * 0.9f); }
+    }
+    rlDrawRenderBatchActive(); EndBlendMode(); rlEnableBackfaceCulling(); rlEnableDepthMask();
+}
+// sun rays: the scene's own depth tells which pixels are open sky; light from the sun (or the moon) is smeared from those pixels
+// toward the viewer along lines through the sun, so it streams between buildings, poles and trees
+static const char *GR_FS =
+GLSL_HEAD
+"in vec2 fragTexCoord; in vec4 fragColor;\n"
+"uniform sampler2D texture0; uniform sampler2D depthTex; uniform vec2 sunUV; uniform float rayK; uniform vec3 sunCol; uniform float aspect;\n"
+"out vec4 finalColor;\n"
+"float sky(vec2 p){ if(p.x<0.0||p.y<0.0||p.x>1.0||p.y>1.0) return 0.0; return texture(depthTex,p).r>0.99999?1.0:0.0; }\n"
+"void main(){ vec3 col=texture(texture0,fragTexCoord).rgb;\n"
+" if(rayK>0.001){ vec2 dl=(sunUV-fragTexCoord); float L=length(dl); vec2 st=dl/40.0*min(1.0,0.9/max(L,0.0001)*L); vec2 p=fragTexCoord; float w=1.0,acc=0.0;\n"
+"  float j=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453); p+=st*j;\n"
+"  for(int i=0;i<40;i++){ acc+=sky(p)*w; w*=0.965; p+=st; }\n"
+"  acc/=40.0*0.6; vec2 dd=vec2(dl.x*aspect,dl.y); float r=length(dd);\n"
+"  float glow=sky(fragTexCoord)*(exp(-r*7.0)*0.8+exp(-r*2.5)*0.15);\n"
+"  vec3 add=sunCol*rayK*(acc*1.0*(1.0-0.5*smoothstep(0.0,1.2,r))+glow);\n"
+"  col+=add; col=floor(clamp(col,0.0,1.0)*31.0+0.5)/31.0; }\n"
+" finalColor=vec4(col,1.0); }\n";
+static Shader grSh; static bool grOk; static int grLocSun, grLocK, grLocCol, grLocAsp, grLocDepth;
+static RenderTexture2D loadRTDepth(int w, int h) {   // a render target whose depth can be read back (raylib's own keeps depth in a renderbuffer)
+    RenderTexture2D t = {0}; t.id = rlLoadFramebuffer(); if (!t.id) return t;
+    rlEnableFramebuffer(t.id);
+    t.texture.id = rlLoadTexture(NULL, w, h, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1); t.texture.width = w; t.texture.height = h; t.texture.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8; t.texture.mipmaps = 1;
+    t.depth.id = rlLoadTextureDepth(w, h, false); t.depth.width = w; t.depth.height = h; t.depth.format = 19; t.depth.mipmaps = 1;
+    rlFramebufferAttach(t.id, t.texture.id, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
+    rlFramebufferAttach(t.id, t.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
+    if (!rlFramebufferComplete(t.id)) { rlDisableFramebuffer(); rlUnloadFramebuffer(t.id); return (RenderTexture2D){0}; }
+    rlDisableFramebuffer(); return t;
+}
+static Vector3 sunDirAt(float tod, float *strength, Vector3 *col) {   // the sun by day (east at dawn, south at noon, west at dusk), the moon by night
+    float a = (tod - 6) / 12 * PI; bool moon = tod < 5.5f || tod > 18.5f;
+    if (moon) a = (tod < 12 ? tod + 24 - 18 : tod - 18) / 12 * PI;
+    Vector3 d = Vector3Normalize(V3(-cosf(a), 0.08f + sinf(a) * 0.75f, 0.35f + sinf(a) * 0.4f));   // east is -x, south +z
+    float low = 1 - clampf(d.y * 1.6f, 0, 1);   // low sun: long golden shafts
+    if (moon) { *strength = 0.22f * clampf(d.y * 4, 0, 1); *col = V3(0.55f, 0.65f, 0.85f); }
+    else { *strength = (0.55f + 0.45f * low) * clampf(d.y * 5, 0, 1); *col = Vector3Lerp(V3(1.0f, 0.93f, 0.8f), V3(1.0f, 0.62f, 0.3f), low * low); }
+    return d;
 }
 static void drawRemotePlayers(float dt);
 // 0.9.15: view culling: a box is drawn only if some of it is inside the camera's view (the four side planes of the view, a little wider)
@@ -2193,8 +2288,22 @@ static void drawWorld(Vector3 eye, float t) {
     for (int i = 0; i < nLamp; i++) {
         Lamp *l = &lamps[i]; if (Vector3DistanceSqr(l->pos, eye) > 90 * 90) continue;
         float on = lights[l->light].cur; bool lit = lights[l->light].mode != 2 && on > 0.5f;
-        setEmis(lit ? 1 : 0);
-        drawBox(T_PLAIN, V3(l->pos.x - 0.25f, 5.95f, l->pos.z - 0.18f), V3(l->pos.x + 0.25f, 6.12f, l->pos.z + 0.18f), lit ? rgb(255, 190, 110) : rgb(60, 60, 60));
+        // the bracket and head, turned along the arm and tipped up a little; the lens underneath glows the colour of its kind when lit
+        Vector3 d = Vector3LengthSqr(l->dir) > 0.5f ? l->dir : V3(1, 0, 0); float yw = atan2f(d.x, d.z);
+        Matrix M = TRS(l->pos, yw, V3(1, 1, 1)), Mh = MatrixMultiply(MatrixRotateX(-0.1f), M);
+        Vector3 cl = lampColor(lampKind(i)); Color lc = lit ? (Color){cb(150 + 105 * cl.x), cb(150 + 105 * cl.y), cb(150 + 105 * cl.z), 255} : rgb(78, 80, 82);
+        setEmis(0);
+        if (l->kind == 0) {
+            ADRAW("props/lamp_led_arm", M, WHITE, BX(T_METAL, 0, 0, -0.55f, 0.05f, 0.05f, 1.12f, ((Color){120, 122, 120, 255})), BX(T_METAL, 0, -0.28f, -0.78f, 0.035f, 0.035f, 0.6f, ((Color){120, 122, 120, 255})),
+                  BX(T_METAL, 0, -0.18f, -1.08f, 0.1f, 0.48f, 0.1f, ((Color){110, 112, 110, 255})));
+            ADRAW("props/lamp_led_head", Mh, WHITE, BX(T_METAL, 0, 0.015f, 0.2f, 0.2f, 0.07f, 0.46f, ((Color){176, 178, 176, 255})), BX(T_METAL, 0, 0.06f, 0.17f, 0.15f, 0.025f, 0.34f, ((Color){150, 152, 150, 255})));
+            setEmis(lit ? 1 : 0); ADRAW("props/lamp_led_lens", Mh, lc, BX(T_PLAIN, 0, -0.025f, 0.2f, 0.16f, 0.02f, 0.38f, WHITE));
+        } else {
+            ADRAW("props/lamp_cobra_head", Mh, WHITE, BX(T_METAL, 0, 0.1f, 0.32f, 0.34f, 0.16f, 0.74f, ((Color){150, 152, 155, 255})), BX(T_METAL, 0, 0.2f, 0.27f, 0.26f, 0.06f, 0.52f, ((Color){136, 138, 141, 255})),
+                  BX(T_METAL, 0, 0.1f, -0.02f, 0.14f, 0.12f, 0.1f, ((Color){130, 132, 135, 255})));
+            setEmis(lit ? 1 : 0); ADRAW("props/lamp_cobra_lens", Mh, lc, BX(T_PLAIN, 0, 0.012f, 0.37f, 0.28f, 0.02f, 0.58f, WHITE));
+        }
+        setEmis(0);
     }
     // salt circles
     setEmis(1);
@@ -2386,6 +2495,7 @@ static void settingsPanel(void) {   // tabs as in most PC games: video, audio, g
         float rh = (float)cfg.renderH; SLIDE(x1, "Render resolution (PS1 = 240)", rh, 180, 480, "%.0fp"); cfg.renderH = ((int)rh / 30) * 30;
         SLIDE(x1, "Brightness", gs.bright, 0.5f, 1.8f, "%.2f");
         SLIDE(x1, "Fog", gs.fog, 0.3f, 1.6f, "%.2f");
+        SLIDE(x0, "Sun rays", gs.godrays, 0, 1.5f, "%.2f");
         SLIDE(x1, "Field of view", cfg.fov, 55, 95, "%.0f");
     } else if (setTab == 1) {
         SLIDE(x0, "Master volume", cfg.volume, 0, 1, "%.2f"); SetMasterVolume(cfg.volume);
@@ -2689,10 +2799,12 @@ int main(int argc, char **argv) {
     if (getenv("KIRI_MAPSAVE")) { bool ok = mapSave(getenv("KIRI_MAPSAVE")); TraceLog(LOG_INFO, "MAPSAVE %s: %d hash %08x", getenv("KIRI_MAPSAVE"), ok, mapHash()); CloseWindow(); return 0; }
     loadTextures();
     sh = LoadShaderFromMemory(VS, FS);
+    grSh = LoadShaderFromMemory(NULL, GR_FS); grOk = grSh.id > 0 && grSh.id != rlGetShaderIdDefault();
+    if (grOk) { grLocSun = GetShaderLocation(grSh, "sunUV"); grLocK = GetShaderLocation(grSh, "rayK"); grLocCol = GetShaderLocation(grSh, "sunCol"); grLocAsp = GetShaderLocation(grSh, "aspect"); grLocDepth = GetShaderLocation(grSh, "depthTex"); }
     locView = GetShaderLocation(sh, "viewPos"); locFlashDir = GetShaderLocation(sh, "flashDir"); locFlashOn = GetShaderLocation(sh, "flashOn");
     locMuzzle = GetShaderLocation(sh, "muzzle"); locFog = GetShaderLocation(sh, "fogColor"); locFogD = GetShaderLocation(sh, "fogDensity");
     locEmis = GetShaderLocation(sh, "emissive"); locAmb = GetShaderLocation(sh, "ambient"); locLP = GetShaderLocation(sh, "lightPos");
-    locLC = GetShaderLocation(sh, "lightCol"); locLR = GetShaderLocation(sh, "lightRange"); locNL = GetShaderLocation(sh, "numLights"); locSnap = GetShaderLocation(sh, "snapRes");
+    locLC = GetShaderLocation(sh, "lightCol"); locLR = GetShaderLocation(sh, "lightRange"); locLS = GetShaderLocation(sh, "lightSpot"); locNL = GetShaderLocation(sh, "numLights"); locSnap = GetShaderLocation(sh, "snapRes");
     locDesat = GetShaderLocation(sh, "desat"); locRage = GetShaderLocation(sh, "rage");
     for (int i = 0; i < T_COUNT; i++) { cube[i] = LoadModelFromMesh(GenMeshCube(1, 1, 1)); cube[i].materials[0].shader = sh; cube[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tex[i]; }
     scrRT = LoadRenderTexture(160, 96); SetTextureFilter(scrRT.texture, TEXTURE_FILTER_POINT);
@@ -2706,7 +2818,7 @@ int main(int argc, char **argv) {
 #ifdef ZK_MODMAKER
     return editorMain();
 #endif
-    int rtH = 0, rtW = 0; RenderTexture2D rt = {0};
+    int rtH = 0, rtW = 0; RenderTexture2D rt = {0}, rt2 = {0}; bool rtDepth = false;   // rt2: the image after the sun rays
     float fogc[3] = {0.075f, 0.08f, 0.095f}; Color fogC = {19, 20, 24, 255};
     SetShaderValue(sh, locFog, fogc, SHADER_UNIFORM_VEC3);
     iconsInit();
@@ -2825,7 +2937,8 @@ int main(int argc, char **argv) {
                 if (bf == 10 + 4 * 70) { vin.on = false; break; } } }
         {   // look test: KIRI_LOOK="x y z yaw pitch name;..." stands there at noon (y < -500: on the ground), waits, takes name.png, quits
             static const char *lk = NULL; static int li = 0, lf = 0; static char spec[2048]; if (frame == 1) { lk = getenv("KIRI_LOOK"); if (lk) snprintf(spec, sizeof spec, "%s", lk); }
-            if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; if (getenv("KIRI_FLY")) cht.on[CH_NOCLIP] = true; pl.tod = 12; cht.frozenTod = 12; DisableCursor();
+            if (lk && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; if (getenv("KIRI_FLY")) cht.on[CH_NOCLIP] = true; pl.tod = 12; cht.frozenTod = 12; if (getenv("KIRI_LOOKTOD")) pl.tod = cht.frozenTod = (float)atof(getenv("KIRI_LOOKTOD")); DisableCursor();
+                if (getenv("KIRI_LAMPLIST")) for (int i = 0; i < nLamp; i++) if (lights[lamps[i].light].mode != 2 && fabsf(lamps[i].pos.x - 228) < 150 && fabsf(lamps[i].pos.z - 114) < 150) TraceLog(LOG_INFO, "LAMP %d %.1f %.1f dir %.0f %.0f kind %d mode %d", i, lamps[i].pos.x, lamps[i].pos.z, lamps[i].dir.x, lamps[i].dir.z, lampKind(i), lights[lamps[i].light].mode);
                 for (int b = 0; b < nBore; b++) TraceLog(LOG_INFO, "LOOK bore %d: portal %.1f %.1f fy %.1f dir %d kind %d len %.0f", b, bores[b].px, bores[b].pz, bores[b].fy, bores[b].dir, bores[b].kind, bores[b].len);
                 { int nm = 0; for (float x = -2000; x < 2000 && nm < 3; x += 2) for (float z = -2000; z < 2000 && nm < 3; z += 2) if (inPoly(dRiver, DRIVER_N, x, z) && fabsf(coast_d(x, z) - 8) < 1) { TraceLog(LOG_INFO, "LOOK mouth %.0f %.0f cs %.1f", x, z, coastSigned(x, z)); for (float a = 0; a < 6.28f; a += 0.2f) TraceLog(LOG_INFO, "LOOK yaw %.1f cs %.1f sea %d riv %d", a, coastSigned(x + sinf(a) * 25, z + cosf(a) * 25), seaSide(x + sinf(a) * 25, z + cosf(a) * 25), inPoly(dRiver, DRIVER_N, x + sinf(a) * 25, z + cosf(a) * 25)); nm++; x += 40; break; } }
                 { Vector3 w_ = seaSidePt(nCoast / 2, 30); Vector3 c_ = coastP[nCoast / 2 + 3]; Vector3 d_ = Vector3Normalize(V3(w_.x - coastP[nCoast / 2].x, 0, w_.z - coastP[nCoast / 2].z));
@@ -3130,8 +3243,11 @@ int main(int argc, char **argv) {
         if (videoMode) { dt = 1.0f / 30.0f; vtime += dt; t = vtime; videoScript(); if (vPhase >= 8 && vT > 40) break; }
         sw = (float)GetScreenWidth(); shh = (float)GetScreenHeight();
         int wantH = cfg.renderH, wantW = (int)(wantH * sw / shh);
-        if (wantH != rtH || wantW != rtW) { if (rtH) UnloadRenderTexture(rt); rt = LoadRenderTexture(wantW, wantH); SetTextureFilter(rt.texture, TEXTURE_FILTER_POINT); rtW = wantW; rtH = wantH; }
-        { static int lastSm = -1; static unsigned int lastId = 0; if (gs.smooth != lastSm || rt.texture.id != lastId) { SetTextureFilter(rt.texture, gs.smooth ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT); lastSm = gs.smooth; lastId = rt.texture.id; } }
+        if (wantH != rtH || wantW != rtW) { if (rtH) { UnloadRenderTexture(rt); if (rt2.id) UnloadRenderTexture(rt2); }
+            rt = grOk ? loadRTDepth(wantW, wantH) : (RenderTexture2D){0}; rtDepth = rt.id != 0; if (!rtDepth) rt = LoadRenderTexture(wantW, wantH);
+            rt2 = rtDepth ? LoadRenderTexture(wantW, wantH) : (RenderTexture2D){0};
+            SetTextureFilter(rt.texture, TEXTURE_FILTER_POINT); rtW = wantW; rtH = wantH; }
+        { static int lastSm = -1; static unsigned int lastId = 0; if (gs.smooth != lastSm || rt.texture.id != lastId) { SetTextureFilter(rt.texture, gs.smooth ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT); if (rt2.id) SetTextureFilter(rt2.texture, gs.smooth ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT); lastSm = gs.smooth; lastId = rt.texture.id; } }
         aeroBegin(720);
         if (msgT > 0) msgT -= dt;
 
@@ -3305,12 +3421,14 @@ int main(int argc, char **argv) {
                 UnloadImageColors(px); UnloadImage(im); }
             if (hf2) fclose(hf2); cam = keep; UnloadRenderTexture(hr);
             TraceLog(LOG_INFO, "HOLESCAN %d tiles, %d hole pixels (%.3f m each)", tiles, holes, TW / PX); break; }
+        bool rayOut = false;
         bool backdrop = !gameActive && (state == ST_MENU || state == ST_SETTINGS || state == ST_CONTROLS || state == ST_LORE || state == ST_TRAITS);
         if (!backdrop) {
         BeginTextureMode(rt);
         ClearBackground(fogC);
         BeginMode3D(cam);
         drawWorld(cam.position, t);
+        drawLampFx(cam.position);
         if (state == ST_PLAY && pl.build) { Vector3 mn, mx; bool ok = buildGhost(&mn, &mx); rlDrawRenderBatchActive();
             float cx = (mn.x + mx.x) / 2, cz = (mn.z + mx.z) / 2; rlPushMatrix(); rlTranslatef(cx, 0, cz); rlRotatef(bkYaw * RAD2DEG, 0, 1, 0); rlTranslatef(-cx, 0, -cz);
             DrawBoundingBox((BoundingBox){mn, mx}, ok ? (Color){111, 214, 208, 255} : (Color){200, 50, 40, 255});
@@ -3319,6 +3437,20 @@ int main(int argc, char **argv) {
         if ((state == ST_PLAY || state == ST_PAUSE) && !getenv("KIRI_NOHUD")) drawViewmodel2(cam.position, aim);
         EndMode3D();
         EndTextureMode();
+        rayOut = false;
+        if (rtDepth && rt2.id && gs.godrays && gameActive) {   // sun rays (and faint moon rays): from where the sun is, through the open sky in view
+            float str; Vector3 sc, sd = sunDirAt(pl.tod, &str, &sc);
+            Vector3 fwd = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); float facing = Vector3DotProduct(fwd, sd);
+            float under = (cam.position.y < -40 || inBore(cam.position.x, cam.position.z, cam.position.y)) ? 0 : 1;
+            float k = str * clampf((facing + 0.1f) / 0.5f, 0, 1) * (1 - 0.85f * rainK) * under * (0.75f + 0.5f * wildK(cam.position)) * gs.godrays;
+            if (k > 0.01f) {
+                Vector2 sp = GetWorldToScreenEx(Vector3Add(cam.position, Vector3Scale(sd, 500)), cam, rtW, rtH);
+                Vector2 uv = {sp.x / rtW, 1 - sp.y / rtH}; float asp = (float)rtW / rtH;
+                BeginTextureMode(rt2); BeginShaderMode(grSh);
+                SetShaderValue(grSh, grLocSun, &uv, SHADER_UNIFORM_VEC2); SetShaderValue(grSh, grLocK, &k, SHADER_UNIFORM_FLOAT); SetShaderValue(grSh, grLocCol, &sc, SHADER_UNIFORM_VEC3); SetShaderValue(grSh, grLocAsp, &asp, SHADER_UNIFORM_FLOAT);
+                SetShaderValueTexture(grSh, grLocDepth, rt.depth);
+                DrawTextureRec(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Vector2){0, 0}, WHITE);
+                EndShaderMode(); EndTextureMode(); rayOut = true; } }
         }
 
         // ---- composite + UI
@@ -3327,7 +3459,7 @@ int main(int argc, char **argv) {
         BeginDrawing();
         ClearBackground(BLACK);
         if (backdrop) saBackdrop(t, 0, 0, 0, 1.0f);
-        else DrawTexturePro(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
+        else DrawTexturePro(rayOut ? rt2.texture : rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Rectangle){0, 0, sw, shh}, (Vector2){0, 0}, 0, WHITE);
         static int noHud = -1; if (noHud < 0) noHud = getenv("KIRI_NOHUD") ? 1 : 0;   // clean captures for the website
         if (state == ST_PLAY && !noHud) { { float keepU = aU; if (gs.hudScale < 0.5f || gs.hudScale > 2) gs.hudScale = 1; aU *= gs.hudScale; drawHUD(cross, t); aU = keepU; } drawNameTags(); if (cht.menu) cheatMenu(t); }
         else {

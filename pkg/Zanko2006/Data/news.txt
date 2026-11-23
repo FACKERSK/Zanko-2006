@@ -1,4 +1,23 @@
-ZANKO 2006 - Afterglow  (v0.9.16, animated players)
+ZANKO 2006 - Afterglow  (v0.9.17, sun rays and street lights)
+
+- 0.9.17: light.
+  * Sun rays: where the sun (or, faintly, the moon) is in front,
+    its light streams through the gaps between buildings, poles
+    and trees. Strongest and warmest when the sun is low at dawn
+    and dusk; weaker in rain; none underground or in tunnels.
+    The strength is under Settings > Sun rays (0 turns it off).
+  * Street lights are real fixtures now: small LED heads on
+    brackets on the utility poles, long cobra heads on the tall
+    avenue lamps, both tipped up a little.
+  * Three kinds of lamp: white LED, orange sodium, and old
+    greenish mercury.
+  * They light downward: a pool of light on the street under
+    each, little on the walls above.
+  * A photocell switches each one on at dusk and off at dawn,
+    each at a slightly different moment; they warm up slowly.
+  * Lit lamps glow through fog and show a cone of light in the
+    air, more in rain and thick fog.
+  * Fewer of the utility pole lamps flicker.
 
 - 0.9.16: other players move like people.
   * Other players are drawn jointed (hips, knees, shoulders,

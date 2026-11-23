@@ -2060,9 +2060,9 @@ static void genLayoutWorld(void) {
             if (!cityLand(x, z) || mainRoadAt(x, z, 0.25f) || !pointFree(x, z, 0.3f, SIDEH + 0.1f)) continue;
             box(T_METAL, V3(x - 0.09f, SIDEH, z - 0.09f), V3(x + 0.09f, SIDEH + 8.4f, z + 0.09f), rgb(165, 168, 170), true, ALL);
             float ax = x + nn.x * 1.6f, az = z + nn.y * 1.6f; Vector3 arm[2] = {V3(x, 0, z), V3(ax, 0, az)}; ribbon(T_METAL, arm, 2, -0.06f, 0.06f, SIDEH + 8.35f, SIDEH + 8.35f, rgb(165, 168, 170), NULL);
-            box(T_METAL, V3(ax - 0.35f, SIDEH + 8.15f, az - 0.35f), V3(ax + 0.35f, SIDEH + 8.4f, az + 0.35f), rgb(150, 152, 155), false, ALLB);
-            box(T_PLAIN, V3(ax - 0.28f, SIDEH + 8.1f, az - 0.28f), V3(ax + 0.28f, SIDEH + 8.15f, az + 0.28f), rgb(255, 240, 200), false, ALLB);
-            addLight(V3(ax, SIDEH + 7.6f, az), V3(1.0f, 0.85f, 0.6f), 13, ri(4) ? 0 : (ri(2) ? 1 : 2)); }
+            {   // the head is drawn with the lamp (lit or dark): a long cobra head on the end of the arm
+                int li = addLight(V3(ax + nn.x * 0.36f, SIDEH + 7.6f, az + nn.y * 0.36f), V3(1.0f, 0.85f, 0.6f), 13, ri(4) ? 0 : (ri(2) ? 1 : 2));
+                if (nLamp < MAX_LAMP) lamps[nLamp++] = (Lamp){V3(ax, SIDEH + 8.17f, az), V3(nn.x, 0, nn.y), li, 1}; } }
         if (k == 3) {   // a bridge: deck edges and railings, a beam under the deck
             for (int e = 0; e < 2; e++) { Vector3 E = e ? p[n - 1] : p[0], F = e ? p[n - 2] : p[1]; Vector2 d = Vector2Normalize((Vector2){F.x - E.x, F.z - E.z}), nm = {-d.y, d.x};   // concrete portal gates at both ends
                 int f = newXf(E.x, E.z, atan2f(-d.y, d.x)), keep = curXf; curXf = f;
@@ -2089,7 +2089,10 @@ static void genLayoutWorld(void) {
             box(T_CONCRETE, V3(x - 0.13f, 0, z - 0.13f), V3(x + 0.13f, 8.2f, z + 0.13f), rgb(150, 150, 140), true, ALL);
             if (nPoleT < 4000) { poleT[nPoleT] = V3(x, 7.45f, z); poleS[nPoleT++] = s2; }
             box(T_WOOD, V3(x - 0.9f, 7.4f, z - 0.06f), V3(x + 0.9f, 7.55f, z + 0.06f), rgb(90, 80, 70), false, ALLB);
-            if ((i / 8) % 2 == 0) addLight(V3(x - nn.x * 1.0f, 5.6f, z - nn.y * 1.0f), V3(1.0f, 0.68f, 0.36f), 11, ri(4) ? 1 : (ri(2) ? 0 : 2));
+            if ((i / 8) % 2 == 0) {   // a small LED lamp on a bracket out over the street (most keep working: a third flicker)
+                int md = ri(4) ? 1 : (ri(2) ? 0 : 2); if (md == 1 && hash2((int)(x * 3), (int)(z * 3), 11) < 0.6f) md = 0;
+                int li = addLight(V3(x - nn.x * 1.2f, 5.6f, z - nn.y * 1.2f), V3(1.0f, 0.68f, 0.36f), 11, md);
+                if (nLamp < MAX_LAMP) lamps[nLamp++] = (Lamp){V3(x - nn.x * 1.0f, 6.12f, z - nn.y * 1.0f), V3(-nn.x, 0, -nn.y), li, 0}; }
             if ((i / 8) % 5 == 2) { float vx = p[i].x - nn.x * (w / 2 + 0.9f), vz = p[i].z - nn.y * (w / 2 + 0.9f); if (cityLand(vx, vz) && !mainRoadAt(vx, vz, 0.6f) && pointFree(vx, vz, 0.8f, SIDEH + 0.1f)) vending(vx, vz, fabsf(nn.x) > fabsf(nn.y) ? (nn.x > 0 ? 3 : 1) : (nn.y > 0 ? 0 : 2)); }
         }
     }
