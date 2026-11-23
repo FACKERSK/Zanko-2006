@@ -347,18 +347,22 @@ static void setEmis(float e) { if (e != curEmis) { SetShaderValue(sh, locEmis, &
 // ============================================================ static mesh builder
 typedef struct { float *v, *t, *n; unsigned char *c; int cnt, cap; } MB;
 // the static world in 64 m chunks (0.9.0 LOD): each chunk keeps one mesh per texture and its bounds; far chunks draw a block model instead
-#define NCH 20
-#define CH_SZ 64.0f
+#define NCH 40   // (0.9.15: 32 m chunks: finer view and distance culling)
+#define CH_SZ 32.0f
 #define CH_X0 (-460.0f)
 #define CH_Z0 (-200.0f)
-static MB mb[NCH * NCH][T_COUNT];
-static Model stat[NCH * NCH][T_COUNT]; static bool statOk[NCH * NCH][T_COUNT];
+// 0.9.15: each chunk keeps two layers per texture: [t] the main geometry, [t + T_COUNT] small detail (pieces under DETAIL_MAX), drawn only close by
+#define TL (2 * T_COUNT)
+#define DETAIL_MAX 0.8f
+static MB mb[NCH * NCH][TL];
+static Model stat[NCH * NCH][TL]; static bool statOk[NCH * NCH][TL];
+static bool quadDetail;
 static Vector3 chMn[NCH * NCH], chMx[NCH * NCH]; static bool chAny[NCH * NCH];
 static Model chLod[NCH * NCH]; static bool chLodOk[NCH * NCH];
 static float gFogD = 0;   // the fog density in use: sets how far full detail and the block models reach
 static float gFogSight = 1e9f;   // 0.9.8: how far the fog lets anything be seen (90% fogged), from the scene's fog without the player's fog setting: the creatures see no further than you
 static int chunkOf(float x, float z) { int i = (int)floorf((x - CH_X0) / CH_SZ), j = (int)floorf((z - CH_Z0) / CH_SZ); i = i < 0 ? 0 : i >= NCH ? NCH - 1 : i; j = j < 0 ? 0 : j >= NCH ? NCH - 1 : j; return j * NCH + i; }
-static void statSetTex(int t, Texture2D tx) { for (int c = 0; c < NCH * NCH; c++) if (statOk[c][t]) stat[c][t].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tx; }
+static void statSetTex(int t, Texture2D tx) { for (int c = 0; c < NCH * NCH; c++) for (int L = t; L < TL; L += T_COUNT) if (statOk[c][L]) stat[c][L].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tx; }
 static void mbPush(MB *b, Vector3 p, Vector2 uv, Vector3 n, Color c) {
     if (b->cnt >= b->cap) {
         b->cap = b->cap ? b->cap * 2 : 1024;
@@ -450,10 +454,11 @@ static void quad(int t, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, C
     if (!chAny[ch]) { chAny[ch] = true; chMn[ch] = w[0]; chMx[ch] = w[0]; }
     for (int i = 0; i < 6; i++) { chMn[ch] = Vector3Min(chMn[ch], w[i]); chMx[ch] = Vector3Max(chMx[ch], w[i]); }
     bool two = t == T_ROOF && n.y > 0.05f && n.y < 0.995f;   // a pitched roof is seen from under its eaves too
-    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], w[i], uvOf(t, q[i], n), wn, col);
-        if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][t], w[i], uvOf(t, q[i], n), Vector3Negate(wn), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a}); return; }   // texture follows the walls
-    for (int i = 0; i < 6; i++) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), n, col);
-    if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][t], q[i], uvOf(t, q[i], n), Vector3Negate(n), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a});
+    int L = t + (quadDetail ? T_COUNT : 0);
+    if (curXf) { Vector3 wn = xfD(curXf, n); for (int i = 0; i < 6; i++) mbPush(&mb[ch][L], w[i], uvOf(t, q[i], n), wn, col);
+        if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][L], w[i], uvOf(t, q[i], n), Vector3Negate(wn), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a}); return; }   // texture follows the walls
+    for (int i = 0; i < 6; i++) mbPush(&mb[ch][L], q[i], uvOf(t, q[i], n), n, col);
+    if (two) for (int i = 5; i >= 0; i--) mbPush(&mb[ch][L], q[i], uvOf(t, q[i], n), Vector3Negate(n), (Color){(unsigned char)(col.r * 0.6f), (unsigned char)(col.g * 0.6f), (unsigned char)(col.b * 0.6f), col.a});
 }
 static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
     // 0.9.13: nothing is paper: every drawn box is at least 1 cm through on each axis and closed on all six sides
@@ -471,13 +476,14 @@ static void meshBox(int t, Vector3 mn, Vector3 mx, Color col, int mask) {
     if ((mask & 16) && !(mask & 32) && mn.y > SIDEH + 0.2f && mask != 16) mask |= 32;   // anything off the ground can be seen from below: a lintel, a frame head, a shelf, an eave
     float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
     bool keepIn = quadInSlab; quadInSlab = true;   // (a box's own faces are never thickened)
+    bool keepD = quadDetail; if (fmaxf(fmaxf(x1 - x0, y1 - y0), z1 - z0) < DETAIL_MAX) quadDetail = true;   // 0.9.15: a small piece is close-up detail
     if (mask & 1) quad(t, (Vector3){x1, y0, z1}, (Vector3){x1, y0, z0}, (Vector3){x1, y1, z0}, (Vector3){x1, y1, z1}, (Vector3){1, 0, 0}, col);
     if (mask & 2) quad(t, (Vector3){x0, y0, z0}, (Vector3){x0, y0, z1}, (Vector3){x0, y1, z1}, (Vector3){x0, y1, z0}, (Vector3){-1, 0, 0}, col);
     if (mask & 4) quad(t, (Vector3){x0, y0, z1}, (Vector3){x1, y0, z1}, (Vector3){x1, y1, z1}, (Vector3){x0, y1, z1}, (Vector3){0, 0, 1}, col);
     if (mask & 8) quad(t, (Vector3){x1, y0, z0}, (Vector3){x0, y0, z0}, (Vector3){x0, y1, z0}, (Vector3){x1, y1, z0}, (Vector3){0, 0, -1}, col);
     if (mask & 16) quad(t, (Vector3){x0, y1, z1}, (Vector3){x1, y1, z1}, (Vector3){x1, y1, z0}, (Vector3){x0, y1, z0}, (Vector3){0, 1, 0}, col);
     if (mask & 32) quad(t, (Vector3){x0, y0, z0}, (Vector3){x1, y0, z0}, (Vector3){x1, y0, z1}, (Vector3){x0, y0, z1}, (Vector3){0, -1, 0}, col);
-    quadInSlab = keepIn;
+    quadInSlab = keepIn; quadDetail = keepD;
 }
 #define ALL 31
 #define ALLB 63
@@ -1141,7 +1147,7 @@ static void genStation(float x0, float z0) {
 static unsigned int worldGenCount = 0;   // bumped each time a world is built (the map rebuilds its mesh)
 static void freeWorld(void) {
     worldGenCount++;
-    for (int c = 0; c < NCH * NCH; c++) { for (int t = 0; t < T_COUNT; t++) {
+    for (int c = 0; c < NCH * NCH; c++) { for (int t = 0; t < TL; t++) {
         if (statOk[c][t]) { UnloadModel(stat[c][t]); statOk[c][t] = false; }
         free(mb[c][t].v); free(mb[c][t].t); free(mb[c][t].n); free(mb[c][t].c);
         memset(&mb[c][t], 0, sizeof(MB)); }
@@ -1166,7 +1172,8 @@ static void lodBlock(MB *b, Vector3 P[8], Color top, Color side) {   // a buildi
 }
 static void finalizeMeshes(void) {
     int nm = 0;
-    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) { if (mb[c][t].cnt == 0) continue; stat[c][t] = mbModel(&mb[c][t], t); statOk[c][t] = true; nm++; }
+    long tv = 0, tvd = 0; for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < TL; t++) { if (t < T_COUNT) tv += mb[c][t].cnt; else tvd += mb[c][t].cnt; }
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < TL; t++) { if (mb[c][t].cnt == 0) continue; stat[c][t] = mbModel(&mb[c][t], t % T_COUNT); statOk[c][t] = true; nm++; }
     static MB lod[NCH * NCH]; memset(lod, 0, sizeof lod);   // far LOD: every building footprint as one block
     for (int i = 0; i < nMapFoot; i++) { Rectangle r = mapFoot[i]; float y0 = mapFootY[i], y1 = y0 + mapFootH[i] + 0.6f; Vector3 P[8];
         for (int k = 0; k < 8; k++) P[k] = xfP(mapFootF[i], V3((k & 1) ? r.x + r.width : r.x, (k & 2) ? y1 : y0, (k & 4) ? r.y + r.height : r.y));
@@ -1175,7 +1182,7 @@ static void finalizeMeshes(void) {
         int hsh = (int)(r.x * 7 + r.y * 13) & 3; Color wc = (Color[]){{196, 192, 184, 255}, {176, 172, 166, 255}, {206, 200, 186, 255}, {160, 162, 166, 255}}[hsh];
         lodBlock(&lod[ch], P, rgb(90, 90, 92), wc); }
     for (int c = 0; c < NCH * NCH; c++) if (lod[c].cnt) { chLod[c] = mbModel(&lod[c], T_PLAIN); chLodOk[c] = true; }
-    { long tv = 0; for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) tv += mb[c][t].cnt; TraceLog(LOG_INFO, "WORLD: %d chunk meshes, %ld vertices", nm, tv); }
+    TraceLog(LOG_INFO, "WORLD: %d chunk meshes, %ld vertices + %ld in close-up detail", nm, tv, tvd);
 }
 #include "zk_layout.h"
 #include "zk_objs.h"
@@ -1233,7 +1240,7 @@ static void worldPrint(const char *tag) {   // 0.9.12: what the world answers wh
 // The town is built once, like a compiled map: the generator's output (geometry, collision, doors, furniture, lights, stairs, ...)
 // is written to Data/world.bake and every later start loads it instead of building again. It belongs to one map, one set of
 // placed objects and one game version (the key); anything else builds and bakes anew. KIRI_NOBAKE=1 always builds.
-#define BAKE_VER 3
+#define BAKE_VER 4
 static unsigned int bakeKey(void) { unsigned int h = mapHash() ^ (BAKE_VER * 0x9E3779B9u); for (const char *c = GAME_VERSION; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; } return h; }
 typedef struct { unsigned char *p; size_t n, cap; } BkBuf;
 static void bkPut(BkBuf *b, const void *d, size_t n) { if (b->n + n > b->cap) { b->cap = (b->n + n) * 2 + 65536; b->p = realloc(b->p, b->cap); } memcpy(b->p + b->n, d, n); b->n += n; }
@@ -1246,7 +1253,7 @@ static void bkGet(BkRd *r, void *d, size_t n) { if (r->bad || r->at + n > r->n) 
 static void bakeSave(void) {
     if (getenv("KIRI_NOBAKE") && !getenv("KIRI_BAKE")) return;
     BkBuf B = {0}; unsigned int key = bakeKey(), magic = 0x454B4142u; BKW(magic); BKW(key);
-    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) { MB *m = &mb[c][t]; BKW(m->cnt); if (m->cnt) { bkPut(&B, m->v, (size_t)m->cnt * 12); bkPut(&B, m->t, (size_t)m->cnt * 8); bkPut(&B, m->n, (size_t)m->cnt * 12); bkPut(&B, m->c, (size_t)m->cnt * 4); } }
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < TL; t++) { MB *m = &mb[c][t]; BKW(m->cnt); if (m->cnt) { bkPut(&B, m->v, (size_t)m->cnt * 12); bkPut(&B, m->t, (size_t)m->cnt * 8); bkPut(&B, m->n, (size_t)m->cnt * 12); bkPut(&B, m->c, (size_t)m->cnt * 4); } }
     bkPut(&B, chMn, sizeof chMn); bkPut(&B, chMx, sizeof chMx); bkPut(&B, chAny, sizeof chAny);
     BKA(sol, nSol); bkPut(&B, cellN, sizeof cellN); for (int c = 0; c < GN * GN; c++) if (cellN[c]) bkPut(&B, cellL[c], (size_t)cellN[c] * sizeof(int));
     BKA(ops, nOps); BKA(vends, nVend); BKA(lights, nLight); BKA(signs, nSign); BKA(lamps, nLamp); BKA(crates, nCrate); BKA(items, nItem); BKA(wards, nWard); BKA(wBedMn, nWBed); bkPut(&B, wBedMx, sizeof(Vector3) * nWBed);
@@ -1279,7 +1286,7 @@ static bool bakeLoad(void) {
         UnloadFileData(z); if (bad) { free(raw); TraceLog(LOG_WARNING, "BAKE unreadable: building"); return false; } }
     BkRd R = {raw, (size_t)n, 0, false}; unsigned int magic = 0, key = 0; BKR(magic); BKR(key);
     if (magic != 0x454B4142u || key != bakeKey()) { TraceLog(LOG_INFO, "BAKE out of date (key %08x, want %08x): building", key, bakeKey()); free(raw); return false; }
-    for (int c = 0; c < NCH * NCH && !R.bad; c++) for (int t = 0; t < T_COUNT && !R.bad; t++) { MB *m = &mb[c][t]; int cnt = 0; BKR(cnt); if (cnt <= 0) continue;
+    for (int c = 0; c < NCH * NCH && !R.bad; c++) for (int t = 0; t < TL && !R.bad; t++) { MB *m = &mb[c][t]; int cnt = 0; BKR(cnt); if (cnt <= 0) continue;
         m->cap = cnt; m->cnt = cnt; m->v = malloc((size_t)cnt * 12); m->t = malloc((size_t)cnt * 8); m->n = malloc((size_t)cnt * 12); m->c = malloc((size_t)cnt * 4);
         bkGet(&R, m->v, (size_t)cnt * 12); bkGet(&R, m->t, (size_t)cnt * 8); bkGet(&R, m->n, (size_t)cnt * 12); bkGet(&R, m->c, (size_t)cnt * 4); }
     bkGet(&R, chMn, sizeof chMn); bkGet(&R, chMx, sizeof chMx); bkGet(&R, chAny, sizeof chAny);
@@ -1318,6 +1325,73 @@ static void loadScreen(const char *what, float frac) {
     int f3 = (int)(16 * s); const char *tp = loadTips[tip]; DrawText(tp, (w - MeasureText(tp, f3)) / 2, (int)(h * 0.70f), f3, (Color){140, 150, 150, 255});
     EndDrawing();
     if (getenv("KIRI_LOADSHOT") && frac > 0.55f && frac < 0.65f) TakeScreenshot("shot_loading.png");
+}
+// 0.9.15: only the faces that can be seen are kept. Two faces pressed together (the side of one box against the side of the next, a slab on a
+// slab, a wall piece against a wall piece) hide each other: where a face lies in the same plane as an opposite-facing rectangle that covers it,
+// it is never visible and is dropped from the chunk meshes (and so from the bake). Faces only partly covered stay.
+typedef struct { int k0, k1, k2, k3; signed char sg; unsigned char layer; unsigned short chunk; int q; float u0, v0, u1, v1; bool rect; } HFace;
+static int hfCmp(const void *A, const void *B) { const HFace *a = A, *b = B;
+    if (a->k0 != b->k0) return a->k0 < b->k0 ? -1 : 1; if (a->k1 != b->k1) return a->k1 < b->k1 ? -1 : 1; if (a->k2 != b->k2) return a->k2 < b->k2 ? -1 : 1; if (a->k3 != b->k3) return a->k3 < b->k3 ? -1 : 1;
+    if (a->sg != b->sg) return a->sg < b->sg ? -1 : 1; return a->u0 < b->u0 ? -1 : a->u0 > b->u0 ? 1 : 0; }
+static void cullHidden(void) {
+    double t0 = GetTime(); long nq = 0;
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < TL; t++) nq += mb[c][t].cnt / 6;
+    HFace *F = malloc(sizeof(HFace) * (size_t)(nq ? nq : 1)); long nf = 0;
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < TL; t++) { MB *m = &mb[c][t]; if (m->cnt % 6) continue;
+        for (int q = 0; q < m->cnt / 6; q++) { float *v = &m->v[q * 18];
+            Vector3 a = {v[0], v[1], v[2]}, b = {v[3], v[4], v[5]}, cc = {v[6], v[7], v[8]}, d = {v[15], v[16], v[17]};
+            Vector3 n = Vector3CrossProduct(Vector3Subtract(b, a), Vector3Subtract(cc, a)); float L = Vector3Length(n); if (L < 1e-6f) continue; n = Vector3Scale(n, 1 / L);
+            int sg = 1; if (fabsf(n.x) > 1e-4f ? n.x < 0 : fabsf(n.y) > 1e-4f ? n.y < 0 : n.z < 0) { sg = -1; n = Vector3Negate(n); }
+            Vector3 ax = fabsf(n.y) < 0.9f ? (Vector3){0, 1, 0} : (Vector3){1, 0, 0}, U = Vector3Normalize(Vector3CrossProduct(n, ax)), V = Vector3CrossProduct(n, U);
+            float dd = Vector3DotProduct(n, a), us[4], vs[4]; Vector3 P[4] = {a, b, cc, d};
+            for (int k = 0; k < 4; k++) { us[k] = Vector3DotProduct(P[k], U); vs[k] = Vector3DotProduct(P[k], V); }
+            HFace f = {(int)lroundf(n.x * 400), (int)lroundf(n.y * 400), (int)lroundf(n.z * 400), (int)lroundf(dd * 250), (signed char)sg, (unsigned char)t, (unsigned short)c, q,
+                fminf(fminf(us[0], us[1]), fminf(us[2], us[3])), fminf(fminf(vs[0], vs[1]), fminf(vs[2], vs[3])), fmaxf(fmaxf(us[0], us[1]), fmaxf(us[2], us[3])), fmaxf(fmaxf(vs[0], vs[1]), fmaxf(vs[2], vs[3])), false};
+            float area = L * 0.5f + Vector3Length(Vector3CrossProduct(Vector3Subtract(cc, a), Vector3Subtract(d, a))) * 0.5f, ba = (f.u1 - f.u0) * (f.v1 - f.v0);
+            f.rect = ba > 1e-6f && fabsf(area - ba) < ba * 0.01f;   // an upright-to-its-plane rectangle: its bounds are its shape
+            F[nf++] = f; } }
+    qsort(F, (size_t)nf, sizeof(HFace), hfCmp);
+    unsigned char *dead = calloc((size_t)nf, 1); long hidden = 0; const float E = 0.004f;
+    for (long g0 = 0; g0 < nf;) { long g1 = g0; while (g1 < nf && F[g1].k0 == F[g0].k0 && F[g1].k1 == F[g0].k1 && F[g1].k2 == F[g0].k2 && F[g1].k3 == F[g0].k3) g1++;
+        long m0 = g0; while (m0 < g1 && F[m0].sg < 0) m0++;   // [g0, m0): facing one way, [m0, g1): the other; each part sorted by u0
+        for (int side = 0; side < 2; side++) { long a0 = side ? m0 : g0, a1 = side ? g1 : m0, b0 = side ? g0 : m0, b1 = side ? m0 : g1; if (a0 == a1 || b0 == b1) continue;
+            float maxW = 0; for (long j = b0; j < b1; j++) if (F[j].rect) maxW = fmaxf(maxW, F[j].u1 - F[j].u0);
+            for (long i = a0; i < a1; i++) { HFace *f = &F[i];
+                long lo = b0, hi = b1; while (lo < hi) { long mid = (lo + hi) / 2; if (F[mid].u0 <= f->u0 + E) lo = mid + 1; else hi = mid; }   // the covers start at or left of f
+                for (long j = lo - 1; j >= b0 && F[j].u0 >= f->u0 - maxW - E; j--) { HFace *g = &F[j];
+                    if (g->rect && g->u0 <= f->u0 + E && g->u1 >= f->u1 - E && g->v0 <= f->v0 + E && g->v1 >= f->v1 - E) {
+                        if (g->chunk == f->chunk && g->layer == f->layer && abs(g->q - f->q) == 1) continue;   // the back of a two-sided face (a sheet seen from both sides): keep both
+                        dead[i] = 1; hidden++; break; } } } }
+        g0 = g1; }
+    // drop them (each chunk layer compacted in place)
+    unsigned char **kill = calloc((size_t)NCH * NCH * TL, sizeof(unsigned char *));
+    for (long i = 0; i < nf; i++) if (dead[i]) { size_t id = (size_t)F[i].chunk * TL + F[i].layer; if (!kill[id]) kill[id] = calloc((size_t)mb[F[i].chunk][F[i].layer].cnt / 6 + 1, 1); kill[id][F[i].q] = 1; }
+    for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < TL; t++) { unsigned char *k = kill[(size_t)c * TL + t]; if (!k) continue; MB *m = &mb[c][t]; int o = 0;
+        for (int q = 0; q < m->cnt / 6; q++) { if (k[q]) continue; if (o != q) { memmove(&m->v[o * 18], &m->v[q * 18], 72); memmove(&m->t[o * 12], &m->t[q * 12], 48); memmove(&m->n[o * 18], &m->n[q * 18], 72); memmove(&m->c[o * 24], &m->c[q * 24], 24); } o++; }
+        m->cnt = o * 6; free(k); }
+    free(kill); free(dead); free(F);
+    TraceLog(LOG_INFO, "CULL %ld of %ld faces hidden against another face and dropped (%.1f s)", hidden, nf, GetTime() - t0);
+    {   // the insides of buildings (rooms, stairs, furniture: anything wholly within a footprint, below its roof) go to the close-up layer too:
+        // from further off they are walls away or behind dark windows in the fog
+        const float G = 0.5f, X0 = CH_X0, Z0 = CH_Z0; int GW = (int)(NCH * CH_SZ / G); short *fp = calloc((size_t)GW * GW, sizeof(short));
+        for (int f = 0; f < nMapFoot && f < 32000; f++) { Rectangle r = mapFoot[f]; float sh2 = 0.35f; if (r.width < 2 * sh2 + 0.2f || r.height < 2 * sh2 + 0.2f) continue;
+            Vector3 c4[4] = {{r.x, 0, r.y}, {r.x + r.width, 0, r.y}, {r.x, 0, r.y + r.height}, {r.x + r.width, 0, r.y + r.height}}; float mnx = 1e9f, mxx = -1e9f, mnz = 1e9f, mxz = -1e9f;
+            for (int k = 0; k < 4; k++) { Vector3 w4 = xfP(mapFootF[f], c4[k]); mnx = fminf(mnx, w4.x); mxx = fmaxf(mxx, w4.x); mnz = fminf(mnz, w4.z); mxz = fmaxf(mxz, w4.z); }
+            for (int J = (int)((mnz - Z0) / G); J <= (int)((mxz - Z0) / G); J++) for (int I = (int)((mnx - X0) / G); I <= (int)((mxx - X0) / G); I++) { if (I < 0 || J < 0 || I >= GW || J >= GW) continue;
+                Vector3 l = xfInv(mapFootF[f], (Vector3){X0 + (I + 0.5f) * G, 0, Z0 + (J + 0.5f) * G});
+                if (l.x > r.x + sh2 && l.x < r.x + r.width - sh2 && l.z > r.y + sh2 && l.z < r.y + r.height - sh2) fp[(size_t)J * GW + I] = (short)(f + 1); } }
+        long moved = 0;
+        for (int c = 0; c < NCH * NCH; c++) for (int t = 0; t < T_COUNT; t++) { MB *m = &mb[c][t], *dm = &mb[c][t + T_COUNT]; if (!m->cnt || t == T_ROOF || t == T_GLASS) continue; int o = 0;
+            for (int q = 0; q < m->cnt / 6; q++) { float *v = &m->v[q * 18]; float mnx = 1e9f, mxx = -1e9f, mnz = 1e9f, mxz = -1e9f, mxy = -1e9f;
+                for (int k = 0; k < 6; k++) { mnx = fminf(mnx, v[k * 3]); mxx = fmaxf(mxx, v[k * 3]); mnz = fminf(mnz, v[k * 3 + 2]); mxz = fmaxf(mxz, v[k * 3 + 2]); mxy = fmaxf(mxy, v[k * 3 + 1]); }
+                bool in = true; int fid = 0;
+                for (int k = 0; k < 4 && in; k++) { float x = (k & 1) ? mxx : mnx, z = (k & 2) ? mxz : mnz; int I = (int)((x - X0) / G), J = (int)((z - Z0) / G); int id = (I < 0 || J < 0 || I >= GW || J >= GW) ? 0 : fp[(size_t)J * GW + I]; if (!id || (fid && id != fid)) in = false; fid = id; }
+                if (in && mxy > mapFootY[fid - 1] + mapFootH[fid - 1] - 0.4f) in = false;   // (the roof and anything on it stays)
+                if (in) { for (int k = 0; k < 6; k++) mbPush(dm, (Vector3){v[k * 3], v[k * 3 + 1], v[k * 3 + 2]}, (Vector2){m->t[q * 12 + k * 2], m->t[q * 12 + k * 2 + 1]}, (Vector3){m->n[q * 18 + k * 3], m->n[q * 18 + k * 3 + 1], m->n[q * 18 + k * 3 + 2]},
+                        (Color){m->c[q * 24 + k * 4], m->c[q * 24 + k * 4 + 1], m->c[q * 24 + k * 4 + 2], m->c[q * 24 + k * 4 + 3]}); moved++; continue; }
+                if (o != q) { memmove(&m->v[o * 18], &m->v[q * 18], 72); memmove(&m->t[o * 12], &m->t[q * 12], 48); memmove(&m->n[o * 18], &m->n[q * 18], 72); memmove(&m->c[o * 24], &m->c[q * 24], 24); } o++; }
+            m->cnt = o * 6; }
+        free(fp); TraceLog(LOG_INFO, "CULL %ld faces inside buildings drawn only close by", moved); }
 }
 static void genWorld(unsigned int seed) {
     double gwT0 = GetTime(); loadScreen("Laying out the town", 0.02f);
@@ -1419,6 +1493,7 @@ static void genWorld(unsigned int seed) {
             quad(T_SIDEWALK, V3(x0, y, z1), V3(x1, y, z1), V3(x1, y, z0), V3(x0, y, z0), V3(0, 1, 0), WHITE); filled += i2 - i + 1; i = i2 + 1; }
         TraceLog(LOG_INFO, "GROUNDFILL %d half-metre cells of bare town ground paved", filled);
         free(cover); cover = NULL; }
+    if (!getenv("KIRI_NOCULL")) cullHidden();
     bakeSave();
     loadScreen("Building the streets", 0.75f); finalizeMeshes();
     loadScreen("Shaping the ground", 0.88f); genTerrain(); loadScreen("Waking up", 1.0f);
@@ -2009,24 +2084,47 @@ static void setupLights(Vector3 eye, float t) {
     SetShaderValue(sh, locNL, &n, SHADER_UNIFORM_INT);
 }
 static void drawRemotePlayers(float dt);
+// 0.9.15: view culling: a box is drawn only if some of it is inside the camera's view (the four side planes of the view, a little wider)
+static Vector3 vcEye, vcN[4]; static bool vcOn;
+static void viewCullSetup(void) {
+    vcOn = cam.projection == CAMERA_PERSPECTIVE && !getenv("KIRI_NOVCULL"); if (!vcOn) return;
+    Vector3 f = Vector3Normalize(Vector3Subtract(cam.target, cam.position)), r = Vector3Normalize(Vector3CrossProduct(f, cam.up)), u = Vector3CrossProduct(r, f);
+    float tv = tanf(cam.fovy * DEG2RAD / 2) * 1.15f, asp = (float)GetScreenWidth() / fmaxf(1, (float)GetScreenHeight()), th = tv * asp * 1.1f;
+    vcEye = cam.position; vcN[0] = Vector3Add(r, Vector3Scale(f, th)); vcN[1] = Vector3Add(Vector3Negate(r), Vector3Scale(f, th)); vcN[2] = Vector3Add(Vector3Negate(u), Vector3Scale(f, tv)); vcN[3] = Vector3Add(u, Vector3Scale(f, tv));
+}
+static bool boxInView(Vector3 mn, Vector3 mx) {
+    if (!vcOn) return true;
+    if (vcEye.x >= mn.x - 1 && vcEye.x <= mx.x + 1 && vcEye.y >= mn.y - 1 && vcEye.y <= mx.y + 1 && vcEye.z >= mn.z - 1 && vcEye.z <= mx.z + 1) return true;
+    for (int p = 0; p < 4; p++) { bool any = false;
+        for (int k = 0; k < 8 && !any; k++) { Vector3 c = {(k & 1) ? mx.x : mn.x, (k & 2) ? mx.y : mn.y, (k & 4) ? mx.z : mn.z}; if (Vector3DotProduct(Vector3Subtract(c, vcEye), vcN[p]) > 0) any = true; }
+        if (!any) return false; }
+    return true;
+}
+static int perfSkip = -1; static long perfCnt[4];
 static void drawWorld(Vector3 eye, float t) {
+    viewCullSetup(); if (perfSkip < 0) perfSkip = getenv("KIRI_PERFSKIP") ? atoi(getenv("KIRI_PERFSKIP")) : 0;
     curEmis = -1; setEmis(0);
-    if (terrainOk) {   // 0.9.14: the ground by tile: what is short of the fog's far edge and not behind you
+    if (terrainOk && !(perfSkip & 1)) {   // 0.9.14: the ground by tile: what is short of the fog's far edge and not behind you
         float fd = gFogD > 1e-4f ? gFogD : 0, far = fd > 0 ? clampf(3.2f / fd, 160, 5000) : 1e9f;
         Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool bc = fd > 0 && Vector3Length(fw) > 0.25f; if (bc) fw = Vector3Normalize(fw);
         for (int k = 0; k < nTerT; k++) {
             float dx = fmaxf(fmaxf(terTMn[k].x - eye.x, eye.x - terTMx[k].x), 0), dz = fmaxf(fmaxf(terTMn[k].z - eye.z, eye.z - terTMx[k].z), 0), d = sqrtf(dx * dx + dz * dz);
             if (d > far) continue;
             if (bc && d > 30) { bool ahead = false; for (int c = 0; c < 4 && !ahead; c++) { float cx = (c & 1) ? terTMx[k].x : terTMn[k].x, cz = (c & 2) ? terTMx[k].z : terTMn[k].z; if ((cx - eye.x) * fw.x + (cz - eye.z) * fw.z > -16) ahead = true; } if (!ahead) continue; }
+            if (!boxInView(terTMn[k], terTMx[k])) continue;
             terTiles[k].transform = MatrixIdentity(); DrawModel(terTiles[k], V3(0, 0, 0), 1, WHITE); } }
     {   // the static world by chunk: full detail near, a block model in the fog, nothing beyond it or behind you
         float fd = gFogD > 1e-4f ? gFogD : 0, lodN = fd > 0 ? clampf(1.35f / fd, 70, 3000) : 1e9f, lodF = fd > 0 ? clampf(2.5f / fd, 110, 4000) : 1e9f;
         Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool behindCull = fd > 0 && Vector3Length(fw) > 0.25f; if (behindCull) fw = Vector3Normalize(fw);
-        for (int c = 0; c < NCH * NCH; c++) { if (!chAny[c]) continue;
+        for (int c = 0; c < NCH * NCH; c++) { if (!chAny[c] || (perfSkip & 2)) continue;
             float dx = fmaxf(fmaxf(chMn[c].x - eye.x, eye.x - chMx[c].x), 0), dz = fmaxf(fmaxf(chMn[c].z - eye.z, eye.z - chMx[c].z), 0), d = sqrtf(dx * dx + dz * dz);
             if (d > lodF) continue;
             if (behindCull && d > 24) { bool ahead = false; for (int k = 0; k < 4 && !ahead; k++) { float cx = (k & 1) ? chMx[c].x : chMn[c].x, cz = (k & 2) ? chMx[c].z : chMn[c].z; if ((cx - eye.x) * fw.x + (cz - eye.z) * fw.z > -12) ahead = true; } if (!ahead) continue; }
-            if (d <= lodN) { for (int i = 0; i < T_COUNT; i++) if (statOk[c][i]) { stat[c][i].transform = MatrixIdentity(); DrawModel(stat[c][i], V3(0, 0, 0), 1, WHITE); } }
+            if (!boxInView(chMn[c], chMx[c])) { if (getenv("KIRI_PERF")) perfCnt[0]++; continue; }   // 0.9.15: outside the view
+            if (getenv("KIRI_PERF")) { perfCnt[1]++; if (d <= clampf(lodN * 0.45f, 40, 120)) perfCnt[2]++; if (d > lodN) perfCnt[3]++; }
+            if (d <= lodN) { for (int i = 0; i < T_COUNT; i++) if (statOk[c][i]) { stat[c][i].transform = MatrixIdentity(); DrawModel(stat[c][i], V3(0, 0, 0), 1, WHITE); }
+                float detR = clampf(lodN * 0.45f, 40, 120);   // the small pieces only close by (they are a few pixels across further off, and lost in the fog)
+                if (d <= detR) for (int i = T_COUNT; i < TL; i++) if (statOk[c][i]) { stat[c][i].transform = MatrixIdentity(); DrawModel(stat[c][i], V3(0, 0, 0), 1, WHITE); } }
             else if (chLodOk[c]) { chLod[c].transform = MatrixIdentity(); DrawModel(chLod[c], V3(0, 0, 0), 1, WHITE); } } }
     float R2 = 62 * 62;
     for (int i = 0; i < nOps; i++) {
@@ -2614,7 +2712,7 @@ int main(int argc, char **argv) {
     if (argNewGame) { newGame(); state = ST_PLAY; DisableCursor(); }
     while (!WindowShouldClose()) {
         if (getenv("KIRI_PERF")) { static double acc = 0; static int nf = 0; if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; }
-            if (frame > 40 && frame <= 160) { acc += GetFrameTime(); nf++; } if (frame == 161) { TraceLog(LOG_INFO, "PERF %.1f ms per frame over %d frames at the spawn", acc / nf * 1000, nf); break; } }
+            if (frame > 40 && frame <= 160) { acc += GetFrameTime(); nf++; } if (frame == 161) { TraceLog(LOG_INFO, "PERF %.1f ms per frame over %d frames at the spawn | chunks per frame: %.1f culled by view, %.1f drawn (%.1f with detail, %.1f as blocks), fog %.4f", acc / nf * 1000, nf, perfCnt[0] / 161.0, perfCnt[1] / 161.0, perfCnt[2] / 161.0, perfCnt[3] / 161.0, gFogD); break; } }
         if (getenv("KIRI_SAVESHOT")) { if (frame == 8) { savesKind = 0; state = ST_SAVES; } if (frame == 30) TakeScreenshot("shot_saves.png"); if (frame == 31) { savesKind = 1; } if (frame == 50) TakeScreenshot("shot_mpsaves.png");
             if (frame == 51) { savesKind = 0; saveKind = 0; saveSlot = 2; pendTrS = 1; pendTrW = 1; pendingLoad = 2; } if (frame == 60) { saveGame(); state = ST_SAVES; } if (frame == 80) TakeScreenshot("shot_saves2.png"); if (frame == 81) break; }
         if (pendingLoad) { int pk = pendingLoad; pendingLoad = 0;   // 0.9.14: a load or a new game, behind the loading screen

@@ -1,4 +1,19 @@
-ZANKO 2006 - Afterglow  (v0.9.14, survival update)
+ZANKO 2006 - Afterglow  (v0.9.15, faster drawing)
+
+- 0.9.15: only what can be seen is drawn.
+  * Faces pressed against another face (box against box, slab on
+    slab, wall piece against wall piece) are removed when the
+    town is built: about 1.2 million of 3.1 million faces.
+  * The town is drawn in 32 m pieces instead of 64 m, and only
+    the pieces inside the view are drawn (the ground tiles too).
+  * Small things (under 0.8 m) and the insides of buildings are
+    drawn only close by (40 m or more, further in clear weather);
+    further off they are behind walls, behind dark windows, or a
+    few pixels in the fog.
+  * Measured on the test machine at the spawn: 182 ms a frame in
+    0.9.14, 117 ms now (a software renderer: a graphics card is
+    far faster, but the saving is in the same proportion).
+
 
 - 0.9.14: survival, saves, loading.
   * Saved games: eight single-player slots (Main Menu > Saved
