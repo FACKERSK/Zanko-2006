@@ -1646,7 +1646,9 @@ enum { NM_OFF, NM_HOST, NM_CLIENT };
 static int netMode = NM_OFF, mySlot = 0; static bool netPvp = false;
 typedef struct { unsigned int ip; unsigned short port; } NetAddr;
 typedef struct { bool on, alive, flash; Vector3 pos, shown; float yaw, pitch, hp, shownYaw; short held, wear[4]; char name[16]; NetAddr addr; double heard;
-    unsigned char ev, evDone; bool evInit; float stepAcc; Vector3 stepLast; } RPlayer;   // ev: their shot / swing counters (3 bits each), for sounds
+    unsigned char ev, evDone; bool evInit; float stepAcc; Vector3 stepLast;
+    unsigned char an, act, evAnim; bool animInit; float ph, spd, swT, swDur, shotT, deadK, airK, sprK, blkK, slpK, clbK, aimK, flK, actT, breathT; int swV; Vector3 prevShown; } RPlayer;   // an: their movement flags, act: the gesture they are making (ANIM_*); the rest drives how they are drawn   // ev: their shot / swing counters (3 bits each), for sounds
+static bool gRigTest = false;   // KIRI_RIGTEST: other players drawn without a session
 static unsigned char netShotN = 0, netSwingN = 0;   // mine, sent in the state flags
 static RPlayer rps[MP_MAX];   // every player in the session by slot (the host is slot 0); rps[mySlot] is unused (that is pl)
 static void netPlayerDamage(int slot, float dmg, float bleed);   // creature or PvP damage to a remote player
@@ -2121,7 +2123,7 @@ static void drawWorld(Vector3 eye, float t) {
             if (d > lodF) continue;
             if (behindCull && d > 24) { bool ahead = false; for (int k = 0; k < 4 && !ahead; k++) { float cx = (k & 1) ? chMx[c].x : chMn[c].x, cz = (k & 2) ? chMx[c].z : chMn[c].z; if ((cx - eye.x) * fw.x + (cz - eye.z) * fw.z > -12) ahead = true; } if (!ahead) continue; }
             if (!boxInView(chMn[c], chMx[c])) { if (getenv("KIRI_PERF")) perfCnt[0]++; continue; }   // 0.9.15: outside the view
-            if (getenv("KIRI_PERF")) { perfCnt[1]++; if (d <= clampf(lodN * 0.45f, 40, 120)) perfCnt[2]++; if (d > lodN) perfCnt[3]++; }
+        if (getenv("KIRI_PERF")) { perfCnt[1]++; if (d <= clampf(lodN * 0.45f, 40, 120)) perfCnt[2]++; if (d > lodN) perfCnt[3]++; }
             if (d <= lodN) { for (int i = 0; i < T_COUNT; i++) if (statOk[c][i]) { stat[c][i].transform = MatrixIdentity(); DrawModel(stat[c][i], V3(0, 0, 0), 1, WHITE); }
                 float detR = clampf(lodN * 0.45f, 40, 120);   // the small pieces only close by (they are a few pixels across further off, and lost in the fog)
                 if (d <= detR) for (int i = T_COUNT; i < TL; i++) if (statOk[c][i]) { stat[c][i].transform = MatrixIdentity(); DrawModel(stat[c][i], V3(0, 0, 0), 1, WHITE); } }
@@ -2711,6 +2713,34 @@ int main(int argc, char **argv) {
     int frame = 0; bool quitReq = false; int stTest = -1; int pauseFrame = -1;
     if (argNewGame) { newGame(); state = ST_PLAY; DisableCursor(); }
     while (!WindowShouldClose()) {
+        if (getenv("KIRI_RIGTEST")) {   // remote-player animation: a row of fake players in different poses, seen side-on
+        static int set = 0; if (!set) set = atoi(getenv("KIRI_RIGTEST"));
+        if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = true; gRigTest = true; pl.tpitch = pl.pitch = -0.12f; }
+        if (frame >= 6) { Vector3 d = V3(sinf(pl.yaw), 0, cosf(pl.yaw)), r = V3(cosf(pl.yaw), 0, -sinf(pl.yaw));
+            static Vector3 base; if (frame == 6) base = pl.pos;
+            pl.pos = base; pl.vy = 0;
+            for (int k = 1; k < MP_MAX; k++) { RPlayer *q = &rps[k]; bool first = !q->on; q->on = true; q->alive = true; q->hp = 100; q->flash = false; q->held = -1; q->an = 0; q->act = 0; for (int j = 0; j < 4; j++) q->wear[j] = -1; snprintf(q->name, 16, "P%d", k);
+                Vector3 at = Vector3Add(Vector3Add(base, Vector3Scale(d, 5.0f)), Vector3Scale(r, (k - 4) * 1.15f)); float yw = pl.yaw - PI / 2; q->pitch = 0; q->yaw = yw;
+                int sc = (set - 1) * 7 + k; float tt = frame * 0.05f;
+                switch (sc) {
+                case 1: break;   // idle
+                case 2: at = Vector3Add(at, Vector3Scale(d, sinf(tt) * 0.0f)); at.x += 0; q->wear[2] = IT_WORKPANTS; q->wear[1] = IT_COAT; break;
+                case 3: q->an = 4; q->wear[1] = IT_LEATHER; break;
+                case 4: q->held = IT_KATANA; if (frame % 10 == 0) q->ev += 8; break;
+                case 5: q->held = IT_PISTOL; if (frame % 30 == 0) q->ev += 1; q->pitch = 0.1f; break;
+                case 6: q->flash = true; if (frame % 8 == 0) q->ev += 8; break;
+                case 7: q->alive = frame < 40; q->wear[0] = IT_HARDHAT; break;
+                case 8: q->act = ANIM_EAT; break;
+                case 9: q->an = 2; break;
+                case 10: q->an = 1; break;
+                case 11: q->held = IT_SHOTGUN; if (frame % 30 == 0) q->ev += 1; break;
+                case 12: q->held = IT_AXE; q->an = 8; break;
+                case 13: q->an = 16; break;
+                case 14: q->flash = true; q->pitch = 0.6f; q->wear[0] = IT_RIOTHELM; break; }
+                if (sc == 2 || sc == 3) { static float wk[16]; float sp = sc == 2 ? 1.6f : 5.5f; wk[k] += sp * GetFrameTime(); float m = fmodf(wk[k], 4.0f) - 2.0f; at = Vector3Add(at, V3(-sinf(yw) * 0 + sinf(yw) * m * 0, 0, 0)); q->pos = Vector3Add(at, V3(sinf(yw) * m, 0, cosf(yw) * m)); if (first) q->shown = q->pos; }
+                else { q->pos = at; if (first) { q->shown = at; q->shownYaw = yw; } } }
+            int shots[] = {30, 33, 36, 60, 63, 66}; for (int i = 0; i < 6; i++) if (frame == shots[i]) { char b[48]; snprintf(b, sizeof b, "rig%d_%d.png", set, i); TakeScreenshot(b); }
+            if (frame == 67) break; } }
         if (getenv("KIRI_PERF")) { static double acc = 0; static int nf = 0; if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; }
             if (frame > 40 && frame <= 160) { acc += GetFrameTime(); nf++; } if (frame == 161) { TraceLog(LOG_INFO, "PERF %.1f ms per frame over %d frames at the spawn | chunks per frame: %.1f culled by view, %.1f drawn (%.1f with detail, %.1f as blocks), fog %.4f", acc / nf * 1000, nf, perfCnt[0] / 161.0, perfCnt[1] / 161.0, perfCnt[2] / 161.0, perfCnt[3] / 161.0, gFogD); break; } }
         if (getenv("KIRI_SAVESHOT")) { if (frame == 8) { savesKind = 0; state = ST_SAVES; } if (frame == 30) TakeScreenshot("shot_saves.png"); if (frame == 31) { savesKind = 1; } if (frame == 50) TakeScreenshot("shot_mpsaves.png");
@@ -3065,6 +3095,7 @@ int main(int argc, char **argv) {
             if (mpRole < 0) mpRole = getenv("KIRI_MPHOST") ? 1 : getenv("KIRI_MPJOIN") ? 2 : 0;
             if (mpRole == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; netPvp = true; netHost(27015); state = ST_PLAY; TraceLog(LOG_INFO, "MPTEST host up: %s", netStatus); }
             if (mpRole == 2 && frame == 5) { netJoin(getenv("KIRI_MPJOIN"), 27015); TraceLog(LOG_INFO, "MPTEST joining: %s", netStatus); }
+            if (mpRole == 1 && frame > 6) { static bool joined = false; if (!joined) { for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) joined = true; if (!joined && frame < 4000) frame = 7; } }   // the host waits for the client before running its steps
             if (mpRole && frame > 5) {
                 if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].state == 0) { wi = i; break; }
                 if (ci < 0) for (int i = 0; i < nCont; i++) if (conts[i].kind == CK_FRIDGE || conts[i].kind == CK_SHELF) { ci = i; break; }

@@ -1,4 +1,23 @@
-ZANKO 2006 - Afterglow  (v0.9.15, faster drawing)
+ZANKO 2006 - Afterglow  (v0.9.16, animated players)
+
+- 0.9.16: other players move like people.
+  * Other players are drawn jointed (hips, knees, shoulders,
+    elbows, neck) instead of as one stiff figure.
+  * Walking and running strides follow how fast they move;
+    runners lean in. Standing players breathe; heads follow
+    where they look.
+  * Swings show: overhead and sideways melee strikes, two-handed
+    on alternate swings, left and right punches with the other
+    fist up, an overarm throw.
+  * Guns come up to aim when fired (both hands on long guns) and
+    kick back; the guard raises the arms.
+  * The phone light is held up in the left hand.
+  * Eating, drinking, pills, bandaging, reloading, taking things,
+    doors and building have their own gestures.
+  * Jumping, ledge climbing and sleeping have their own poses.
+  * Death plays out: the knees go, then the body falls back.
+  * Clothes and boots move with the parts they cover.
+  * Hosts and players must both run 0.9.16 to play together.
 
 - 0.9.15: only what can be seen is drawn.
   * Faces pressed against another face (box against box, slab on

@@ -6,7 +6,8 @@ int netOpen(int port); void netClose(void); int netResolve(const char *host, int
 int netSend(const NetAddr *to, const void *buf, int len); int netRecv(void *buf, int max, NetAddr *from); void netAddrStr(const NetAddr *a, char *out, int max);
 
 #define MP_PORT 27015
-#define MP_PROTO 5   // 4: the join carries the map hash; 5: door locks, worn clothes, burst sickness
+#define MP_PROTO 6   // 6: movement flags and gestures for animating other players
+// 4: the join carries the map hash; 5: door locks, worn clothes, burst sickness
 enum { P_JOIN = 1, P_WELCOME, P_REJECT, P_STATE, P_PLAYERS, P_CRS, P_REL, P_ACK, P_BYE };
 enum { R_OP = 1, R_DEB, R_VEND, R_CRATE, R_CONT, R_BUILD, R_SOL, R_HIT, R_PDMG, R_SAY, R_NOISE, R_FX, R_STUN };
 static NetAddr hostAddr; static double netJoinT = 0, netSendT = 0, netCrT = 0, netScanT = 0; static bool netJoining = false;
@@ -201,8 +202,8 @@ static void netRecvAll(double now) {
             }
             if (k < 0) continue;
             rps[k].heard = now;
-            if (t == P_STATE) { Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); unsigned char fl = RV(&r, unsigned char); short held = RV(&r, short); short wr[4]; for (int j = 0; j < 4; j++) wr[j] = RV(&r, short);
-                if (r.bad) continue; memcpy(rps[k].wear, wr, sizeof wr); rps[k].pos = p; rps[k].yaw = yw; rps[k].pitch = pt; rps[k].hp = hp; rps[k].flash = fl & 1; rps[k].alive = (fl & 2) != 0; rps[k].held = held; rps[k].ev = fl >> 2; }
+            if (t == P_STATE) { Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); unsigned char fl = RV(&r, unsigned char); short held = RV(&r, short); short wr[4]; for (int j = 0; j < 4; j++) wr[j] = RV(&r, short); unsigned char an = RV(&r, unsigned char), act = RV(&r, unsigned char);
+                if (r.bad) continue; memcpy(rps[k].wear, wr, sizeof wr); rps[k].pos = p; rps[k].yaw = yw; rps[k].pitch = pt; rps[k].hp = hp; rps[k].flash = fl & 1; rps[k].alive = (fl & 2) != 0; rps[k].held = held; rps[k].ev = fl >> 2; rps[k].an = an; rps[k].act = act; }
             else if (t == P_BYE) { char b[96]; snprintf(b, sizeof b, "%s left.", rps[k].name); say(b); rps[k].on = false; netSay(b, k); }
         } else if (netMode == NM_CLIENT) {
             if (from.ip != hostAddr.ip || from.port != hostAddr.port) continue;
@@ -214,9 +215,9 @@ static void netRecvAll(double now) {
             if (netJoining) continue;
             if (t == P_PLAYERS) { float tod = RV(&r, float); int day = RV(&r, int); netPvp = RV(&r, unsigned char); float rk = RV(&r, float); unsigned char cnt = RV(&r, unsigned char); if (r.bad) continue; rainK = rk;
                 pl.tod = tod; pl.day = day; bool seen[MP_MAX] = {0};
-                for (int e = 0; e < cnt; e++) { unsigned char s = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); short held = RV(&r, short); short wr[4]; rbr(&r, wr, sizeof wr); char nm[16]; rbr(&r, nm, 16); nm[15] = 0;
+                for (int e = 0; e < cnt; e++) { unsigned char s = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), pt = RV(&r, float), hp = RV(&r, float); short held = RV(&r, short); short wr[4]; rbr(&r, wr, sizeof wr); char nm[16]; rbr(&r, nm, 16); nm[15] = 0; unsigned char an = RV(&r, unsigned char), act = RV(&r, unsigned char);
                     if (r.bad || s >= MP_MAX || s == mySlot) continue; RPlayer *q = &rps[s]; if (!q->on) { q->shown = p; q->shownYaw = yw; }
-                    q->on = true; seen[s] = true; q->alive = fl & 2; q->flash = fl & 1; q->ev = fl >> 2; q->pos = p; q->yaw = yw; q->pitch = pt; q->hp = hp; q->held = held; memcpy(q->wear, wr, sizeof wr); memcpy(q->name, nm, 16); }
+                    q->on = true; seen[s] = true; q->alive = fl & 2; q->flash = fl & 1; q->ev = fl >> 2; q->pos = p; q->yaw = yw; q->pitch = pt; q->hp = hp; q->held = held; memcpy(q->wear, wr, sizeof wr); memcpy(q->name, nm, 16); q->an = an; q->act = act; }
                 for (int s = 0; s < MP_MAX; s++) if (s != mySlot && !seen[s]) rps[s].on = false; }
             else if (t == P_CRS) { unsigned short cnt = RV(&r, unsigned short);
                 for (int e = 0; e < cnt; e++) { unsigned short id = RV(&r, unsigned short); unsigned char ty = RV(&r, unsigned char), st = RV(&r, unsigned char), fl = RV(&r, unsigned char); Vector3 p = RV(&r, Vector3); float yw = RV(&r, float), hp = RV(&r, float);
@@ -259,14 +260,16 @@ static void netUpdate(float dt) {   // every frame, in every state
     if (now - netScanT > 0.2) { netScanT = now; if (gameActive) netScan(); }
     if (now - netSendT > 0.05) { netSendT = now;
         unsigned char fl = (pl.flash ? 1 : 0) | (pl.hp > 0 && state != ST_DEAD ? 2 : 0) | (netShotN & 7) << 2 | (netSwingN & 7) << 5;
-        if (netMode == NM_CLIENT) { WB w = {0}; WV(&w, (unsigned char)P_STATE); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, fl); WV(&w, (short)pl.hands.t); for (int j = 0; j < 4; j++) WV(&w, (short)pl.wear[j].t); netSend(&hostAddr, w.b, w.n); }
+        unsigned char an = (pl.sleeping ? 1 : 0) | (!pl.ground && pl.climbT <= 0 ? 2 : 0) | (pl.sprintK > 0.5f ? 4 : 0) | (pl.blocking ? 8 : 0) | (pl.climbT > 0 ? 16 : 0) | (pl.build ? 32 : 0),
+                      act = pl.reloadT > 0 ? ANIM_RELOAD : (animId > ANIM_NONE && animT < animDur ? (unsigned char)animId : 0);
+        if (netMode == NM_CLIENT) { WB w = {0}; WV(&w, (unsigned char)P_STATE); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, fl); WV(&w, (short)pl.hands.t); for (int j = 0; j < 4; j++) WV(&w, (short)pl.wear[j].t); WV(&w, an); WV(&w, act); netSend(&hostAddr, w.b, w.n); }
         else {
             WB w = {0}; WV(&w, (unsigned char)P_PLAYERS); WV(&w, pl.tod); WV(&w, pl.day); WV(&w, (unsigned char)netPvp); WV(&w, rainK);
             unsigned char cnt = 1; for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) cnt++; WV(&w, cnt);
             char nm[16] = {0}; snprintf(nm, 16, "%s", prof.name);
-            WV(&w, (unsigned char)mySlot); WV(&w, fl); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, (short)pl.hands.t); for (int j = 0; j < 4; j++) WV(&w, (short)pl.wear[j].t); wb(&w, nm, 16);
+            WV(&w, (unsigned char)mySlot); WV(&w, fl); WV(&w, pl.pos); WV(&w, pl.yaw); WV(&w, pl.pitch); WV(&w, pl.hp); WV(&w, (short)pl.hands.t); for (int j = 0; j < 4; j++) WV(&w, (short)pl.wear[j].t); wb(&w, nm, 16); WV(&w, an); WV(&w, act);
             for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) { RPlayer *q = &rps[k]; unsigned char f2 = (q->flash ? 1 : 0) | (q->alive ? 2 : 0) | (q->ev & 63) << 2;
-                WV(&w, (unsigned char)k); WV(&w, f2); WV(&w, q->pos); WV(&w, q->yaw); WV(&w, q->pitch); WV(&w, q->hp); WV(&w, q->held); wb(&w, q->wear, sizeof q->wear); wb(&w, q->name, 16); }
+                WV(&w, (unsigned char)k); WV(&w, f2); WV(&w, q->pos); WV(&w, q->yaw); WV(&w, q->pitch); WV(&w, q->hp); WV(&w, q->held); wb(&w, q->wear, sizeof q->wear); wb(&w, q->name, 16); WV(&w, q->an); WV(&w, q->act); }
             for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) netSend(&rps[k].addr, w.b, w.n);
         }
     }
@@ -293,45 +296,163 @@ static void netClientCreatures(float dt) {
         c->twT -= dt; if (c->twT <= 0) { for (int k = 0; k < 6; k++) c->tw[k] = fr(-0.3f, 0.3f); c->twT = fr(0.1f, 0.4f); } }
 }
 // ---- other players in the world: a simple figure and a name
-static void drawRemoteGear(const RPlayer *q, Matrix M) {   // what another player wears over the survivor model, and what is in their hand
+// Other players are drawn as a jointed survivor: every part is authored where it sits standing still (the rest pose), and each bone
+// carries it from there: B = T(-pivot) * R * T(pivot) * parent. The pose comes from how fast they move, their movement flags and gesture.
+enum { RB_ROOT, RB_TORSO, RB_HEAD, RB_RUA, RB_RFA, RB_LUA, RB_LFA, RB_RTH, RB_RSH, RB_LTH, RB_LSH, RB_N };
+static const Vector3 rbPiv[RB_N] = {{0, 0, 0}, {0, 0.84f, 0}, {0, 1.54f, 0}, {-0.29f, 1.44f, 0}, {-0.29f, 1.12f, 0}, {0.29f, 1.44f, 0}, {0.29f, 1.12f, 0},
+                                     {-0.11f, 0.84f, 0}, {-0.11f, 0.44f, 0}, {0.11f, 0.84f, 0}, {0.11f, 0.44f, 0}};
+static const int rbPar[RB_N] = {-1, RB_ROOT, RB_TORSO, RB_TORSO, RB_RUA, RB_TORSO, RB_LUA, RB_ROOT, RB_RTH, RB_ROOT, RB_LTH};
+typedef struct { float x, y, z; } RAng;   // forward-positive swing (x), outward (z), twist (y), per bone
+static Matrix rbBone(Vector3 piv, RAng a, Matrix par) {
+    Matrix R = MatrixMultiply(MatrixMultiply(MatrixRotateY(a.y), MatrixRotateZ(a.z)), MatrixRotateX(a.x));
+    return MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixTranslate(-piv.x, -piv.y, -piv.z), R), MatrixTranslate(piv.x, piv.y, piv.z)), par);
+}
+static float easeIO(float t) { t = clampf(t, 0, 1); return t * t * (3 - 2 * t); }
+static void rpPose(RPlayer *q, float dt, RAng *A, Vector3 *rootOff, float *rootPitch) {
+    double now = GetTime();
+    if (!q->animInit) { q->animInit = true; q->prevShown = q->shown; q->evAnim = q->ev; q->swT = 9; q->shotT = 9; q->deadK = q->alive ? 0 : 1; }
+    Vector3 dv = Vector3Subtract(q->shown, q->prevShown); q->prevShown = q->shown;
+    float hs = dt > 0 ? sqrtf(dv.x * dv.x + dv.z * dv.z) / dt : 0; if (hs > 12) hs = 0;   // (a teleport or respawn is not a sprint)
+    q->spd += (hs - q->spd) * fminf(1, dt * 8);
+    int sw = (((q->ev >> 3) & 7) - ((q->evAnim >> 3) & 7)) & 7, sh = ((q->ev & 7) - (q->evAnim & 7)) & 7; q->evAnim = q->ev;
+    int cat = q->held >= 0 && q->held < IT_N ? idef[q->held].cat : -1;
+    if (sw) { q->swT = 0; q->swDur = cat == CAT_THROW ? 0.55f : cat == CAT_MELEE ? 0.34f + clampf(idef[q->held].weight * 0.06f, 0, 0.2f) : 0.3f; q->swV = (q->swV + 1 + (int)(now * 7) % 2) % 4; }
+    if (sh) { q->shotT = 0; q->aimK = 1; }
+    q->swT += dt; q->shotT += dt; q->breathT += dt;
+    float k8 = fminf(1, dt * 8), k4 = fminf(1, dt * 4);
+    q->airK += (((q->an & 2) ? 1.f : 0.f) - q->airK) * k8; q->sprK += (((q->an & 4) && q->spd > 2.5f ? 1.f : 0.f) - q->sprK) * k4;
+    q->blkK += (((q->an & 8) ? 1.f : 0.f) - q->blkK) * fminf(1, dt * 12); q->slpK += (((q->an & 1) ? 1.f : 0.f) - q->slpK) * fminf(1, dt * 2);
+    q->clbK += (((q->an & 16) ? 1.f : 0.f) - q->clbK) * k8;
+    bool gun = cat == CAT_GUN; q->aimK += ((gun && (q->shotT < 2.5f || q->blkK > 0.5f) ? 1.f : 0.f) - q->aimK) * fminf(1, dt * 6);
+    q->flK += ((q->flash ? 1.f : 0.f) - q->flK) * fminf(1, dt * 6);
+    if (q->act) q->actT += dt; else q->actT = 0;
+    q->deadK = q->alive ? fmaxf(0, q->deadK - dt * 1.5f) : fminf(1, q->deadK + dt * 1.6f);
+    for (int i = 0; i < RB_N; i++) A[i] = (RAng){0, 0, 0};
+    *rootOff = V3(0, 0, 0); *rootPitch = 0;
+    // walk / run cycle: stride from ground speed
+    float mv = clampf(q->spd / 3.0f, 0, 1), run = q->sprK;
+    q->ph += dt * q->spd * (run > 0.5f ? 2.1f : 2.7f); if (q->ph > 2 * PI * 64) q->ph -= 2 * PI * 64;
+    float s = sinf(q->ph), c = cosf(q->ph), amp = mv * (0.55f + 0.35f * run);
+    A[RB_RTH].x = s * amp; A[RB_LTH].x = -s * amp;
+    A[RB_RSH].x = -mv * (0.15f + (0.55f + 0.6f * run) * fmaxf(0, -c)); A[RB_LSH].x = -mv * (0.15f + (0.55f + 0.6f * run) * fmaxf(0, c));   // the knee folds as the leg comes through
+    A[RB_RUA].x = -s * amp * 0.8f; A[RB_LUA].x = s * amp * 0.8f; A[RB_RUA].z = -0.06f; A[RB_LUA].z = 0.06f;
+    A[RB_RFA].x = 0.15f + mv * 0.25f + run * 0.9f; A[RB_LFA].x = 0.15f + mv * 0.25f + run * 0.9f;
+    A[RB_TORSO].x = 0.04f * mv + 0.2f * run; A[RB_TORSO].y = s * 0.08f * mv;
+    rootOff->y = -fabsf(c) * 0.05f * mv * (1 + run) + 0.02f * mv;
+    // breathing when still
+    float br = sinf(q->breathT * 1.7f + (float)(q - rps)) * (1 - mv);
+    A[RB_TORSO].x += br * 0.015f; A[RB_HEAD].x -= br * 0.02f; A[RB_RUA].z -= br * 0.02f; A[RB_LUA].z += br * 0.02f;
+    // the head follows where they look
+    A[RB_HEAD].x += -clampf(q->pitch, -1.0f, 1.0f) * 0.7f; A[RB_TORSO].x += -clampf(q->pitch, -1.0f, 1.0f) * 0.15f;
+    // holding something: the right forearm carries it
+    if (cat == CAT_MELEE || cat == CAT_THROW) { A[RB_RFA].x += 0.5f; A[RB_RUA].x += 0.15f; }
+    if (gun) { float a = q->aimK, pt = clampf(q->pitch, -1.0f, 1.0f); bool two = !q->flash && q->held != IT_PISTOL && q->held != IT_REVOLVER;
+        A[RB_RUA].x = A[RB_RUA].x * (1 - a) + (1.45f + pt) * a; A[RB_RFA].x = A[RB_RFA].x * (1 - a) + 0.1f * a; A[RB_RUA].z += -0.05f * a; A[RB_RUA].y += 0.25f * a;
+        if (q->shotT < 0.15f) A[RB_RUA].x += 0.25f * (1 - q->shotT / 0.15f) * a;   // recoil
+        if (two) { A[RB_LUA].x = A[RB_LUA].x * (1 - a) + (1.25f + pt) * a; A[RB_LFA].x = A[RB_LFA].x * (1 - a) + 0.55f * a; A[RB_LUA].y += -0.6f * a; A[RB_LUA].z += -0.25f * a; }
+        else { A[RB_RFA].x += 0.4f * (1 - a); } }
+    // the phone light in the left hand, held up toward where they look
+    if (q->flK > 0.01f) { float f = q->flK, pt = clampf(q->pitch, -1.0f, 1.0f); A[RB_LUA].x = A[RB_LUA].x * (1 - f) + (0.9f + pt * 0.8f) * f; A[RB_LFA].x = A[RB_LFA].x * (1 - f) + 0.5f * f; A[RB_LUA].y += -0.15f * f; }
+    // guard
+    if (q->blkK > 0.01f && !gun) { float b = q->blkK; A[RB_RUA].x = A[RB_RUA].x * (1 - b) + 0.9f * b; A[RB_RFA].x = A[RB_RFA].x * (1 - b) + 1.9f * b; A[RB_RUA].y += 0.4f * b;
+        if (q->flK < 0.5f) { A[RB_LUA].x = A[RB_LUA].x * (1 - b) + 0.9f * b; A[RB_LFA].x = A[RB_LFA].x * (1 - b) + 1.9f * b; A[RB_LUA].y += -0.4f * b; } }
+    // a swing: wind up, strike, follow through; variations alternate side and height
+    if (q->swT < q->swDur && !gun) { float t = q->swT / q->swDur, wind = t < 0.35f ? easeIO(t / 0.35f) : 1 - easeIO((t - 0.35f) / 0.3f), hit = t < 0.35f ? 0 : t < 0.6f ? easeIO((t - 0.35f) / 0.25f) : 1 - easeIO((t - 0.6f) / 0.4f);
+        if (cat == CAT_THROW) { A[RB_RUA].x = 2.6f * wind + 1.4f * hit; A[RB_RFA].x = 1.3f * wind + 0.1f * hit; A[RB_TORSO].y += 0.5f * wind - 0.4f * hit; A[RB_TORSO].x += 0.25f * hit; }
+        else if (cat == CAT_MELEE) { int v = q->swV;
+            if (v == 0 || v == 2) { A[RB_RUA].x = 2.4f * wind + 0.9f * hit; A[RB_RFA].x = 1.0f * wind + 0.2f * hit; A[RB_TORSO].x += 0.3f * hit - 0.1f * wind; }   // overhead
+            else { A[RB_RUA].x = 1.4f * wind + 1.2f * hit; A[RB_RUA].z = -1.0f * wind + 0.4f * hit; A[RB_RFA].x = 1.2f * wind + 0.3f * hit; A[RB_TORSO].y += 0.6f * wind - 0.7f * hit; }   // sideways
+            if (q->flK < 0.5f && (v == 2 || v == 3)) { A[RB_LUA].x = A[RB_RUA].x * 0.8f; A[RB_LFA].x = A[RB_RFA].x; A[RB_LUA].y = -0.5f; } }   // both hands on it
+        else { bool left = (q->swV & 1) && q->flK < 0.5f; int ua = left ? RB_LUA : RB_RUA, fa = left ? RB_LFA : RB_RFA, gu = left ? RB_RUA : RB_LUA, gf = left ? RB_RFA : RB_LFA;   // a punch, the other fist up
+            A[ua].x = 0.7f * wind + 1.55f * hit; A[fa].x = 1.9f * wind + 0.05f * hit; A[ua].y = (left ? -0.25f : 0.25f) * hit; A[RB_TORSO].y += (left ? 0.45f : -0.45f) * hit - (left ? 0.2f : -0.2f) * wind;
+            if (!(gu == RB_LUA && q->flK > 0.5f)) { A[gu].x = fmaxf(A[gu].x, 0.8f); A[gf].x = fmaxf(A[gf].x, 1.9f); } } }
+    // gestures: eating, drinking, pills bring the hand to the mouth; bandaging works at the forearm; reloading works at the gun
+    if (q->act == ANIM_EAT || q->act == ANIM_DRINK || q->act == ANIM_PILL) { float g = easeIO(q->actT * 4) * (0.85f + 0.15f * sinf(q->actT * 9)); A[RB_RUA].x = 1.0f * g + A[RB_RUA].x * (1 - g); A[RB_RFA].x = 2.1f * g + A[RB_RFA].x * (1 - g); A[RB_RUA].y = 0.35f * g; if (q->act == ANIM_DRINK) A[RB_HEAD].x -= 0.35f * g; }
+    else if (q->act == ANIM_BANDAGE) { float g = easeIO(q->actT * 4); A[RB_RUA].x = 0.6f * g; A[RB_RFA].x = 1.4f * g + 0.25f * sinf(q->actT * 12) * g; A[RB_RUA].y = 0.5f * g; A[RB_LUA].x = 0.5f * g; A[RB_LFA].x = 1.5f * g; A[RB_LUA].y = -0.5f * g; A[RB_HEAD].x += 0.35f * g; }
+    else if (q->act == ANIM_RELOAD) { float g = easeIO(q->actT * 4); A[RB_RUA].x = 0.7f * g + A[RB_RUA].x * (1 - g); A[RB_RFA].x = 1.2f * g; A[RB_LUA].x = 0.6f * g; A[RB_LFA].x = 1.4f * g + 0.3f * sinf(q->actT * 10) * g; A[RB_LUA].y = -0.5f * g; A[RB_HEAD].x += 0.3f * g; }
+    else if (q->act == ANIM_TAKE || q->act == ANIM_DOOR || q->act == ANIM_BUILD) { float g = sinf(clampf(q->actT / 0.45f, 0, 1) * PI); A[RB_RUA].x = A[RB_RUA].x * (1 - g) + 1.2f * g; A[RB_RFA].x = A[RB_RFA].x * (1 - g) + 0.2f * g; if (q->act == ANIM_TAKE) A[RB_TORSO].x += 0.45f * g; }
+    else if (q->act == ANIM_INSPECT || q->act == ANIM_FLOURISH || q->act == ANIM_TURNGUN) { float g = easeIO(q->actT * 3); A[RB_RUA].x = 0.5f * g + A[RB_RUA].x * (1 - g); A[RB_RFA].x = 1.5f * g; A[RB_HEAD].x += 0.3f * g; }
+    if (q->an & 32) { A[RB_RUA].x += 0.3f; A[RB_RFA].x += 0.6f; }   // building: hammer hand ready
+    // in the air: knees up, arms out for balance
+    if (q->airK > 0.01f) { float a = q->airK; A[RB_RTH].x = A[RB_RTH].x * (1 - a) + 0.6f * a; A[RB_LTH].x = A[RB_LTH].x * (1 - a) + 0.25f * a; A[RB_RSH].x = A[RB_RSH].x * (1 - a) - 1.0f * a; A[RB_LSH].x = A[RB_LSH].x * (1 - a) - 0.6f * a;
+        A[RB_RUA].z -= 0.45f * a; A[RB_LUA].z += 0.45f * a; }
+    // climbing a ledge: both arms reach up, legs push
+    if (q->clbK > 0.01f) { float a = q->clbK, w = sinf(q->breathT * 9); A[RB_RUA].x = A[RB_RUA].x * (1 - a) + (2.7f + 0.2f * w) * a; A[RB_LUA].x = A[RB_LUA].x * (1 - a) + (2.7f - 0.2f * w) * a; A[RB_RFA].x *= 1 - a; A[RB_LFA].x *= 1 - a;
+        A[RB_RTH].x = 0.9f * a * (0.5f + 0.5f * w); A[RB_RSH].x = -1.2f * a * (0.5f + 0.5f * w); A[RB_LTH].x = 0.9f * a * (0.5f - 0.5f * w); A[RB_LSH].x = -1.2f * a * (0.5f - 0.5f * w); }
+    // asleep: on the back, arms at the sides, the head to one side
+    float lie = fmaxf(q->slpK, 0);
+    if (lie > 0.01f) { for (int i = 0; i < RB_N; i++) { A[i].x *= 1 - lie; A[i].y *= 1 - lie; A[i].z *= 1 - lie; } A[RB_HEAD].y += 0.4f * lie; A[RB_RUA].z -= 0.12f * lie; A[RB_LUA].z += 0.12f * lie; A[RB_RFA].x += 0.4f * lie; A[RB_LFA].x += 0.4f * lie;
+        *rootPitch = -PI / 2 * easeIO(lie); rootOff->y = 0.15f * easeIO(lie); }
+    // death: the knees go, then the body falls back and sprawls
+    if (q->deadK > 0.001f) { float d = q->deadK, knee = easeIO(d / 0.35f), fall = easeIO((d - 0.2f) / 0.8f), k1 = 1 - fall;
+        for (int i = 0; i < RB_N; i++) { A[i].x *= 1 - d; A[i].y *= 1 - d; A[i].z *= 1 - d; }
+        A[RB_RTH].x += 1.0f * knee * k1 + 0.2f * fall; A[RB_LTH].x += 0.8f * knee * k1 - 0.1f * fall; A[RB_RSH].x -= 1.6f * knee * k1 + 0.25f * fall; A[RB_LSH].x -= 1.4f * knee * k1;
+        A[RB_RUA].z -= 0.3f * knee + 0.9f * fall; A[RB_LUA].z += 0.3f * knee + 1.1f * fall; A[RB_RFA].x += 0.3f * fall; A[RB_LFA].x += 0.6f * fall; A[RB_HEAD].y += 0.5f * fall; A[RB_TORSO].x += 0.3f * knee * k1;
+        rootOff->y -= 0.42f * knee * k1; *rootPitch = -PI / 2 * fall; rootOff->y += 0.15f * fall; rootOff->z -= 0.25f * fall; }
+}
+static void drawRemoteGear(const RPlayer *q, const Matrix *B) {   // what another player wears, on the parts it covers, and what is in their hand
     for (int j = 0; j < 4; j++) { int t = q->wear[j]; if (t < 0 || t >= IT_N) continue;
+        Color cc;
         switch (t) {
-        case IT_HARDHAT: ADRAW("player/wear_hardhat", M, WHITE, BX(T_PLAIN, 0, 1.86f, 0, 0.3f, 0.1f, 0.32f, ((Color){200, 170, 40, 255})), BX(T_PLAIN, 0, 1.82f, 0.08f, 0.3f, 0.02f, 0.2f, ((Color){200, 170, 40, 255}))); break;
-        case IT_RIOTHELM: ADRAW("player/wear_riothelm", M, WHITE, BX(T_PLAIN, 0, 1.76f, -0.01f, 0.31f, 0.3f, 0.32f, ((Color){30, 34, 40, 255})), BX(T_GLASS, 0, 1.7f, 0.15f, 0.27f, 0.16f, 0.02f, ((Color){120, 140, 150, 160}))); break;
-        case IT_BEANIE: ADRAW("player/wear_beanie", M, WHITE, BX(T_CLOTH, 0, 1.86f, -0.01f, 0.27f, 0.12f, 0.28f, ((Color){70, 40, 40, 255}))); break;
-        case IT_COAT: ADRAW("player/wear_coat", M, WHITE, BX(T_CLOTH, 0, 1.06f, 0, 0.58f, 0.96f, 0.36f, ((Color){60, 64, 70, 255})), BX(T_CLOTH, -0.31f, 1.14f, 0, 0.16f, 0.66f, 0.2f, ((Color){60, 64, 70, 255})), BX(T_CLOTH, 0.31f, 1.14f, 0, 0.16f, 0.66f, 0.2f, ((Color){60, 64, 70, 255}))); break;
-        case IT_LEATHER: ADRAW("player/wear_leather", M, WHITE, BX(T_PLAIN, 0, 1.2f, 0, 0.49f, 0.66f, 0.29f, ((Color){32, 26, 24, 255})), BX(T_PLAIN, -0.29f, 1.14f, 0, 0.13f, 0.63f, 0.15f, ((Color){32, 26, 24, 255})), BX(T_PLAIN, 0.29f, 1.14f, 0, 0.13f, 0.63f, 0.15f, ((Color){32, 26, 24, 255}))); break;
-        case IT_STABVEST: ADRAW("player/wear_stabvest", M, WHITE, BX(T_CLOTH, 0, 1.22f, 0, 0.5f, 0.5f, 0.31f, ((Color){24, 28, 34, 255}))); break;
-        case IT_GAKURAN: ADRAW("player/wear_gakuran", M, WHITE, BX(T_CLOTH, 0, 1.18f, 0, 0.48f, 0.7f, 0.28f, ((Color){18, 20, 30, 255})), BX(T_CLOTH, 0, 1.5f, 0, 0.3f, 0.06f, 0.28f, ((Color){18, 20, 30, 255})), BX(T_PLAIN, 0, 1.3f, 0.145f, 0.02f, 0.4f, 0.01f, ((Color){180, 150, 60, 255}))); break;
-        case IT_HANTEN: ADRAW("player/wear_hanten", M, WHITE, BX(T_CLOTH, 0, 1.16f, 0, 0.52f, 0.74f, 0.32f, ((Color){60, 40, 70, 255})), BX(T_CLOTH, -0.3f, 1.2f, 0, 0.16f, 0.5f, 0.18f, ((Color){60, 40, 70, 255})), BX(T_CLOTH, 0.3f, 1.2f, 0, 0.16f, 0.5f, 0.18f, ((Color){60, 40, 70, 255}))); break;
-        case IT_WORKPANTS: ADRAW("player/wear_workpants", M, WHITE, BX(T_CLOTH, -0.11f, 0.44f, 0, 0.17f, 0.82f, 0.19f, ((Color){60, 72, 52, 255})), BX(T_CLOTH, 0.11f, 0.44f, 0, 0.17f, 0.82f, 0.19f, ((Color){60, 72, 52, 255}))); break;
-        case IT_BIKEPANTS: ADRAW("player/wear_bikepants", M, WHITE, BX(T_PLAIN, -0.11f, 0.44f, 0, 0.18f, 0.82f, 0.2f, ((Color){26, 26, 28, 255})), BX(T_PLAIN, 0.11f, 0.44f, 0, 0.18f, 0.82f, 0.2f, ((Color){26, 26, 28, 255})), BX(T_PLAIN, -0.11f, 0.5f, 0.1f, 0.14f, 0.12f, 0.02f, ((Color){90, 90, 95, 255})), BX(T_PLAIN, 0.11f, 0.5f, 0.1f, 0.14f, 0.12f, 0.02f, ((Color){90, 90, 95, 255}))); break;
-        case IT_BOOTS: ADRAW("player/wear_boots", M, WHITE, BX(T_PLAIN, -0.11f, 0.1f, 0.03f, 0.19f, 0.2f, 0.29f, ((Color){70, 50, 32, 255})), BX(T_PLAIN, 0.11f, 0.1f, 0.03f, 0.19f, 0.2f, 0.29f, ((Color){70, 50, 32, 255}))); break;
-        case IT_RUBBERBOOTS: ADRAW("player/wear_rubberboots", M, WHITE, BX(T_PLAIN, -0.11f, 0.18f, 0.03f, 0.19f, 0.36f, 0.28f, ((Color){40, 70, 50, 255})), BX(T_PLAIN, 0.11f, 0.18f, 0.03f, 0.19f, 0.36f, 0.28f, ((Color){40, 70, 50, 255}))); break;
+        case IT_HARDHAT: ADRAW("player/wear_hardhat", B[RB_HEAD], WHITE, BX(T_PLAIN, 0, 1.86f, 0, 0.3f, 0.1f, 0.32f, ((Color){200, 170, 40, 255})), BX(T_PLAIN, 0, 1.82f, 0.08f, 0.3f, 0.02f, 0.2f, ((Color){200, 170, 40, 255}))); break;
+        case IT_RIOTHELM: ADRAW("player/wear_riothelm", B[RB_HEAD], WHITE, BX(T_PLAIN, 0, 1.76f, -0.01f, 0.31f, 0.3f, 0.32f, ((Color){30, 34, 40, 255})), BX(T_GLASS, 0, 1.7f, 0.15f, 0.27f, 0.16f, 0.02f, ((Color){120, 140, 150, 160}))); break;
+        case IT_BEANIE: ADRAW("player/wear_beanie", B[RB_HEAD], WHITE, BX(T_CLOTH, 0, 1.86f, -0.01f, 0.27f, 0.12f, 0.28f, ((Color){70, 40, 40, 255}))); break;
+        case IT_COAT: cc = (Color){60, 64, 70, 255};
+            ADRAW("player/wear_coat", B[RB_TORSO], WHITE, BX(T_CLOTH, 0, 1.16f, 0, 0.58f, 0.76f, 0.36f, cc));
+            ADRAW("player/wear_coat_tail", B[RB_ROOT], WHITE, BX(T_CLOTH, 0, 0.7f, 0, 0.58f, 0.2f, 0.36f, cc));
+            ADRAW("player/wear_coat_r", B[RB_RUA], WHITE, BX(T_CLOTH, -0.31f, 1.3f, 0, 0.16f, 0.34f, 0.2f, cc)); ADRAW("player/wear_coat_l", B[RB_LUA], WHITE, BX(T_CLOTH, 0.31f, 1.3f, 0, 0.16f, 0.34f, 0.2f, cc));
+            ADRAW("player/wear_coat_rf", B[RB_RFA], WHITE, BX(T_CLOTH, -0.31f, 0.98f, 0, 0.15f, 0.32f, 0.19f, cc)); ADRAW("player/wear_coat_lf", B[RB_LFA], WHITE, BX(T_CLOTH, 0.31f, 0.98f, 0, 0.15f, 0.32f, 0.19f, cc)); break;
+        case IT_LEATHER: cc = (Color){32, 26, 24, 255};
+            ADRAW("player/wear_leather", B[RB_TORSO], WHITE, BX(T_PLAIN, 0, 1.2f, 0, 0.49f, 0.66f, 0.29f, cc));
+            ADRAW("player/wear_leather_r", B[RB_RUA], WHITE, BX(T_PLAIN, -0.29f, 1.3f, 0, 0.13f, 0.32f, 0.15f, cc)); ADRAW("player/wear_leather_l", B[RB_LUA], WHITE, BX(T_PLAIN, 0.29f, 1.3f, 0, 0.13f, 0.32f, 0.15f, cc));
+            ADRAW("player/wear_leather_rf", B[RB_RFA], WHITE, BX(T_PLAIN, -0.29f, 0.98f, 0, 0.125f, 0.3f, 0.145f, cc)); ADRAW("player/wear_leather_lf", B[RB_LFA], WHITE, BX(T_PLAIN, 0.29f, 0.98f, 0, 0.125f, 0.3f, 0.145f, cc)); break;
+        case IT_STABVEST: ADRAW("player/wear_stabvest", B[RB_TORSO], WHITE, BX(T_CLOTH, 0, 1.22f, 0, 0.5f, 0.5f, 0.31f, ((Color){24, 28, 34, 255}))); break;
+        case IT_GAKURAN: ADRAW("player/wear_gakuran", B[RB_TORSO], WHITE, BX(T_CLOTH, 0, 1.18f, 0, 0.48f, 0.7f, 0.28f, ((Color){18, 20, 30, 255})), BX(T_CLOTH, 0, 1.5f, 0, 0.3f, 0.06f, 0.28f, ((Color){18, 20, 30, 255})), BX(T_PLAIN, 0, 1.3f, 0.145f, 0.02f, 0.4f, 0.01f, ((Color){180, 150, 60, 255}))); break;
+        case IT_HANTEN: cc = (Color){60, 40, 70, 255};
+            ADRAW("player/wear_hanten", B[RB_TORSO], WHITE, BX(T_CLOTH, 0, 1.16f, 0, 0.52f, 0.74f, 0.32f, cc));
+            ADRAW("player/wear_hanten_r", B[RB_RUA], WHITE, BX(T_CLOTH, -0.3f, 1.22f, 0, 0.16f, 0.46f, 0.18f, cc)); ADRAW("player/wear_hanten_l", B[RB_LUA], WHITE, BX(T_CLOTH, 0.3f, 1.22f, 0, 0.16f, 0.46f, 0.18f, cc)); break;
+        case IT_WORKPANTS: cc = (Color){60, 72, 52, 255};
+            ADRAW("player/wear_workpants_rt", B[RB_RTH], WHITE, BX(T_CLOTH, -0.11f, 0.64f, 0, 0.17f, 0.42f, 0.19f, cc)); ADRAW("player/wear_workpants_lt", B[RB_LTH], WHITE, BX(T_CLOTH, 0.11f, 0.64f, 0, 0.17f, 0.42f, 0.19f, cc));
+            ADRAW("player/wear_workpants_rs", B[RB_RSH], WHITE, BX(T_CLOTH, -0.11f, 0.25f, 0, 0.165f, 0.4f, 0.185f, cc)); ADRAW("player/wear_workpants_ls", B[RB_LSH], WHITE, BX(T_CLOTH, 0.11f, 0.25f, 0, 0.165f, 0.4f, 0.185f, cc)); break;
+        case IT_BIKEPANTS: cc = (Color){26, 26, 28, 255};
+            ADRAW("player/wear_bikepants_rt", B[RB_RTH], WHITE, BX(T_PLAIN, -0.11f, 0.64f, 0, 0.18f, 0.42f, 0.2f, cc)); ADRAW("player/wear_bikepants_lt", B[RB_LTH], WHITE, BX(T_PLAIN, 0.11f, 0.64f, 0, 0.18f, 0.42f, 0.2f, cc));
+            ADRAW("player/wear_bikepants_rs", B[RB_RSH], WHITE, BX(T_PLAIN, -0.11f, 0.25f, 0, 0.175f, 0.4f, 0.195f, cc), BX(T_PLAIN, -0.11f, 0.44f, 0.1f, 0.14f, 0.12f, 0.02f, ((Color){90, 90, 95, 255})));
+            ADRAW("player/wear_bikepants_ls", B[RB_LSH], WHITE, BX(T_PLAIN, 0.11f, 0.25f, 0, 0.175f, 0.4f, 0.195f, cc), BX(T_PLAIN, 0.11f, 0.44f, 0.1f, 0.14f, 0.12f, 0.02f, ((Color){90, 90, 95, 255}))); break;
+        case IT_BOOTS: ADRAW("player/wear_boots_r", B[RB_RSH], WHITE, BX(T_PLAIN, -0.11f, 0.1f, 0.03f, 0.19f, 0.2f, 0.29f, ((Color){70, 50, 32, 255}))); ADRAW("player/wear_boots_l", B[RB_LSH], WHITE, BX(T_PLAIN, 0.11f, 0.1f, 0.03f, 0.19f, 0.2f, 0.29f, ((Color){70, 50, 32, 255}))); break;
+        case IT_RUBBERBOOTS: ADRAW("player/wear_rubberboots_r", B[RB_RSH], WHITE, BX(T_PLAIN, -0.11f, 0.18f, 0.03f, 0.19f, 0.36f, 0.28f, ((Color){40, 70, 50, 255}))); ADRAW("player/wear_rubberboots_l", B[RB_LSH], WHITE, BX(T_PLAIN, 0.11f, 0.18f, 0.03f, 0.19f, 0.36f, 0.28f, ((Color){40, 70, 50, 255}))); break;
         default: break; } }
-    if (q->alive && q->held >= 0 && q->held < IT_N && (idef[q->held].cat == CAT_MELEE || idef[q->held].cat == CAT_GUN || idef[q->held].cat == CAT_THROW)) {   // in the right hand, tipped forward
-        bool gn = idef[q->held].cat == CAT_GUN;
-        float sc = q->held == IT_PISTOL ? 2.1f : q->held == IT_SHOTGUN ? 1.2f : gn ? 1.3f : idef[q->held].weight < 0.9f ? 1.8f : 1.3f;   // a little larger than life so it reads at a distance
-        Matrix H = gn ? MatrixMultiply(MatrixMultiply(MatrixScale(sc, sc, sc), MatrixRotateX(2.45f)), MatrixTranslate(-0.33f, 0.86f, 0.12f))   // guns at low ready: in the hand, muzzle down and ahead, side-on to anyone in front
-                      : MatrixMultiply(MatrixMultiply(MatrixScale(sc, sc, sc), MatrixRotateX(0.55f)), MatrixTranslate(-0.3f, 0.95f, 0.22f));
-        if (q->held == IT_REVOLVER) drawItemType(IT_REVOLVER, MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(1.6f, 1.6f, 1.6f), MatrixRotateX(0.9f)), MatrixTranslate(-0.33f, 0.86f, 0.1f)), M));   // its own model, muzzle down
-        else drawHeld(MatrixMultiply(H, M), q->held); }
+    if (q->alive && q->held >= 0 && q->held < IT_N) { int cat = idef[q->held].cat; Matrix F = B[RB_RFA];   // in the right hand: authored at the hand with the forearm hanging, so it turns with the forearm
+        if (cat == CAT_GUN) { float sc = q->held == IT_PISTOL ? 2.1f : q->held == IT_SHOTGUN ? 1.2f : 1.3f;
+            if (q->held == IT_REVOLVER) drawItemType(IT_REVOLVER, MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(1.6f, 1.6f, 1.6f), MatrixRotateX(1.57f)), MatrixTranslate(-0.29f, 0.76f, 0.02f)), F));   // muzzle along the forearm: forward once the arm is up
+            else drawHeld(MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(sc, sc, sc), MatrixRotateX(3.0f)), MatrixTranslate(-0.29f, 0.76f, 0.04f)), F), q->held); }
+        else if (cat == CAT_MELEE || cat == CAT_THROW) { float sc = idef[q->held].weight < 0.9f ? 1.8f : 1.3f;
+            drawHeld(MatrixMultiply(MatrixMultiply(MatrixMultiply(MatrixScale(sc, sc, sc), MatrixRotateX(-0.6f)), MatrixTranslate(-0.29f, 0.8f, 0.1f)), F), q->held); } }
 }
 static void drawRemotePlayers(float dt) {
-    if (netMode == NM_OFF) return;
-    for (int k = 0; k < MP_MAX; k++) { RPlayer *q = &rps[k]; if (k == mySlot || !q->on) continue;
+    if (netMode == NM_OFF && !gRigTest) return;
+    for (int k = 0; k < MP_MAX; k++) { RPlayer *q = &rps[k]; if (k == mySlot || !q->on) { q->animInit = false; continue; }
         q->shown = Vector3Lerp(q->shown, q->pos, fminf(1, dt * 12)); q->shownYaw += wrapA(q->yaw - q->shownYaw) * fminf(1, dt * 12);
-        Matrix M = TRS(q->shown, q->shownYaw, V3(1, 1, 1));
-        if (!q->alive) M = MatrixMultiply(MatrixRotateX(-PI / 2), TRS(V3(q->shown.x, q->shown.y + 0.15f, q->shown.z), q->shownYaw, V3(1, 1, 1)));
-        ADRAW("player/survivor3", M, WHITE, BX(T_PLAIN, -0.11f, 0.42f, 0, 0.16f, 0.84f, 0.18f, ((Color){36, 40, 54, 255})), BX(T_PLAIN, 0.11f, 0.42f, 0, 0.16f, 0.84f, 0.18f, ((Color){36, 40, 54, 255})),
-              BX(T_PLAIN, -0.11f, 0.04f, 0.04f, 0.17f, 0.08f, 0.26f, ((Color){28, 26, 24, 255})), BX(T_PLAIN, 0.11f, 0.04f, 0.04f, 0.17f, 0.08f, 0.26f, ((Color){28, 26, 24, 255})),
-              BX(T_PLAIN, 0, 1.18f, 0, 0.46f, 0.68f, 0.26f, ((Color){44, 54, 42, 255})), BX(T_PLAIN, 0, 1.4f, 0.133f, 0.16f, 0.18f, 0.01f, ((Color){200, 196, 186, 255})),
-              BX(T_PLAIN, -0.29f, 1.14f, 0, 0.12f, 0.62f, 0.14f, ((Color){44, 54, 42, 255})), BX(T_PLAIN, 0.29f, 1.14f, 0, 0.12f, 0.62f, 0.14f, ((Color){44, 54, 42, 255})),
-              BX(T_PLAIN, -0.29f, 0.79f, 0, 0.1f, 0.1f, 0.1f, ((Color){150, 110, 88, 255})), BX(T_PLAIN, 0.29f, 0.79f, 0, 0.1f, 0.1f, 0.1f, ((Color){150, 110, 88, 255})),
-              BX(T_PLAIN, 0, 1.68f, 0, 0.24f, 0.28f, 0.24f, ((Color){150, 110, 88, 255})), BX(T_PLAIN, 0, 1.84f, -0.02f, 0.27f, 0.08f, 0.28f, ((Color){30, 24, 20, 255})), BX(T_PLAIN, 0, 1.72f, -0.13f, 0.27f, 0.22f, 0.04f, ((Color){30, 24, 20, 255})),
+        RAng A[RB_N]; Vector3 ro; float rp; rpPose(q, dt, A, &ro, &rp);
+        Matrix B[RB_N];
+        B[RB_ROOT] = MatrixMultiply(MatrixMultiply(MatrixRotateX(rp), MatrixTranslate(ro.x, ro.y, ro.z)), TRS(q->shown, q->shownYaw, V3(1, 1, 1)));
+        for (int i = 1; i < RB_N; i++) { RAng a = A[i]; if (i != RB_TORSO && i != RB_HEAD) a.x = -a.x;   // hanging parts swing forward with a negative turn about x; the torso and head stand up from their pivots
+            B[i] = rbBone(rbPiv[i], a, B[rbPar[i]]); }
+        Color skin = {150, 110, 88, 255}, shirt = {44, 54, 42, 255}, jeans = {36, 40, 54, 255}, shoe = {28, 26, 24, 255};
+        ADRAW("player/rig_torso", B[RB_TORSO], WHITE, BX(T_PLAIN, 0, 1.18f, 0, 0.46f, 0.68f, 0.26f, shirt), BX(T_PLAIN, 0, 1.4f, 0.133f, 0.16f, 0.18f, 0.01f, ((Color){200, 196, 186, 255})), BX(T_PLAIN, 0, 1.5f, 0, 0.12f, 0.1f, 0.12f, skin));
+        ADRAW("player/rig_hips", B[RB_ROOT], WHITE, BX(T_PLAIN, 0, 0.8f, 0, 0.4f, 0.14f, 0.22f, jeans));
+        ADRAW("player/rig_head", B[RB_HEAD], WHITE, BX(T_PLAIN, 0, 1.68f, 0, 0.24f, 0.28f, 0.24f, skin), BX(T_PLAIN, 0, 1.84f, -0.02f, 0.27f, 0.08f, 0.28f, ((Color){30, 24, 20, 255})), BX(T_PLAIN, 0, 1.72f, -0.13f, 0.27f, 0.22f, 0.04f, ((Color){30, 24, 20, 255})),
               BX(T_PLAIN, -0.055f, 1.71f, 0.121f, 0.04f, 0.03f, 0.01f, ((Color){20, 20, 20, 255})), BX(T_PLAIN, 0.055f, 1.71f, 0.121f, 0.04f, 0.03f, 0.01f, ((Color){20, 20, 20, 255})));
-        drawRemoteGear(q, M);
-        if (q->flash && q->alive) { Vector3 d = V3(sinf(q->yaw) * cosf(q->pitch), sinf(q->pitch), cosf(q->yaw) * cosf(q->pitch)); DrawCube(Vector3Add(Vector3Add(q->shown, V3(0, 1.3f, 0)), Vector3Scale(d, 0.35f)), 0.07f, 0.07f, 0.07f, (Color){255, 245, 210, 255}); }
+        ADRAW("player/rig_rua", B[RB_RUA], WHITE, BX(T_PLAIN, -0.29f, 1.29f, 0, 0.12f, 0.32f, 0.14f, shirt)); ADRAW("player/rig_lua", B[RB_LUA], WHITE, BX(T_PLAIN, 0.29f, 1.29f, 0, 0.12f, 0.32f, 0.14f, shirt));
+        ADRAW("player/rig_rfa", B[RB_RFA], WHITE, BX(T_PLAIN, -0.29f, 0.98f, 0, 0.11f, 0.3f, 0.13f, shirt), BX(T_PLAIN, -0.29f, 0.79f, 0, 0.1f, 0.1f, 0.1f, skin));
+        ADRAW("player/rig_lfa", B[RB_LFA], WHITE, BX(T_PLAIN, 0.29f, 0.98f, 0, 0.11f, 0.3f, 0.13f, shirt), BX(T_PLAIN, 0.29f, 0.79f, 0, 0.1f, 0.1f, 0.1f, skin));
+        ADRAW("player/rig_rth", B[RB_RTH], WHITE, BX(T_PLAIN, -0.11f, 0.64f, 0, 0.16f, 0.42f, 0.18f, jeans)); ADRAW("player/rig_lth", B[RB_LTH], WHITE, BX(T_PLAIN, 0.11f, 0.64f, 0, 0.16f, 0.42f, 0.18f, jeans));
+        ADRAW("player/rig_rsh", B[RB_RSH], WHITE, BX(T_PLAIN, -0.11f, 0.24f, 0, 0.155f, 0.42f, 0.175f, jeans), BX(T_PLAIN, -0.11f, 0.04f, 0.04f, 0.17f, 0.08f, 0.26f, shoe));
+        ADRAW("player/rig_lsh", B[RB_LSH], WHITE, BX(T_PLAIN, 0.11f, 0.24f, 0, 0.155f, 0.42f, 0.175f, jeans), BX(T_PLAIN, 0.11f, 0.04f, 0.04f, 0.17f, 0.08f, 0.26f, shoe));
+        drawRemoteGear(q, B);
+        if (q->flK > 0.3f && q->alive) {   // the phone in the left hand, its light toward where they look
+            Matrix P = MatrixMultiply(MatrixTranslate(0.29f, 0.74f, 0.05f), B[RB_LFA]); Vector3 at = Vector3Transform(V3(0, 0, 0), P);
+            Vector3 d = V3(sinf(q->yaw) * cosf(q->pitch), sinf(q->pitch), cosf(q->yaw) * cosf(q->pitch));
+            DrawCube(at, 0.06f, 0.06f, 0.06f, (Color){30, 30, 34, 255}); DrawCube(Vector3Add(at, Vector3Scale(d, 0.04f)), 0.04f, 0.04f, 0.04f, (Color){255, 245, 210, 255}); }
     }
 }
 static void drawNameTags(void) {
