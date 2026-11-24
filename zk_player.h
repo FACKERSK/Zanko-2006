@@ -297,16 +297,16 @@ static void shootGun(int t, Vector3 eye, Vector3 aim) {   // the pistol and the 
 }
 
 // ============================================================ building
-enum { BK_WALL, BK_DOOR, BK_CRATE, BK_FLOOR, BK_FIRE, BK_CHEST, BK_BED, BK_SHRINE, BK_WARD, BK_GARDEN, BK_SPIKES, BK_ALARM, BK_GENERATOR, BK_LAMP, BK_N };
+enum { BK_WALL, BK_DOOR, BK_CRATE, BK_FLOOR, BK_FIRE, BK_CHEST, BK_BED, BK_SHRINE, BK_WARD, BK_GARDEN, BK_SPIKES, BK_ALARM, BK_GENERATOR, BK_LAMP, BK_RAINCATCH, BK_N };
 static const char *bkName[BK_N] = {"Plank Wall", "Door Wall", "Step Crate", "Floor Platform", "Campfire", "Storage Chest", "Bed", "Kamidana (base shrine)", "Spirit Ward",
-                                   "Garden Bed", "Spike Trap", "Can Alarm", "Generator", "Work Lamp"};
+                                   "Garden Bed", "Spike Trap", "Can Alarm", "Generator", "Work Lamp", "Rain Catcher"};
 typedef struct { int t, n; } Cost;
 static const Cost bkCost[BK_N][3] = {
     {{IT_PLANKS, 3}, {IT_NAILS, 4}, {-1, 0}}, {{IT_PLANKS, 4}, {IT_NAILS, 6}, {-1, 0}}, {{IT_PLANKS, 2}, {-1, 0}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 4}, {-1, 0}},
     {{IT_PLANKS, 2}, {-1, 0}, {-1, 0}}, {{IT_PLANKS, 4}, {IT_NAILS, 4}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_RAG, 2}, {-1, 0}},
     {{IT_PLANKS, 2}, {IT_OFUDA, 1}, {IT_ROPE, 1}}, {{IT_PLANKS, 2}, {IT_ROPE, 1}, {IT_OFUDA, 1}},
-    {{IT_PLANKS, 3}, {IT_SEEDS, 1}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 12}, {-1, 0}}, {{IT_SCRAP, 1}, {IT_NAILS, 2}, {IT_BOTTLE, 1}}, {{IT_SCRAP, 5}, {IT_NAILS, 8}, {IT_BATTERY, 2}}, {{IT_SCRAP, 1}, {IT_PLANKS, 1}, {IT_BATTERY, 1}}};
-static const bool bkHammer[BK_N] = {true, true, false, true, false, true, true, false, false, true, true, false, true, true};
+    {{IT_PLANKS, 3}, {IT_SEEDS, 1}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 12}, {-1, 0}}, {{IT_SCRAP, 1}, {IT_NAILS, 2}, {IT_BOTTLE, 1}}, {{IT_SCRAP, 5}, {IT_NAILS, 8}, {IT_BATTERY, 2}}, {{IT_SCRAP, 1}, {IT_PLANKS, 1}, {IT_BATTERY, 1}}, {{IT_PLANKS, 2}, {IT_RAG, 3}, {IT_SCRAP, 1}}};
+static const bool bkHammer[BK_N] = {true, true, false, true, false, true, true, false, false, true, true, false, true, true, false};
 #define BASE_R 22.0f
 #define WARD_R 7.0f
 static bool bkAfford(int k) { for (int i = 0; i < 3; i++) if (bkCost[k][i].t >= 0 && invCount(bkCost[k][i].t) < bkCost[k][i].n) return false; return true; }
@@ -350,6 +350,7 @@ static bool buildGhost(Vector3 *mn, Vector3 *mx) {
     case BK_ALARM: *mn = V3(c.x - 0.2f, g, c.z - 0.2f); *mx = V3(c.x + 0.2f, g + 0.5f, c.z + 0.2f); break;
     case BK_GENERATOR: *mn = V3(c.x - 0.45f, g, c.z - 0.35f); *mx = V3(c.x + 0.45f, g + 0.6f, c.z + 0.35f); break;
     case BK_LAMP: *mn = V3(c.x - 0.25f, g, c.z - 0.25f); *mx = V3(c.x + 0.25f, g + 1.7f, c.z + 0.25f); break;
+    case BK_RAINCATCH: *mn = V3(c.x - 0.6f, g, c.z - 0.6f); *mx = V3(c.x + 0.6f, g + 1.3f, c.z + 0.6f); break;
     default: *mn = V3(c.x - 0.4f, g, c.z - 0.4f); *mx = V3(c.x + 0.4f, g + 0.4f, c.z + 0.4f); break;
     }
     if (K == BK_WARD) {
@@ -417,6 +418,7 @@ static void placeBuild(void) {
     if (K == BK_WARD) { addWard(V3(c.x, mn.y, c.z), WARD_R, 0, 1); say("Spirit ward hung. Spirits cannot enter its circle."); }
     if (K == BK_DOOR) say("Door wall built. [E] opens and closes it.");
     if (K == BK_BED) say("Bed built. Sleep here with [Z].");
+    if (K == BK_RAINCATCH) { b->fuel = 0; say("Rain catcher set up. Rain fills the drum; rainwater is clean enough to drink. Keep it out from under roofs."); }
     if (K == BK_GENERATOR) { b->fuel = 0; b->light = -1; b->hp = b->maxhp = 8; say("Generator built. Pour in petrol [G], start it [E]. Lights within 40 m come on - and it is loud."); }
     if (K == BK_LAMP) { b->light = addLight(V3(c.x, mx.y - 0.1f, c.z), V3(1.0f, 0.95f, 0.8f), 15, 2); say("Work lamp set up. It lights when a running generator is within 40 m."); }
     bkPay(K); play(sPlace, 0.9f); pl.boredom = fmaxf(0, pl.boredom - 15); animPlay(ANIM_BUILD);

@@ -96,6 +96,9 @@ static const Recipe recipes[] = {
     {"Molotov (x2)", {{IT_BOTTLE, 2}, {IT_RAG, 2}, {IT_FUEL, 1}}, IT_MOLOTOV, 2, 0},
     {"Fishing rod", {{IT_PLANKS, 1}, {IT_RAG, 2}, {IT_NAILS, 3}}, IT_ROD, 1, 0},   // 0.9.14
     {"Grill fish", {{IT_FISH, 1}, {-1, 0}, {-1, 0}}, IT_GRILLFISH, 1, RQ_FIRE},
+    {"Yomogi tea", {{IT_WATER, 1}, {IT_YOMOGI, 2}, {-1, 0}}, IT_TEA, 1, RQ_FIRE},   // 0.9.18
+    {"Mountain nabe", {{IT_WATER, 1}, {IT_MUSHROOM, 2}, {IT_TAKENOKO, 1}}, IT_NABE, 1, RQ_FIRE},
+    {"Daikon nabe", {{IT_WATER, 1}, {IT_MUSHROOM, 2}, {IT_DAIKON, 1}}, IT_NABE, 1, RQ_FIRE},
 };
 #define N_RECIPE ((int)(sizeof recipes / sizeof recipes[0]))
 static bool nearShrine(void) { return baseShrine >= 0 && builds[baseShrine].alive && Vector3Distance(builds[baseShrine].mn, pl.pos) < 4.5f; }
@@ -152,7 +155,68 @@ static int facingWater(Vector3 aim) {
     }
     return -1;
 }
+// ============================================================ 0.9.18: foraging. Patches in the wild hills: shiitake under the trees (some patches are the pale
+// kind that glows at night), yomogi on the slopes, bamboo shoots in the groves. A picked patch grows back in two to three days.
+#define MAX_FORAGE 320
+typedef struct { Vector3 pos; unsigned char kind; float yaw; } Forage;   // kind 0 shiitake, 1 pale mushrooms, 2 yomogi, 3 takenoko
+static Forage forage[MAX_FORAGE]; static int nForage; static unsigned int forageSeed = 0xFFFFFFFFu;
+static float forageReady[MAX_FORAGE];   // the game hour (day*24+tod) when it can be picked again; saved
+static float gameHours(void) { return pl.day * 24.0f + pl.tod; }
+static void forageGen(void) {   // the same patches for the same world: placed from its seed
+    nForage = 0; forageSeed = worldSeed;
+    for (int tries = 0; tries < 30000 && nForage < MAX_FORAGE; tries++) {
+        float x = -WEST + 8 + hash2(tries, (int)worldSeed, 41) * (CITY + WILD + WEST - 16), z = -WILD + 8 + hash2(tries, (int)worldSeed, 42) * (CITY + 2 * WILD - 16);
+        Vector3 p = V3(x, 0, z); p.y = baseGroundY(x, z, 400);
+        if (p.y < -30 || wildK(p) < 0.55f || seaDepth(x, z) > 0 || inRiverRaw(x, z)) continue;
+        float g = groundAt(V3(x, p.y + 1.6f, z), 0.4f, 3); if (fabsf(g - p.y) > 0.25f) continue;   // not on or in anything built
+        if (fabsf(baseGroundY(x + 1, z, 400) - p.y) > 0.9f || fabsf(baseGroundY(x, z + 1, 400) - p.y) > 0.9f) continue;   // not on a cliff
+        float h = hash2(tries, (int)worldSeed, 43); int k = h < 0.32f ? 0 : h < 0.44f ? 1 : h < 0.78f ? 2 : 3;
+        forage[nForage] = (Forage){p, (unsigned char)k, hash2(tries, (int)worldSeed, 44) * 6.28f}; forageReady[nForage] = 0; nForage++; }
+    TraceLog(LOG_INFO, "FORAGE %d patches", nForage);
+}
+static void forageEnsure(void) { if (forageSeed != worldSeed && worldSolids > 0) forageGen(); }
+static int facingForage(Vector3 aim) {
+    forageEnsure(); int best = -1; float bd = 2.3f; Vector3 f = Vector3Normalize(V3(aim.x, 0, aim.z));
+    for (int i = 0; i < nForage; i++) { Vector3 d = Vector3Subtract(forage[i].pos, pl.pos); if (fabsf(d.y) > 1.8f) continue; d.y = 0; float L = Vector3Length(d);
+        if (L < bd && (L < 0.7f || Vector3DotProduct(Vector3Scale(d, 1 / L), f) > 0.55f)) { bd = L; best = i; } }
+    return best;
+}
+static const char *forageName[4] = {"shiitake", "pale mushrooms", "yomogi", "bamboo shoots"};
+static bool foragePrompt(Vector3 aim, bool act) {
+    int i = facingForage(aim); if (i < 0) return false;
+    Forage *F = &forage[i]; bool ready = gameHours() >= forageReady[i];
+    if (!ready) { if (!act) { snprintf(prompt, sizeof prompt, "Picked over - grows back in about %d h", (int)ceilf(forageReady[i] - gameHours())); } return true; }
+    if (!act) { snprintf(prompt, sizeof prompt, "[E] Pick %s", forageName[F->kind]); return true; }
+    int sc = skLvl(SK_SCAV), n;
+    switch (F->kind) {
+    case 0: n = 2 + ri(2) + (sc >= 3); giveBack(IT_MUSHROOM, n); say(TextFormat("You pick %d shiitake from the roots.", n)); break;
+    case 1: n = 2 + ri(2); giveBack(IT_PALEMUSH, n); say(sc >= 2 ? "Pale caps, pale gills, no smell. You know better than to eat these." : TextFormat("You pick %d pale mushrooms.", n)); break;
+    case 2: n = 2 + ri(3) + (sc >= 3); giveBack(IT_YOMOGI, n); say(TextFormat("You pull %d stems of yomogi. The smell is sharp and green.", n)); break;
+    default: n = 1 + ri(2) + (sc >= 4); giveBack(IT_TAKENOKO, n); say(TextFormat("You dig out %d bamboo shoot%s.", n, n > 1 ? "s" : "")); break; }
+    forageReady[i] = gameHours() + 48 + 24 * hash2(i, pl.day, 45);
+    animUse(ANIM_TAKE, -1); play(sPick, 0.5f); skGain(SK_SCAV, 1);
+    return true;
+}
+// ============================================================ 0.9.18: the rain catcher: a tarp funnel over a drum. Rain fills it (fuel: bottles of water held, up to 8);
+// rainwater is clean enough to drink as it is
+#define CATCH_MAX 8.0f
+static void catchTick(float hours) {
+    if (rainK < 0.05f) return;
+    for (int i = 0; i < nBuild; i++) { Build *b = &builds[i]; if (!b->alive || b->kind != BK_RAINCATCH) continue;
+        Vector3 c = Vector3Scale(Vector3Add(b->mn, b->mx), 0.5f); if (ceilAt(V3(c.x, b->mx.y + 0.1f, c.z), 0.3f) < b->mx.y + 9) continue;   // under a roof: nothing falls in
+        b->fuel = fminf(CATCH_MAX, b->fuel + hours * rainK * 1.6f); }
+}
+static bool catchPrompt(Vector3 eye, Vector3 aim, bool act) {
+    int g = facingBuild(eye, aim, 2.4f, BK_RAINCATCH); if (g < 0) return false;
+    Build *b = &builds[g]; int n = (int)b->fuel;
+    if (n < 1) { if (!act) snprintf(prompt, sizeof prompt, "Rain catcher - empty%s", rainK > 0.05f ? " (filling)" : " (waits for rain)"); return true; }
+    if (!act) { snprintf(prompt, sizeof prompt, invHas(IT_BOTTLE) ? "[E] Fill a bottle with rainwater (%d left)" : "[E] Drink rainwater (%d left)", n); return true; }
+    if (invHas(IT_BOTTLE)) { invTake(IT_BOTTLE, 1); giveBack(IT_WATER, 1); say("Bottle filled. Rainwater: clean enough as it is."); }
+    else { pl.water = fminf(100, pl.water + 20); say("You drink from the drum. It tastes of tarp."); }
+    b->fuel -= 1; play(sPick, 0.5f); return true;
+}
 static bool survPrompt(Vector3 eye, Vector3 aim, bool act) {
+    if (catchPrompt(eye, aim, act) || foragePrompt(aim, act)) return true;
     int w = facingWater(aim);
     if (w >= 0) {
         const char *nm = wsrc[w].kind == 0 ? "rain barrel" : wsrc[w].kind == 1 ? "fountain" : "spring";
@@ -470,6 +534,7 @@ static bool saveGame(void) {
     unsigned char *bits = calloc((size_t)worldSolids, 1); for (int i = 0; i < worldSolids; i++) bits[i] = sol[i].off; fwrite(bits, 1, (size_t)worldSolids, f); free(bits);
     WRA(ops, nOps); WRA(debs, nDeb); WRA(crates, nCrate); WRA(vends, nVend); WRA(builds, nBuild); WRA(conts, nCont); WRA(crs, nCr); WRA(wards, nWard); WRA(fires, nFire); WRA(marks, nMark);
     WR(baseShrine); WR(evacOn); WR(evacT);
+    { unsigned int fm = 0x47524F46u; forageEnsure(); WR(fm); WRA(forageReady, nForage); }   // 0.9.18 "FORG": when each forage patch grows back (older saves end before this)
     fclose(f);
     TraceLog(LOG_INFO, "SAVE: written (day %d %.1fh)", pl.day, pl.tod);
     return true;
@@ -493,6 +558,8 @@ static bool loadGame(void) {
             && rdArr(f, vends, sizeof vends[0], MAX_VEND, &nVend, true) && rdArr(f, builds, sizeof builds[0], MAX_BUILD, &nBuild, false) && rdArr(f, conts, sizeof conts[0], MAX_CONT, &nCont, false)
             && rdArr(f, crs, sizeof crs[0], MAX_CR, &nCr, false) && rdArr(f, wards, sizeof wards[0], MAX_WARD, &nWard, false) && rdArr(f, fires, sizeof fires[0], MAX_FIRE, &nFire, false)
             && rdArr(f, marks, sizeof marks[0], MAX_MARK, &nMark, false) && RD(baseShrine) && RD(evacOn) && RD(evacT);
+    if (ok) { forageEnsure(); for (int i = 0; i < MAX_FORAGE; i++) forageReady[i] = 0; unsigned int fm; int fn = nForage;
+        if (RD(fm) && fm == 0x47524F46u) { static float tmp[MAX_FORAGE]; if (rdArr(f, tmp, sizeof tmp[0], MAX_FORAGE, &fn, false) && fn == nForage) memcpy(forageReady, tmp, sizeof(float) * (size_t)fn); } }
     fclose(f);
     if (!ok) { TraceLog(LOG_WARNING, "SAVE: corrupt"); return false; }
     pl = p;
@@ -591,7 +658,8 @@ static void survivalTick(float dt) {
     }
     // ---- broken leg heals only once splinted (12 in-game hours)
     if (pl.fracture == 2) { pl.fracT += hours; if (pl.fracT >= 12) { pl.fracture = 0; say("Your leg has healed."); } }
-    // ---- gardens, traps
+    // ---- gardens, traps, rain catchers
+    catchTick(hours);
     for (int i = 0; i < nBuild; i++) { Build *b = &builds[i]; if (!b->alive) continue;
         if (b->kind == BK_GARDEN && b->open && b->hp < b->maxhp) { b->hp = fminf(b->maxhp, b->hp + hours * (dayK() > 0.3f ? 1.2f : 0.6f)); }
         if (b->kind == BK_SPIKES || b->kind == BK_ALARM) {

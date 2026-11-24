@@ -96,8 +96,9 @@ static void getSick(float amount, const char *why);
 static void giveBack(int t, int n) { int left = invAdd(t, n); if (left) addItem(V3(pl.pos.x, pl.pos.y + 0.02f, pl.pos.z), t, left); }
 static const char *noNeed(int t) {   // why using it now would do nothing (NULL: it would help)
     switch (t) {
-    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: return pl.food >= 95 ? "You are full." : NULL;
-    case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: return pl.water >= 95 ? "You are not thirsty." : NULL;
+    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: case IT_MUSHROOM: case IT_PALEMUSH: case IT_TAKENOKO: case IT_NABE: return pl.food >= 95 ? "You are full." : NULL;
+    case IT_YOMOGI: return pl.hp >= 99 ? "Nothing to heal." : NULL;
+    case IT_TEA: case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: return pl.water >= 95 ? "You are not thirsty." : NULL;
     case IT_PAINKILLER: return (pl.hp >= 99 && pl.fracture == 0 && pl.painT <= 0) ? "Nothing hurts." : NULL;
     case IT_SPLINT: return pl.fracture != 1 ? (pl.fracture == 2 ? "The leg is already splinted." : "Nothing is broken.") : NULL;
     case IT_CHARCOAL: return pl.sick <= 0 ? "Your stomach is fine." : NULL;
@@ -108,7 +109,7 @@ static const char *noNeed(int t) {   // why using it now would do nothing (NULL:
 }
 // 0.9.14: food goes off. A perishable stack ages (Slot.w, tenths of an in-game hour); past 60% of its life it is stale (less food, a chance of
 // sickness), past its life rotten (little food, likely sick). Canned food, ramen and drinks keep.
-static float perishLife(int t) { switch (t) { case IT_FOOD: return 72; case IT_DAIKON: return 144; case IT_FISH: return 36; case IT_GRILLFISH: return 60; } return 0; }
+static float perishLife(int t) { switch (t) { case IT_FOOD: return 72; case IT_DAIKON: return 144; case IT_FISH: return 36; case IT_GRILLFISH: return 60; case IT_MUSHROOM: case IT_PALEMUSH: case IT_NABE: return 48; case IT_TAKENOKO: case IT_YOMOGI: return 72; } return 0; }
 static float foodAge(int t) {   // 0 fresh .. 1 at the end of its life (and on) for the piece about to be eaten
     float life = perishLife(t); if (life <= 0) return 0; Slot *s = NULL;
     if (pl.hands.t == t) s = &pl.hands; else for (int i = 0; i < invNSlots(); i++) if (pl.sl[i].t == t) { if (!s || pl.sl[i].w > s->w) s = &pl.sl[i]; }
@@ -142,13 +143,20 @@ static void useHeld(void) {   // the attack button with a consumable in hand
 static void consumeItem(int t) {
     if (t < 0 || !invHas(t)) return;
     { const char *why = noNeed(t); if (why) { say(why); return; } }   // nothing to gain: no animation, nothing used
-    { int a = 0; switch (t) { case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: a = ANIM_EAT; break; case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: a = ANIM_DRINK; break;
+    { int a = 0; switch (t) { case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: case IT_MUSHROOM: case IT_PALEMUSH: case IT_TAKENOKO: case IT_NABE: case IT_YOMOGI: a = ANIM_EAT; break; case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: case IT_TEA: a = ANIM_DRINK; break;
         case IT_PAINKILLER: case IT_CHARCOAL: a = ANIM_PILL; break; case IT_BANDAGE: case IT_RAG: case IT_SPLINT: case IT_DISINFECT: a = ANIM_BANDAGE; break; }
       if (a) animUse(a, t); }
     switch (t) {
     case IT_FOOD: { float g = spoilEat(t, 30); invTake(t, 1); pl.food = fminf(100, pl.food + g); if (g >= 30) say("Ate an onigiri."); } break;
     case IT_FISH: { float g = spoilEat(t, 20); invTake(t, 1); pl.food = fminf(100, pl.food + g); if (fr(0, 1) < 0.35f * trMul(1)) getSick(35, "Raw fish. Something in it disagrees with you."); else if (g >= 20) say("Raw fish. Chewy, cold, filling enough."); } break;
     case IT_GRILLFISH: { float g = spoilEat(t, 45); invTake(t, 1); pl.food = fminf(100, pl.food + g); pl.warmth = fminf(100, pl.warmth + 8); pl.sanity = fminf(100, pl.sanity + 3); if (g >= 45) say("Grilled fish. Smoky and hot."); } break;
+    case IT_MUSHROOM: { float g = spoilEat(t, 12); invTake(t, 1); pl.food = fminf(100, pl.food + g); if (fr(0, 1) < 0.15f * trMul(1)) getSick(20, "Raw mushrooms. Your stomach complains."); else if (g >= 12) say("Raw shiitake. Earthy."); } break;
+    case IT_PALEMUSH: { float g = spoilEat(t, 10); invTake(t, 1); pl.food = fminf(100, pl.food + g);
+        if (fr(0, 1) < 0.85f) { getSick(60, "The pale mushroom. Within minutes the world tilts and your stomach knots."); pl.sanity = fmaxf(0, pl.sanity - 8); } else say("Pale mushroom. Nothing happens. This time."); } break;
+    case IT_YOMOGI: invTake(t, 1); pl.hp = fminf(100, pl.hp + 4); pl.food = fminf(100, pl.food + 2); say("You chew the yomogi. Bitter, green, a little better."); break;
+    case IT_TAKENOKO: { float g = spoilEat(t, 8); invTake(t, 1); pl.food = fminf(100, pl.food + g); if (g >= 8) say("Raw bamboo shoot. Bitter enough to make your eyes water."); } break;
+    case IT_TEA: invTake(t, 1); pl.water = fminf(100, pl.water + 30); pl.warmth = fminf(100, pl.warmth + 15); pl.sanity = fminf(100, pl.sanity + 4); pl.sick = fmaxf(0, pl.sick - 15); giveBack(IT_BOTTLE, 1); say("Yomogi tea. Grassy and warm all the way down."); break;
+    case IT_NABE: { float g = spoilEat(t, 55); invTake(t, 1); pl.food = fminf(100, pl.food + g); pl.water = fminf(100, pl.water + 15); pl.warmth = fminf(100, pl.warmth + 18); pl.sanity = fminf(100, pl.sanity + 6); giveBack(IT_BOTTLE, 1); if (g >= 55) say("Mountain nabe. For a moment it feels like before."); } break;
     case IT_CANNED: invTake(t, 1); pl.food = fminf(100, pl.food + 50); pl.water = fmaxf(0, pl.water - 5); say("Canned mackerel. Salty."); break;
     case IT_DRINK: invTake(t, 1); pl.water = fminf(100, pl.water + 35); say("Drank green tea."); giveBack(IT_BOTTLE, 1); break;
     case IT_WATER: invTake(t, 1); pl.water = fminf(100, pl.water + 55); say("Drank water."); giveBack(IT_BOTTLE, 1); break;
@@ -175,8 +183,8 @@ static void consumeItem(int t) {
     default: say(idef[t].desc); return;
     }
     switch (t) {   // what using it sounds like
-    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: play(sEat, 0.6f); break;
-    case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: play(sDrink, 0.6f); break;
+    case IT_FOOD: case IT_CANNED: case IT_RAMEN: case IT_DAIKON: case IT_FISH: case IT_GRILLFISH: case IT_MUSHROOM: case IT_PALEMUSH: case IT_TAKENOKO: case IT_NABE: case IT_YOMOGI: play(sEat, 0.6f); break;
+    case IT_DRINK: case IT_WATER: case IT_DIRTYWATER: case IT_TEA: play(sDrink, 0.6f); break;
     case IT_PAINKILLER: case IT_CHARCOAL: play(sPill, 0.6f); break;
     case IT_BANDAGE: case IT_RAG: case IT_SPLINT: case IT_DISINFECT: play(sBandage, 0.6f); break;
     case IT_MANGA: play(sPaper, 0.5f); break;

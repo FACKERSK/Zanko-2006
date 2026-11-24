@@ -277,6 +277,18 @@ static void drawItemType(int type, Matrix F) {
     case IT_ROD: ADRAW("items/rod", F, WHITE, BX(T_WOOD, 0, 0.02f, 0.0f, 0.02f, 0.02f, 0.9f, ((Color){150, 120, 80, 255})), BX(T_METAL, 0.03f, 0.03f, -0.3f, 0.05f, 0.05f, 0.05f, ((Color){60, 60, 64, 255}))); break;
     case IT_FISH: ADRAW("items/fish", F, WHITE, BX(T_PLAIN, 0, 0.04f, 0, 0.07f, 0.05f, 0.24f, ((Color){170, 180, 190, 255})), BX(T_PLAIN, 0, 0.04f, 0.15f, 0.02f, 0.06f, 0.06f, ((Color){130, 140, 150, 255}))); break;
     case IT_GRILLFISH: ADRAW("items/grillfish", F, WHITE, BX(T_PLAIN, 0, 0.04f, 0, 0.07f, 0.05f, 0.24f, ((Color){150, 100, 55, 255})), BX(T_WOOD, 0, 0.04f, -0.05f, 0.012f, 0.012f, 0.38f, ((Color){200, 180, 140, 255}))); break;
+    case IT_MUSHROOM: ADRAW("items/shiitake", F, WHITE, BX(T_PLAIN, 0, 0.03f, 0, 0.03f, 0.06f, 0.03f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0, 0.065f, 0, 0.12f, 0.03f, 0.12f, ((Color){120, 80, 50, 255})),
+                        BX(T_PLAIN, 0.09f, 0.025f, 0.04f, 0.025f, 0.05f, 0.025f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0.09f, 0.055f, 0.04f, 0.09f, 0.025f, 0.09f, ((Color){130, 88, 54, 255}))); break;
+    case IT_PALEMUSH: ADRAW("items/pale_mushroom", F, WHITE, BX(T_PLAIN, 0, 0.035f, 0, 0.03f, 0.07f, 0.03f, ((Color){225, 225, 205, 255})), BX(T_PLAIN, 0, 0.075f, 0, 0.13f, 0.03f, 0.11f, ((Color){205, 200, 175, 255})),
+                        BX(T_PLAIN, 0.09f, 0.025f, 0.04f, 0.025f, 0.05f, 0.025f, ((Color){225, 225, 205, 255})), BX(T_PLAIN, 0.09f, 0.055f, 0.04f, 0.09f, 0.025f, 0.08f, ((Color){200, 196, 170, 255}))); break;
+    case IT_YOMOGI: ADRAW("items/yomogi", F, WHITE, BX(T_PLAIN, 0, 0.02f, 0, 0.02f, 0.02f, 0.26f, ((Color){90, 110, 70, 255})), BX(T_PLAIN, 0.04f, 0.02f, 0.05f, 0.1f, 0.012f, 0.06f, ((Color){110, 140, 100, 255})),
+                      BX(T_PLAIN, -0.04f, 0.02f, -0.02f, 0.1f, 0.012f, 0.06f, ((Color){130, 155, 120, 255})), BX(T_PLAIN, 0.03f, 0.02f, -0.08f, 0.08f, 0.012f, 0.05f, ((Color){110, 140, 100, 255}))); break;
+    case IT_TAKENOKO: ADRAW("items/takenoko", F, WHITE, BX(T_PLAIN, 0, 0.07f, 0, 0.1f, 0.14f, 0.1f, ((Color){120, 90, 50, 255})), BX(T_PLAIN, 0, 0.17f, 0, 0.06f, 0.08f, 0.06f, ((Color){150, 120, 60, 255})),
+                        BX(T_PLAIN, 0, 0.23f, 0, 0.03f, 0.05f, 0.03f, ((Color){170, 150, 80, 255})), BX(T_PLAIN, 0, 0.005f, 0, 0.11f, 0.01f, 0.11f, ((Color){230, 220, 190, 255}))); break;
+    case IT_TEA: ADRAW("items/yomogi_tea", F, WHITE, BX(T_GLASS, 0, 0.12f, 0, 0.08f, 0.24f, 0.08f, ((Color){120, 150, 80, 200})), BX(T_PLAIN, 0, 0.26f, 0, 0.04f, 0.04f, 0.04f, ((Color){60, 120, 60, 255}))); break;
+    case IT_NABE: ADRAW("items/nabe", F, WHITE, BX(T_METAL, 0, 0.05f, 0, 0.26f, 0.1f, 0.26f, ((Color){70, 70, 74, 255})), BX(T_PLAIN, 0, 0.1f, 0, 0.22f, 0.01f, 0.22f, ((Color){170, 120, 70, 255})),
+                    BX(T_PLAIN, 0.05f, 0.11f, 0.03f, 0.05f, 0.02f, 0.05f, ((Color){120, 80, 50, 255})), BX(T_PLAIN, -0.05f, 0.11f, -0.04f, 0.04f, 0.02f, 0.06f, ((Color){220, 210, 160, 255})),
+                    BX(T_METAL, 0.16f, 0.08f, 0, 0.06f, 0.02f, 0.03f, ((Color){60, 60, 64, 255})), BX(T_METAL, -0.16f, 0.08f, 0, 0.06f, 0.02f, 0.03f, ((Color){60, 60, 64, 255}))); break;
     case IT_RAINCOAT: ADRAW("items/raincoat", F, WHITE, BX(T_GLASS, 0.0f, 0.03f, 0.0f, 0.46f, 0.05f, 0.5f, ((Color){200, 215, 220, 200})), BX(T_PLAIN, 0.0f, 0.06f, -0.18f, 0.2f, 0.03f, 0.1f, ((Color){180, 190, 195, 255}))); break;
     case IT_PISTOL: ADRAW("items/pistol", F, WHITE, BX(T_METAL, 0, 0.025f, 0.03f, 0.035f, 0.04f, 0.17f, ((Color){40, 40, 44, 255})), BX(T_PLAIN, 0, 0.02f, -0.07f, 0.03f, 0.03f, 0.08f, ((Color){30, 28, 26, 255}))); break;
     case IT_SHOTGUN: ADRAW("items/shotgun", F, WHITE, BX(T_METAL, 0, 0.03f, 0.25f, 0.04f, 0.05f, 0.75f, ((Color){50, 52, 56, 255})), BX(T_WOOD, 0, 0.035f, -0.32f, 0.05f, 0.07f, 0.4f, ((Color){110, 70, 40, 255})),
@@ -489,10 +501,38 @@ static void drawBuildPiece(Build *b) {
               BX(T_METAL, 0, 0.03f, 0, 0.06f, 0.04f, 0.5f, ((Color){60, 60, 64, 255})), BX(T_PLAIN, 0, 1.62f, 0.05f, 0.34f, 0.24f, 0.14f, ((Color){200, 160, 40, 255})));
         setEmis(lit ? 1 : 0); ADRAW("base/work_lamp_glass", TRS(bc, 0, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 1.62f, 0.125f, 0.28f, 0.18f, 0.02f, lit ? ((Color){255, 248, 220, 255}) : ((Color){90, 90, 85, 255}))); setEmis(0);
         break; }
+    case BK_RAINCATCH: { float lv = clampf(b->fuel / 8.0f, 0, 1); Matrix M = TRS(bc, 0, V3(1, 1, 1)); Color wd = {120, 95, 70, 255}, tp = {40, 90, 150, 255};
+        ADRAW("base/rain_catcher", M, c, BX(T_WOOD, -0.55f, 0.65f, -0.55f, 0.07f, 1.3f, 0.07f, wd), BX(T_WOOD, 0.55f, 0.65f, -0.55f, 0.07f, 1.3f, 0.07f, wd), BX(T_WOOD, -0.55f, 0.65f, 0.55f, 0.07f, 1.3f, 0.07f, wd), BX(T_WOOD, 0.55f, 0.65f, 0.55f, 0.07f, 1.3f, 0.07f, wd),
+              BX(T_CLOTH, 0, 1.22f, -0.42f, 1.2f, 0.03f, 0.4f, tp), BX(T_CLOTH, 0, 1.22f, 0.42f, 1.2f, 0.03f, 0.4f, tp), BX(T_CLOTH, -0.42f, 1.2f, 0, 0.4f, 0.03f, 0.5f, tp), BX(T_CLOTH, 0.42f, 1.2f, 0, 0.4f, 0.03f, 0.5f, tp),
+              BX(T_CLOTH, 0, 1.0f, 0, 0.16f, 0.36f, 0.16f, ((Color){36, 82, 140, 255})),
+              BX(T_PLAIN, 0, 0.3f, 0, 0.56f, 0.6f, 0.56f, ((Color){50, 100, 160, 255})), BX(T_PLAIN, 0, 0.12f, 0, 0.6f, 0.05f, 0.6f, ((Color){40, 80, 130, 255})), BX(T_PLAIN, 0, 0.5f, 0, 0.6f, 0.05f, 0.6f, ((Color){40, 80, 130, 255})));
+        if (lv > 0.02f) ADRAW("base/rain_catcher_water", TRS(V3(bc.x, bc.y + 0.08f + lv * 0.52f, bc.z), 0, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 0, 0, 0.5f, 0.02f, 0.5f, ((Color){60, 110, 130, 255})));
+        break; }
     default: break;
     }
 }
+static void drawForage(Vector3 eye) {
+    forageEnsure(); float gh = gameHours(); bool night = dayK() < 0.3f;
+    for (int i = 0; i < nForage; i++) { Forage *F = &forage[i]; if (Vector3DistanceSqr(F->pos, eye) > 55 * 55 || gh < forageReady[i]) continue;
+        float sc = F->kind < 3 ? 1.8f : 1.2f; Matrix M = TRS(F->pos, F->yaw, V3(sc, sc, sc));
+        switch (F->kind) {
+        case 0: ADRAW("forage/shiitake", M, WHITE, BX(T_PLAIN, 0, 0.03f, 0, 0.025f, 0.06f, 0.025f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0, 0.065f, 0, 0.11f, 0.03f, 0.11f, ((Color){120, 80, 50, 255})),
+                      BX(T_PLAIN, 0.12f, 0.025f, 0.05f, 0.02f, 0.05f, 0.02f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0.12f, 0.055f, 0.05f, 0.085f, 0.025f, 0.085f, ((Color){130, 88, 54, 255})),
+                      BX(T_PLAIN, -0.08f, 0.02f, 0.1f, 0.02f, 0.04f, 0.02f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, -0.08f, 0.045f, 0.1f, 0.07f, 0.02f, 0.07f, ((Color){110, 74, 46, 255})),
+                      BX(T_WOOD, 0.02f, 0.03f, -0.12f, 0.5f, 0.06f, 0.08f, ((Color){80, 62, 44, 255}))); break;   // on a fallen branch
+        case 1: setEmis(night ? 1.0f : 0); ADRAW("forage/pale_mushroom", M, (night ? (Color){150, 230, 170, 255} : WHITE), BX(T_PLAIN, 0, 0.04f, 0, 0.03f, 0.08f, 0.03f, ((Color){225, 225, 205, 255})), BX(T_PLAIN, 0, 0.085f, 0, 0.14f, 0.03f, 0.12f, ((Color){205, 200, 175, 255})),
+                      BX(T_PLAIN, 0.11f, 0.03f, 0.04f, 0.025f, 0.06f, 0.025f, ((Color){225, 225, 205, 255})), BX(T_PLAIN, 0.11f, 0.065f, 0.04f, 0.1f, 0.025f, 0.09f, ((Color){200, 196, 170, 255})),
+                      BX(T_PLAIN, -0.09f, 0.025f, -0.06f, 0.02f, 0.05f, 0.02f, ((Color){225, 225, 205, 255})), BX(T_PLAIN, -0.09f, 0.055f, -0.06f, 0.08f, 0.02f, 0.08f, ((Color){210, 205, 180, 255}))); setEmis(0); break;
+        case 2: ADRAW("forage/yomogi", M, WHITE, BX(T_PLAIN, 0, 0.12f, 0, 0.32f, 0.24f, 0.05f, ((Color){100, 130, 90, 255})), BX(T_PLAIN, 0, 0.12f, 0, 0.05f, 0.24f, 0.32f, ((Color){110, 140, 100, 255})),
+                      BX(T_PLAIN, 0.1f, 0.1f, 0.08f, 0.2f, 0.2f, 0.04f, ((Color){150, 170, 140, 255})), BX(T_PLAIN, -0.1f, 0.09f, -0.06f, 0.04f, 0.18f, 0.2f, ((Color){140, 160, 130, 255}))); break;
+        default: ADRAW("forage/takenoko", M, WHITE, BX(T_PLAIN, 0, 0.1f, 0, 0.12f, 0.2f, 0.12f, ((Color){120, 90, 50, 255})), BX(T_PLAIN, 0, 0.24f, 0, 0.07f, 0.1f, 0.07f, ((Color){150, 120, 60, 255})),
+                       BX(T_PLAIN, 0.3f, 0.06f, 0.15f, 0.08f, 0.12f, 0.08f, ((Color){110, 84, 48, 255})), BX(T_PLAIN, 0.3f, 0.14f, 0.15f, 0.04f, 0.05f, 0.04f, ((Color){150, 120, 60, 255})),
+                       BX(T_WOOD, -0.4f, 1.6f, -0.2f, 0.08f, 3.2f, 0.08f, ((Color){120, 140, 70, 255})), BX(T_WOOD, -0.25f, 1.9f, -0.45f, 0.07f, 3.8f, 0.07f, ((Color){110, 132, 64, 255})),
+                       BX(T_PLAIN, -0.32f, 3.3f, -0.3f, 0.9f, 0.5f, 0.9f, ((Color){80, 120, 60, 255}))); break; }   // under bamboo
+    }
+}
 static void drawWater(Vector3 eye, float t) {
+    drawForage(eye);
     for (int i = 0; i < nWs; i++) { WSrc *w = &wsrc[i]; if (Vector3DistanceSqr(w->pos, eye) > 60 * 60) continue;
         if (w->kind == 0) ADRAW("props/rain_barrel", TRS(w->pos, i * 0.7f, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 0.45f, 0, 0.6f, 0.9f, 0.6f, ((Color){50, 100, 160, 255})), BX(T_PLAIN, 0, 0.2f, 0, 0.64f, 0.06f, 0.64f, ((Color){40, 80, 130, 255})),
                                 BX(T_PLAIN, 0, 0.7f, 0, 0.64f, 0.06f, 0.64f, ((Color){40, 80, 130, 255})), BX(T_PLAIN, 0, 0.905f, 0, 0.5f, 0.01f, 0.5f, ((Color){30, 50, 60, 255})));

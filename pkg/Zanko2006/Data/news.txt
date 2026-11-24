@@ -1,4 +1,27 @@
-ZANKO 2006 - Afterglow  (v0.9.17, sun rays and street lights)
+ZANKO 2006 - Afterglow  (v0.9.18, foraging and rain catchers)
+
+- 0.9.18: living off the hills.
+  * Foraging: 320 patches across the wild hills, the same for
+    every run of a world. [E] picks one; it grows back in two to
+    three days (kept in the save; older saves load with all of
+    them ready).
+  * Shiitake on fallen branches under the trees: Food +12 raw,
+    with a small chance of an upset stomach.
+  * Pale mushrooms: they glow faintly at night. Eating one is
+    very likely to make you sick and costs sanity.
+  * Yomogi (mugwort) on the slopes: chewed for Health +4.
+  * Takenoko (bamboo shoots) under bamboo: bitter raw, Food +8.
+  * The scavenging skill finds more in each patch.
+  * New recipes at a fire:
+    - Yomogi tea: water + 2 yomogi. Water +30, warmth,
+      settles a sick stomach, calms the nerves.
+    - Mountain nabe: water + 2 shiitake + a bamboo shoot (or a
+      daikon). Food +55, water +15, warmth and sanity.
+    The bottle comes back.
+  * Rain catcher (build menu): 2 planks, 3 rags, 1 scrap. A tarp
+    funnel over a drum; rain fills it (up to 8 bottles, about 1.6
+    per hour of heavy rain). Rainwater is clean as it is. Nothing
+    falls in under a roof.
 
 - 0.9.17: light.
   * Sun rays: where the sun (or, faintly, the moon) is in front,

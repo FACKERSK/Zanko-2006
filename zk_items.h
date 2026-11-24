@@ -5,7 +5,8 @@ enum { IT_FOOD, IT_DRINK, IT_BANDAGE, IT_BATTERY, IT_AMMO, IT_PLANKS, IT_OFUDA, 
        IT_SCHOOLBAG, IT_DUFFEL, IT_HIKEPACK,
        IT_WAKIZASHI, IT_NAGINATA, IT_BOKKEN, IT_GOLFCLUB, IT_SHOVEL, IT_MACHETE, IT_CLEAVER, IT_SICKLE, IT_WRENCH, IT_BATON, IT_TETSUBO, IT_PICKAXE, IT_SCALPEL, IT_FIREEXT, IT_UMBRELLA, IT_STOPSIGN,
        IT_HARDHAT, IT_RIOTHELM, IT_BEANIE, IT_COAT, IT_LEATHER, IT_STABVEST, IT_GAKURAN, IT_HANTEN, IT_WORKPANTS, IT_BIKEPANTS, IT_BOOTS, IT_RUBBERBOOTS,
-       IT_PISTOL, IT_SHOTGUN, IT_ACP, IT_SHELLS, IT_ROCK, IT_FIRECRACKER, IT_MOLOTOV, IT_KEY, IT_FUEL, IT_RAINCOAT, IT_ROD, IT_FISH, IT_GRILLFISH, IT_N };
+       IT_PISTOL, IT_SHOTGUN, IT_ACP, IT_SHELLS, IT_ROCK, IT_FIRECRACKER, IT_MOLOTOV, IT_KEY, IT_FUEL, IT_RAINCOAT, IT_ROD, IT_FISH, IT_GRILLFISH,
+       IT_MUSHROOM, IT_PALEMUSH, IT_YOMOGI, IT_TAKENOKO, IT_TEA, IT_NABE, IT_N };   // 0.9.18: foraged in the hills
 enum { CAT_FOOD, CAT_DRINK, CAT_MED, CAT_TOOL, CAT_MELEE, CAT_GUN, CAT_AMMO, CAT_MAT, CAT_SPIRIT, CAT_COMFORT, CAT_BAG, CAT_CLOTHES, CAT_THROW };
 enum { WS_HEAD, WS_BODY, WS_LEGS, WS_FEET, WS_N };
 static const char *wsName[WS_N] = {"Head", "Body", "Legs", "Feet"};
@@ -90,6 +91,12 @@ static ItemDef idef[IT_N] = {   // mutable: Data/items.ini (or a mod's) changes 
     [IT_ROD]       = {"Fishing Rod", 0.9f, 1, CAT_MELEE, 0.35f, 0.6f, 2.2f, 4, 0.2f, .style = 3, .desc = "Hold it and face the river or the sea, then attack to cast. When the line tugs, strike."},
     [IT_FISH]      = {"Raw Fish", 0.5f, 4, CAT_FOOD, .desc = "Food +20 eaten raw, and it may make you sick. Grill it at a fire (Crafting). Spoils in a day and a half."},
     [IT_GRILLFISH] = {"Grilled Fish", 0.4f, 4, CAT_FOOD, .desc = "Food +45 and a little warmth. Keeps for two and a half days."},
+    [IT_MUSHROOM]  = {"Shiitake", 0.1f, 8, CAT_FOOD, .desc = "Wild mushrooms from under the trees. Food +12 raw (it may upset you); better in a nabe. Keeps two days."},
+    [IT_PALEMUSH]  = {"Pale Mushroom", 0.1f, 8, CAT_FOOD, .desc = "Pale gills, no smell. Clusters of these glow faintly at night. Probably not food."},
+    [IT_YOMOGI]    = {"Yomogi", 0.05f, 10, CAT_MED, .desc = "Mugwort from the hillsides. Chewed: Health +4. Two of them in boiled water make a tea (Crafting, at a fire)."},
+    [IT_TAKENOKO]  = {"Takenoko", 0.4f, 4, CAT_FOOD, .desc = "A bamboo shoot dug from a grove. Bitter raw (Food +8); into a nabe with it. Keeps three days."},
+    [IT_TEA]       = {"Yomogi Tea", 1.0f, 2, CAT_DRINK, .desc = "Water +30, warmth, calms a sick stomach and the nerves a little."},
+    [IT_NABE]      = {"Mountain Nabe", 1.0f, 2, CAT_FOOD, .desc = "Hot pot of wild mushrooms and bamboo shoots. Food +55, water +15, warmth and sanity. Keeps two days."},
     [IT_ACP]       = {".32 Rounds", 0.015f, 40, CAT_AMMO, .desc = "Pistol ammunition."},
     [IT_SHELLS]    = {"12ga Shells", 0.04f, 20, CAT_AMMO, .desc = "Buckshot for the shotgun."},
     [IT_ROCK]      = {"Rock", 0.4f, 8, CAT_THROW, 1.5f, .desc = "Throw it [LMB] to make a noise somewhere else. Hurts a little if it lands on one."},

@@ -2825,6 +2825,36 @@ int main(int argc, char **argv) {
     int frame = 0; bool quitReq = false; int stTest = -1; int pauseFrame = -1;
     if (argNewGame) { newGame(); state = ST_PLAY; DisableCursor(); }
     while (!WindowShouldClose()) {
+        if (getenv("KIRI_FORAGETEST")) {   // 0.9.18: foraging, recipes, the rain catcher, and the forage save section
+            static int fk[4] = {-1, -1, -1, -1};
+            if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = true; pl.tod = cht.frozenTod = 13;
+                forageEnsure(); int cnt[4] = {0}; for (int i = 0; i < nForage; i++) { cnt[forage[i].kind]++; if (fk[forage[i].kind] < 0) fk[forage[i].kind] = i; }
+                for (int i = 0; i < invNSlots(); i++) { pl.sl[i].t = -1; pl.sl[i].n = 0; }
+                TraceLog(LOG_INFO, "T_FORAGE patches %d: shiitake %d pale %d yomogi %d takenoko %d", nForage, cnt[0], cnt[1], cnt[2], cnt[3]); }
+            for (int k = 0; k < 4; k++) if (frame == 10 + k * 25 && fk[k] >= 0) { Forage *F = &forage[fk[k]];   // stand 1.5 m off each kind, facing it
+                pl.pos = V3(F->pos.x - 1.5f, F->pos.y + 0.05f, F->pos.z); pl.yaw = pl.tyaw = PI / 2; pl.pitch = pl.tpitch = -0.55f; pl.vy = 0; }
+            for (int k = 0; k < 4; k++) if (frame == 30 + k * 25 && fk[k] >= 0) { char b[32]; snprintf(b, sizeof b, "forage_%d.png", k); TakeScreenshot(b);
+                Forage *F = &forage[fk[k]]; Vector3 aim = V3(1, 0, 0); int it[4] = {IT_MUSHROOM, IT_PALEMUSH, IT_YOMOGI, IT_TAKENOKO}; int before = invCount(it[k]);
+                bool ok = foragePrompt(aim, false); TraceLog(LOG_INFO, "T_FORAGE kind %d prompt %d '%s' (player %.1f %.1f %.1f patch %.1f %.1f %.1f)", k, ok, prompt, pl.pos.x, pl.pos.y, pl.pos.z, F->pos.x, F->pos.y, F->pos.z); foragePrompt(aim, true);
+                TraceLog(LOG_INFO, "T_FORAGE kind %d picked %d, now ready in %.0f h; prompt after: %d", k, invCount(it[k]) - before, forageReady[fk[k]] - gameHours(), (foragePrompt(aim, false), 1)); }
+            if (frame == 135) {
+                for (int i = 0; i < invNSlots(); i++) { pl.sl[i].t = -1; pl.sl[i].n = 0; } giveBack(IT_WATER, 3); giveBack(IT_TAKENOKO, 1); giveBack(IT_YOMOGI, 2); giveBack(IT_MUSHROOM, 2); pl.nearFire = true;
+                int ri_ = -1, rn = -1; for (int i = 0; i < N_RECIPE; i++) { if (recipes[i].out == IT_TEA) ri_ = i; if (recipes[i].out == IT_NABE && rn < 0) rn = i; }
+                const char *m1 = recipeMissing(ri_), *m2 = recipeMissing(rn); craft(ri_); craft(rn);
+                TraceLog(LOG_INFO, "T_FORAGE craft tea missing '%s' nabe missing '%s' -> tea %d nabe %d", m1 ? m1 : "-", m2 ? m2 : "-", invCount(IT_TEA), invCount(IT_NABE));
+                pl.food = 30; pl.water = 30; pl.warmth = 40; float f0 = pl.food, w0 = pl.water, h0 = pl.warmth; consumeItem(IT_NABE); float f1 = pl.food; consumeItem(IT_TEA);
+                TraceLog(LOG_INFO, "T_FORAGE ate nabe food %.0f->%.0f, tea water %.0f->%.0f warmth %.0f->%.0f, bottles %d", f0, f1, w0, pl.water, h0, pl.warmth, invCount(IT_BOTTLE));
+                // a rain catcher in the open, an hour of heavy rain
+                Vector3 c = V3(pl.pos.x + 1.5f, pl.pos.y, pl.pos.z); int bi = nBuild++; builds[bi] = (Build){V3(c.x - 0.6f, c.y, c.z - 0.6f), V3(c.x + 0.6f, c.y + 1.3f, c.z + 0.6f), -1, BK_RAINCATCH, 6, 6, true, false, 0, -1, 0, -1};
+                rainK = 1; catchTick(1.0f); float lv = builds[bi].fuel; rainK = 0;
+                pl.yaw = pl.tyaw = PI / 2; pl.pitch = pl.tpitch = -0.3f; giveBack(IT_BOTTLE, 1); int wb = invCount(IT_WATER);
+                bool cp = catchPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), V3(1, -0.3f, 0), false); TraceLog(LOG_INFO, "T_FORAGE catcher after 1 h of rain: %.2f bottles; prompt %d '%s'", lv, cp, prompt);
+                catchPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), V3(1, -0.3f, 0), true); TraceLog(LOG_INFO, "T_FORAGE catcher filled a bottle: water %d -> %d, left %.2f", wb, invCount(IT_WATER), builds[bi].fuel); }
+            if (frame == 150) TakeScreenshot("forage_catcher.png");
+            if (frame == 160) { float r0 = forageReady[fk[0]]; saveGame(); forageReady[fk[0]] = 0; bool ld = loadGame(); TraceLog(LOG_INFO, "T_FORAGE save/load %d: patch ready %.1f vs %.1f", ld, forageReady[fk[0]], r0); }
+            if (frame == 175) { pl.tod = cht.frozenTod = 23; if (fk[1] >= 0) { forageReady[fk[1]] = 0; Forage *F = &forage[fk[1]]; pl.pos = V3(F->pos.x - 1.5f, F->pos.y + 0.05f, F->pos.z); pl.yaw = pl.tyaw = PI / 2; pl.pitch = pl.tpitch = -0.55f; } }
+            if (frame == 195) TakeScreenshot("forage_pale_night.png");
+            if (frame == 196) break; }
         if (getenv("KIRI_RIGTEST")) {   // remote-player animation: a row of fake players in different poses, seen side-on
         static int set = 0; if (!set) set = atoi(getenv("KIRI_RIGTEST"));
         if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = true; gRigTest = true; pl.tpitch = pl.pitch = -0.12f; }
