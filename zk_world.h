@@ -1160,6 +1160,31 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         (void)Lmax;
         jpFixLo[0] = L0 + 0.42f; jpFixHi[0] = fmaxf(L0 + 0.42f, L0 + lead - 0.1f); jpFixLo[1] = fminf(L1 - 0.42f, L1 - lead + 0.1f); jpFixHi[1] = L1 - 0.42f;
         (void)g0; (void)g1; }
+    // 0.9.19: a toilet is a small room (about 0.8-1.2 m by 1.2-1.8 m), not a corridor. One laid out longer than 2.2 m keeps 1.6 m at the end that
+    // touches the hall most, behind a wall across; the rest becomes a store cupboard (it gets its own way in below like any room)
+    static int toiletN[3]; if (getenv("KIRI_TOILETDBG")) { static int nn = 0; if (++nn % 400 == 0) TraceLog(LOG_INFO, "TOILETS fine %d split %d left long %d", toiletN[0], toiletN[1], toiletN[2]); }
+    for (int r = 0, n0 = jpRooms; r < n0; r++) if (jpRoomP[r] == RM_TOILET) {
+        float *q = jpRoomUD[r]; float lu = q[2] - q[0], ld = q[3] - q[1]; bool alongD = ld >= lu; float L = alongD ? ld : lu;
+        if (L <= 2.2f) { toiletN[0]++; continue; }
+        if (jpRooms >= 16 || jpNW >= 95) { toiletN[2]++; continue; }
+        toiletN[1]++;
+        float keep = 1.6f, sc[2] = {0, 0};
+        for (int e = 0; e < 2; e++) {   // how much hall lies along each end's first 1.6 m (and across the end itself)
+            float a0 = alongD ? (e ? q[3] - keep : q[1]) : (e ? q[2] - keep : q[0]), a1 = a0 + keep;
+            for (float t = a0 + 0.2f; t < a1; t += 0.35f) for (int sd = 0; sd < 2; sd++) {
+                float u = alongD ? (sd ? q[2] + 0.3f : q[0] - 0.3f) : t, d = alongD ? t : (sd ? q[3] + 0.3f : q[1] - 0.3f); int o = jpRoomAt(u, d);
+                sc[e] += o >= 0 && jpRoomP[o] == RM_HALL ? 2 : (o >= 0 && jpRoomP[o] != RM_BATH && jpRoomP[o] != RM_SENMEN) ? 0.5f : 0; }
+            float c0 = alongD ? q[0] : q[1], c1 = alongD ? q[2] : q[3];
+            for (float t = c0 + 0.2f; t < c1; t += 0.35f) { float u = alongD ? t : (e ? q[2] + 0.3f : q[0] - 0.3f), d = alongD ? (e ? q[3] + 0.3f : q[1] - 0.3f) : t; int o = jpRoomAt(u, d);
+                sc[e] += o >= 0 && jpRoomP[o] == RM_HALL ? 2 : (o >= 0 && jpRoomP[o] != RM_BATH && jpRoomP[o] != RM_SENMEN) ? 0.5f : 0; } }
+        bool hiEnd = sc[1] > sc[0]; float cut = alongD ? (hiEnd ? q[3] - keep : q[1] + keep) : (hiEnd ? q[2] - keep : q[0] + keep);
+        float nu0 = q[0], nd0 = q[1], nu1 = q[2], nd1 = q[3];   // the cupboard: the other part
+        if (alongD) { if (hiEnd) { nd1 = cut; q[1] = cut; } else { nd0 = cut; q[3] = cut; } } else { if (hiEnd) { nu1 = cut; q[0] = cut; } else { nu0 = cut; q[2] = cut; } }
+        jpRoomR[r] = jpRect(J, q[0] + 0.05f, q[1] + 0.05f, q[2] - 0.05f, q[3] - 0.05f);
+        if (getenv("KIRI_TOILETDBG") && toiletN[1] < 6) TraceLog(LOG_INFO, "TOILET split f %d rect %.1f %.1f %.1f x %.1f (was %.1f long)", f, jpRoomR[r].x, jpRoomR[r].y, jpRoomR[r].width, jpRoomR[r].height, L);
+        int c = jpRooms++; jpRoomP[c] = RM_NANDO; jpRoomO[c] = jpRoomO[r]; jpRoomUD[c][0] = nu0; jpRoomUD[c][1] = nd0; jpRoomUD[c][2] = nu1; jpRoomUD[c][3] = nd1;
+        jpRoomR[c] = jpRect(J, nu0 + 0.05f, nd0 + 0.05f, nu1 - 0.05f, nd1 - 0.05f);
+        jpW[jpNW++] = alongD ? (JpWall){1, cut, q[0], q[2]} : (JpWall){0, cut, q[1], q[3]}; }
     // 0.9.11: a toilet or a bath is closed on every side: any stretch of its edge with no wall gets one (the doors are found below like any room's)
     for (int r = 0; r < jpRooms; r++) if (jpRoomP[r] == RM_TOILET || jpRoomP[r] == RM_BATH) {
         float *q = jpRoomUD[r];

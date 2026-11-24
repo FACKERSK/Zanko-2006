@@ -2150,15 +2150,17 @@ GLSL_HEAD
 "in vec2 fragTexCoord; in vec4 fragColor;\n"
 "uniform sampler2D texture0; uniform sampler2D depthTex; uniform vec2 sunUV; uniform float rayK; uniform vec3 sunCol; uniform float aspect;\n"
 "out vec4 finalColor;\n"
-"float sky(vec2 p){ if(p.x<0.0||p.y<0.0||p.x>1.0||p.y>1.0) return 0.0; return texture(depthTex,p).r>0.99999?1.0:0.0; }\n"
+"float sky(vec2 p){ if(p.x<0.0||p.y<0.0||p.x>1.0||p.y>1.0) return 0.0; return texture(depthTex,p).r>0.9999995?1.0:0.0; }\n"   // only the cleared depth: open sky
 "void main(){ vec3 col=texture(texture0,fragTexCoord).rgb;\n"
-" if(rayK>0.001){ vec2 dl=(sunUV-fragTexCoord); float L=length(dl); vec2 st=dl/40.0*min(1.0,0.9/max(L,0.0001)*L); vec2 p=fragTexCoord; float w=1.0,acc=0.0;\n"
-"  float j=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453); p+=st*j;\n"
-"  for(int i=0;i<40;i++){ acc+=sky(p)*w; w*=0.965; p+=st; }\n"
-"  acc/=40.0*0.6; vec2 dd=vec2(dl.x*aspect,dl.y); float r=length(dd);\n"
-"  float glow=sky(fragTexCoord)*(exp(-r*7.0)*0.8+exp(-r*2.5)*0.15);\n"
-"  vec3 add=sunCol*rayK*(acc*1.0*(1.0-0.5*smoothstep(0.0,1.2,r))+glow);\n"
-"  col+=add; col=floor(clamp(col,0.0,1.0)*31.0+0.5)/31.0; }\n"
+" if(rayK>0.001){ vec2 dl=sunUV-fragTexCoord; float L=length(vec2(dl.x*aspect,dl.y));\n"
+"  float j=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);\n"
+"  float reach=1.0-smoothstep(0.12,0.7,L); float rays=0.0;\n"   // shafts only around the sun, not across the whole screen
+"  if(reach>0.0){ vec2 st=dl/32.0; vec2 p=fragTexCoord+st*j; float w=1.0,acc=0.0,sw=0.0;\n"
+"   for(int i=0;i<32;i++){ acc+=sky(p)*w; sw+=w; w*=0.97; p+=st; }\n"
+"   rays=acc/sw*reach*reach*0.5; }\n"
+"  float glow=sky(fragTexCoord)*(exp(-L*9.0)*0.7+exp(-L*3.5)*0.1);\n"
+"  col+=sunCol*rayK*(rays+glow);\n"
+"  col+=(j-0.5)/31.0; col=floor(clamp(col,0.0,1.0)*31.0+0.5)/31.0; }\n"   // dithered, so the falloff does not band into rings
 " finalColor=vec4(col,1.0); }\n";
 static Shader grSh; static bool grOk; static int grLocSun, grLocK, grLocCol, grLocAsp, grLocDepth;
 static RenderTexture2D loadRTDepth(int w, int h) {   // a render target whose depth can be read back (raylib's own keeps depth in a renderbuffer)
@@ -3074,6 +3076,8 @@ int main(int argc, char **argv) {
                 {IT_KATANA, 100, 0.2f, -1, 10, false, "vm_p_kat1_sweep_a"}, {IT_KATANA, 100, 0.4f, -1, 10, false, "vm_p_kat1_sweep_b"}, {IT_KATANA, 100, 0.2f, -1, 20, false, "vm_p_kat2_diag_a"}, {IT_KATANA, 100, 0.42f, -1, 20, false, "vm_p_kat2_diag_b"},
                 {IT_BAT, 100, 0.2f, -1, 10, false, "vm_p_bat1_sweep_a"}, {IT_BAT, 100, 0.42f, -1, 10, false, "vm_p_bat1_sweep_b"}, {IT_KNIFE, 100, 0.42f, -1, 10, false, "vm_p_knife1_slash"}, {IT_KNIFE, 100, 0.2f, -1, 20, false, "vm_p_knife2_over_a"}, {IT_KNIFE, 100, 0.45f, -1, 20, false, "vm_p_knife2_over_b"},
                 {IT_AXE, 100, 0.2f, -1, 10, false, "vm_p_axe1_side_a"}, {IT_AXE, 100, 0.42f, -1, 10, false, "vm_p_axe1_side_b"},
+                {IT_AXE, -1, 0, -1, 0, false, "vm_q_axe_idle"}, {IT_KATANA, -1, 0, -1, 0, false, "vm_q_katana_idle"}, {IT_BAT, -1, 0, -1, 0, false, "vm_q_bat_idle"}, {IT_NAGINATA, -1, 0, -1, 0, false, "vm_q_naginata_idle"}, {IT_AXE, 100, 0.42f, -1, 0, false, "vm_q_axe_chop"}, {IT_BAT, 100, 0.42f, -1, 0, false, "vm_q_bat_over"},
+                {IT_KATANA, 100, 0.42f, -1, 11, false, "vm_p_kat1_sweep_c"}, {IT_KATANA, 100, 0.42f, -1, 21, false, "vm_p_kat2_diag_c"}, {IT_KATANA, 100, 0.42f, -1, 0, false, "vm_p_kat0_over"}, {IT_SICKLE, 100, 0.42f, -1, 10, false, "vm_p_sickle1_hook"}, {IT_SICKLE, 100, 0.42f, -1, 11, false, "vm_p_sickle1_hook_b"},
                 {IT_REVOLVER, -1, 0, 0.01f, 4, false, "vm_g_flash_revolver"}, {IT_PISTOL, -1, 0, 0.01f, 7, false, "vm_g_flash_pistol"}, {IT_SHOTGUN, -1, 0, 0.01f, 1, false, "vm_g_flash_shotgun"}};
             int NV = (int)(sizeof V / sizeof V[0]);
             if (vm == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = cht.on[CH_NEEDS] = cht.on[CH_TIME] = true; pl.tod = 12; cht.frozenTod = 12;

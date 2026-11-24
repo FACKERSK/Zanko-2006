@@ -1,4 +1,19 @@
-ZANKO 2006 - Afterglow  (v0.9.18, foraging and rain catchers)
+ZANKO 2006 - Afterglow  (v0.9.19, fixes)
+
+- 0.9.19: fixes.
+  * Sun rays: no more rings across the screen, and no wash over
+    everything. The shafts stay around the sun and only where open
+    sky shows; the falloff is dithered instead of banded.
+  * Wrists: on some strikes (katana sweeps and diagonal cuts,
+    the sickle's hook, overhead chops) the forearm bent back from
+    the hand by up to 150 degrees. A wrist now bends at most 55
+    degrees; the elbow moves instead.
+  * Two-handed weapons (axe, sledge, bat, katana and others with
+    the light off) are held in the middle of the view, and the
+    left arm starts from the left side of the left hand.
+  * Toilets are small rooms (1.6 m deep) instead of long
+    corridors; the rest of the old space is a store cupboard with
+    its own door.
 
 - 0.9.18: living off the hills.
   * Foraging: 320 patches across the wild hills, the same for
