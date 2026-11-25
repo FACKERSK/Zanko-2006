@@ -1,4 +1,26 @@
-ZANKO 2006 - Afterglow  (v0.9.22, view distance and view culling)
+ZANKO 2006 - Afterglow  (v0.9.23, launcher update screen, fixes)
+
+- 0.9.23: launcher.
+  * With automatic updates on, the start screen waits for the
+    update check (up to 10 s) instead of moving on.
+  * When an update is found the loading bar stops, the screen says
+    it is downloading and installing, and that the launcher closes
+    and reopens by itself; it does not go on to the login or the
+    launcher. The message stays up a moment before it closes.
+  * If the update cannot be installed, the reason stays on screen
+    for 4 s (or until a click), then the launcher carries on.
+  * This applies from the next update on: updating to 0.9.23 still
+    uses the old launcher.
+  * Alt-Tab: in fullscreen the game window was also set always on
+    top (a raylib default for borderless windows), so other windows
+    could not come in front. It no longer is.
+  * The main menu comes up at once: the world is no longer built
+    before it (it was built again anyway when a game started or
+    loaded). The loading screen shows when a game starts.
+  * Toilets are never the way through to another room: doorways
+    between a toilet and anything but the hall are removed and the
+    rooms behind get their own way in. The 46 toilets that were the
+    only way through became small halls.
 
 - 0.9.22: drawing less.
   * View distance (Settings, 120-2000 m, default 600): nothing

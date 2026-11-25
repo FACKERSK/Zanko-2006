@@ -102,7 +102,7 @@ static char lastUser[128] = "";   // the e-mail last logged in with (prefilled)
 static char accSession[1100] = "";   // the online login kept between starts (a refresh token; Data/Userdata/session.dat)
 static bool accOnline = false; static int rememberMe = 1;   // keep the login for the next start
 static int closeOnPlay = 1;
-static volatile int updBusy = 0, updAvailable = 0, updDone = 0;
+static volatile int updBusy = 0, updAvailable = 0, updDone = 0, updFailed = 0;   // updFailed: the automatic install could not go ahead (the boot screen lets go)
 static char remoteVer[32] = "";
 static char localVer[32] = GAME_VERSION;
 
@@ -234,12 +234,12 @@ static void *installThread(void *arg)
         char tmpDir[600]; unsigned long n = GetTempPathA(sizeof tmpDir, tmpDir); if (!n) snprintf(tmpDir, sizeof tmpDir, ".\\");
         char path[700]; snprintf(path, sizeof path, "%sZanko2006_Setup_v%s.exe", tmpDir, remoteVer);
         snprintf(updStatus, sizeof updStatus, "Downloading v%s ...", remoteVer);
-        if (!download(instUrl, path)) { snprintf(updStatus, sizeof updStatus, "Update download failed. Check the connection and try again."); updBusy = 0; return 0; }
+        if (!download(instUrl, path)) { snprintf(updStatus, sizeof updStatus, "Update download failed. Check the connection and try again."); updFailed = 1; updBusy = 0; return 0; }
         snprintf(updStatus, sizeof updStatus, "Installing v%s. The launcher will reopen.", remoteVer);
-        if ((intptr_t)ShellExecuteA(NULL, "open", path, "/S /UPDATE", NULL, 1) <= 32) { snprintf(updStatus, sizeof updStatus, "Could not start the installer (%s).", path); updBusy = 0; return 0; }
+        if ((intptr_t)ShellExecuteA(NULL, "open", path, "/S /UPDATE", NULL, 1) <= 32) { snprintf(updStatus, sizeof updStatus, "Could not start the installer (%s).", path); updFailed = 1; updBusy = 0; return 0; }
         updQuit = 1; updBusy = 0; return 0;
 #else
-        snprintf(updStatus, sizeof updStatus, "v%s is out: the installer is for Windows (%s).", remoteVer, instUrl); updBusy = 0; return 0;
+        snprintf(updStatus, sizeof updStatus, "v%s is out: the installer is for Windows (%s).", remoteVer, instUrl); updFailed = 1; updBusy = 0; return 0;
 #endif
     }
     char *t = LoadFileText(P("Data/update_manifest.txt"));
@@ -501,12 +501,24 @@ static void card(Rectangle r, const char *title) {   // captionless glass card w
 }
 
 // ---- login (separate screen, like a game launcher's sign-in)
+static float bootHoldK = -1, bootFailT = -1;
 static void drawBoot(float W, float H) {
+    // 0.9.23: with automatic updates on, the boot screen waits for the check (up to 10 s). When an update is found the bar stops where it is,
+    // the screen says what is happening (found, downloading, installing, the launcher reopens) and nothing moves on to the login or the
+    // launcher, so the launcher closing for the installer does not look like a crash. If the update cannot be installed it lets go after 4 s.
     float s = aU, k = Clamp(bootT / 2.2f, 0, 1);
+    bool checking = cfg.autoUpdate && updBusy && !updAvailable && bootT < 10;
+    bool updating = cfg.autoUpdate && updAvailable && instUrl[0] && !updFailed;
+    if (updating) { if (bootHoldK < 0) bootHoldK = k; k = bootHoldK; }
+    else if (checking) k = fminf(k, 0.92f);
+    if (updFailed && bootFailT < 0) bootFailT = bootT;
     aTextC("SEIRY\xC5\xAA OS", W / 2, H * 0.68f, 46, (Color){232, 226, 210, 255}, true);
     aTextC("Ministry of Environment  -  2006", W / 2, H * 0.68f + 58 * s, 15, (Color){150, 210, 205, 230}, false);
     aProgress((Rectangle){W / 2 - 220 * s, H * 0.68f + 90 * s, 440 * s, 12 * s}, k, (Color){80, 160, 150, 255});
     aTextC(updStatus[0] ? updStatus : "Starting ...", W / 2, H * 0.68f + 110 * s, 12, C_BONE2, false);
+    if (updating) { aTextC(TextFormat("Updating to v%s - the launcher closes and reopens by itself. Please wait.", remoteVer), W / 2, H * 0.68f + 132 * s, 13, (Color){232, 226, 210, 255}, true); return; }
+    if (checking) return;
+    if (bootFailT >= 0 && bootT - bootFailT < 4 && !(IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))) return;   // (the failure stays readable)
     if (bootT > 2.2f || (bootT > 0.3f && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)))) lstate = L_LOGIN;
 }
 static int loginStep = 0;   // 1: "Connecting..." is on screen, the request goes out on the next frame (it blocks for a moment)
@@ -825,13 +837,22 @@ int main(void) {
     if (lastUser[0]) { snprintf(tbUser.buf, sizeof tbUser.buf, "%s", lastUser); tbUser.len = (int)strlen(lastUser); tbPass.active = true; } else tbUser.active = true;
     sessionLoad();
     versLoad();
-    if (cfg.autoUpdate) checkUpdates(); else snprintf(updStatus, sizeof updStatus, "Automatic update check is off.");
+    if (cfg.autoUpdate && !getenv("KIRI_UPDSHOT")) checkUpdates(); else snprintf(updStatus, sizeof updStatus, "Automatic update check is off.");
     modsReload();
     const char *shot = getenv("KIRI_SHOT"); int frame = 0;
-    while (!WindowShouldClose() && !updQuit) {
-        frame++;
+    float quitT = 0;
+    while (!WindowShouldClose() && !(updQuit && quitT > 1.5f)) {   // (the installing message stays up a moment before the launcher closes)
+        frame++; if (updQuit) quitT += GetFrameTime();
         if (cfg.autoUpdate && updAvailable && !updBusy && !autoInstallTried && instUrl[0] && !shot) { autoInstallTried = 1; startThread(1); }   // automatic update: install as soon as one is found
         float t = shot ? frame / 30.0f : (float)GetTime();
+        if (getenv("KIRI_UPDSHOT")) {   // 0.9.23 test: an update found at start holds the boot screen; a failed install lets it go after 4 s
+            static double t0; if (frame == 1) { t0 = GetTime(); cfg.autoUpdate = 1; updAvailable = 1; updBusy = 1; autoInstallTried = 1; snprintf(remoteVer, sizeof remoteVer, "9.9.9"); snprintf(instUrl, sizeof instUrl, "https://example.invalid/setup.exe"); snprintf(updStatus, sizeof updStatus, "Downloading v9.9.9 ..."); }
+            double el = GetTime() - t0;
+            static int st = 0;
+            if (st == 0 && el > 4.0) { TakeScreenshot("launcher_updating.png"); TraceLog(LOG_INFO, "UPDSHOT after %.1f s holding: state %d (0 = boot), bar held at %.2f", el, lstate, bootHoldK); st = 1; }
+            if (st == 1 && el > 4.5) { updFailed = 1; updBusy = 0; snprintf(updStatus, sizeof updStatus, "Update download failed. Check the connection and try again."); st = 2; }
+            if (st == 2 && el > 6.5) { TraceLog(LOG_INFO, "UPDSHOT 2 s after the failure: state %d", lstate); TakeScreenshot("launcher_updfail.png"); st = 3; }
+            if (st == 3 && el > 10.0) { TraceLog(LOG_INFO, "UPDSHOT 5.5 s after the failure: state %d (1 = login)", lstate); break; } }
         bootT += GetFrameTime();
         float W = (float)GetScreenWidth(), H = (float)GetScreenHeight();
         aeroBegin(720);

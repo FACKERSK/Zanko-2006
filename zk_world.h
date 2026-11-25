@@ -1105,6 +1105,7 @@ static void jgFlood(const JpF *J, int f, float doorU, bool hasStairs, float su0,
         if (j + 1 < jgD && jg[c + jgW] == 1) { jg[c + jgW] = 2; st[n++] = c + jgW; } if (j > 0 && jg[c - jgW] == 1) { jg[c - jgW] = 2; st[n++] = c - jgW; } }
 }
 static bool jpRoomReached(int r) { bool any = false; for (float u = jpRoomUD[r][0] + 0.25f; u < jpRoomUD[r][2] - 0.2f; u += JG_Q) for (float d = jpRoomUD[r][1] + 0.25f; d < jpRoomUD[r][3] - 0.2f; d += JG_Q) { if (jgReached(u, d)) return true; if (jgFree(u, d)) any = true; } return !any; }   // (a room that is all stairwell has nothing to reach)
+static int jpToiletPass = 0;   // toilets that had to stay a way through and became halls
 static int jpDoorsAdded = 0, jpRoomsShut = 0, jpDoorsPruned = 0; static char jbTrace[2000];
 // an inner wall that meets the outside wall where a window is: the window is walled up (outside finish outside, plaster inside)
 static int doorLate[20000], nDoorLate;
@@ -1214,7 +1215,12 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
             if (d->fix) { float f0 = fmaxf(a0, jpFixLo[d->fix - 1]), f1 = fminf(a1, jpFixHi[d->fix - 1]); if (f1 < f0) { jpDr[k] = jpDr[--jpND]; continue; } d->at = clampf(d->at, f0, f1); continue; }   // (a stairwell door with no clean place on its landing goes: one is found below)
             if (a1 < a0) { if (hi - lo > 0.85f) d->at = (lo + hi) / 2; continue; }
             d->at = clampf(d->at, a0, a1); } }   // (a stairwell door stays on its landing)
+    // 0.9.23: a toilet is nobody's way through: a doorway already laid between a toilet and anything but the hall goes (rooms that needed it get one below)
+    for (int k = jpND - 1; k >= 0; k--) { JpDoor *d = &jpDr[k]; if (d->fix) continue; int rs[2];
+        for (int sd2 = 0; sd2 < 2; sd2++) { float pp = d->pos + (sd2 ? 0.45f : -0.45f); rs[sd2] = jpRoomAt(d->ax == 0 ? pp : d->at, d->ax == 0 ? d->at : pp); }
+        for (int sd2 = 0; sd2 < 2; sd2++) if (rs[sd2] >= 0 && jpRoomP[rs[sd2]] == RM_TOILET && rs[1 - sd2] >= 0 && jpRoomP[rs[1 - sd2]] != RM_HALL) { jpDr[k] = jpDr[--jpND]; break; } }
     bool gave[16] = {0}; int addedSince = 0; jbTrace[0] = 0;
+    for (int tround = 0; tround < 2; tround++) { memset(gave, 0, sizeof gave); addedSince = 0;   // round 0: never through a toilet or a bath; round 1 (rooms still shut): as a last resort
     for (int pass = 0; pass < 40; pass++) {
         jgFlood(J, f, doorU, hasStairs, su0, su1, sd0, sd1); int R = -1;
         for (int r = 0; r < jpRooms && R < 0; r++) if (jpRoomP[r] != RM_BATH && !jpRoomReached(r)) R = r;
@@ -1231,7 +1237,7 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
                         if (jpRoomAt(ui, di) != R || !jgFree(ui, di) || !jgReached(uo, dq)) ok = false; }
                     if (!ok) continue;
                     int o = jpRoomAt(q->ax == 0 ? pout : t, q->ax == 0 ? t : pout), op = o >= 0 ? jpRoomP[o] : RM_HALL;
-                    sc = op == RM_HALL ? 10 : (op == RM_SENMEN ? (jpRoomP[R] == RM_BATH ? 12 : 4) : (op == RM_TOILET || op == RM_BATH) ? 1 : (op == RM_NANDO ? 3 : (op == RM_WASHITSU || op == RM_WBED || op == RM_BED) ? 5 : 8));
+                    sc = op == RM_HALL ? 10 : (op == RM_SENMEN ? (jpRoomP[R] == RM_BATH ? 12 : 4) : (op == RM_TOILET || op == RM_BATH) ? tround : (op == RM_NANDO ? 3 : (op == RM_WASHITSU || op == RM_WBED || op == RM_BED) ? 5 : 8));
                     if (jpRoomP[R] == RM_BATH && op != RM_SENMEN && sc > 6) sc = 6; }   // (a toilet or a bath as the way through only when there is no other wall at all)
                 if (sc != runSc || t > q->hi - 0.5f) { if (runSc > 0) { float len = t - 0.15f - run0; if (runSc > bestSc || (runSc == bestSc && len > bestLen)) { bestSc = (int)runSc; bestLen = len; bestAx = q->ax; bestPos = q->pos; bestAt = (run0 + t - 0.15f) / 2; } } run0 = t; runSc = (float)sc; }
                 if (t > q->hi - 0.5f) break; } }
@@ -1239,6 +1245,7 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
         if (bestSc <= 0 || jpND >= 48) { gave[R] = true; continue; }   // (it may open up once a neighbour has its door)
         jpDr[jpND++] = (JpDoor){bestAx, bestPos, bestAt}; jpDoorsAdded++; addedSince++;
     }
+    { jgFlood(J, f, doorU, hasStairs, su0, su1, sd0, sd1); bool all = true; for (int r = 0; r < jpRooms; r++) if (!jpRoomReached(r)) all = false; if (all) break; } }
     {   // doorways that lead nowhere go: onto the flights of stairs, into a gap no one can stand in, or between two parts of one room - unless a room would be shut off without it
         bool reach0[16]; jgFlood(J, f, doorU, hasStairs, su0, su1, sd0, sd1); for (int r = 0; r < jpRooms; r++) reach0[r] = jpRoomReached(r);
         for (int k = jpND - 1; k >= 0; k--) { JpDoor d = jpDr[k]; if (d.fix) continue; bool bad = false; int ra = -1, rb = -1;
@@ -1251,6 +1258,9 @@ static void jpBuildWalls(const JpF *J, int f, float doorU, bool hasStairs, float
             if (!bad) continue;
             jpDr[k] = jpDr[--jpND]; jgFlood(J, f, doorU, hasStairs, su0, su1, sd0, sd1); bool lost = false; for (int r = 0; r < jpRooms; r++) if (reach0[r] && !jpRoomReached(r)) lost = true;
             if (lost) { jpDr[jpND++] = jpDr[k]; jpDr[k] = d; } else jpDoorsPruned++; } }
+    for (int r = 0; r < jpRooms; r++) if (jpRoomP[r] == RM_TOILET) {   // 0.9.23: a toilet still left as the way through to another room is not a toilet: it becomes a small hall
+        int n = 0; for (int k = 0; k < jpND; k++) { JpDoor *d = &jpDr[k]; for (int sd2 = 0; sd2 < 2; sd2++) { float pp = d->pos + (sd2 ? 0.45f : -0.45f); if (jpRoomAt(d->ax == 0 ? pp : d->at, d->ax == 0 ? d->at : pp) == r) { n++; break; } } }
+        if (n > 1) { jpRoomP[r] = RM_HALL; jpToiletPass++; } }
     for (int i = 0; i < nHandDoor; i++) { Vector3 hp = handDoor[i]; if (hp.y < jpY0 - 0.7f || hp.y > jpY0 + 1.8f) continue;   // doorways placed by hand (Mod Maker)
         Vector3 L = xfI(curXf, hp); Rectangle in = J->in; float u, d;
         switch (J->st) { case 0: u = L.x - in.x; d = L.z - in.y; break; case 2: u = L.x - in.x; d = in.y + in.height - L.z; break; case 3: u = L.z - in.y; d = L.x - in.x; break; default: u = L.z - in.y; d = in.x + in.width - L.x; }

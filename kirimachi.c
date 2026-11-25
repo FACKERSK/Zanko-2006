@@ -363,6 +363,10 @@ static Vector3 chMn[NCH * NCH], chMx[NCH * NCH]; static bool chAny[NCH * NCH];
 static Model chLod[NCH * NCH]; static bool chLodOk[NCH * NCH];
 static float gFogD = 0;   // the fog density in use: sets how far full detail and the block models reach
 static bool sphInView(Vector3 c, float r);   // (view culling, defined with boxInView)
+static void toggleBorderless(void) {   // 0.9.23: raylib's borderless window is also made always-on-top, so Alt-Tab could not bring anything over it: that is undone
+    ToggleBorderlessWindowed();
+    if (IsWindowState(FLAG_WINDOW_TOPMOST)) ClearWindowState(FLAG_WINDOW_TOPMOST);
+}
 static float gFogSight = 1e9f;   // 0.9.8: how far the fog lets anything be seen (90% fogged), from the scene's fog without the player's fog setting: the creatures see no further than you
 static int chunkOf(float x, float z) { int i = (int)floorf((x - CH_X0) / CH_SZ), j = (int)floorf((z - CH_Z0) / CH_SZ); i = i < 0 ? 0 : i >= NCH ? NCH - 1 : i; j = j < 0 ? 0 : j >= NCH ? NCH - 1 : j; return j * NCH + i; }
 static void statSetTex(int t, Texture2D tx) { for (int c = 0; c < NCH * NCH; c++) for (int L = t; L < TL; L += T_COUNT) if (statOk[c][L]) stat[c][L].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tx; }
@@ -1401,7 +1405,7 @@ static void genWorld(unsigned int seed) {
     freeWorld();
     if (roadRast) for (int i = 0; i < RR_W * RR_H; i++) roadRast[i] = -1e9f;   // a rebuilt world draws its roads again
     handDoorsCollect(); jpDoorsHand = 0;
-    raRooms = raBad = 0; raList[0] = 0; jpDoorsAdded = jpRoomsShut = jpDoorsPruned = 0; memset(raHist, 0, sizeof raHist);
+    raRooms = raBad = 0; raList[0] = 0; jpDoorsAdded = jpRoomsShut = jpDoorsPruned = jpToiletPass = 0; memset(raHist, 0, sizeof raHist);
     free(cover); cover = calloc((size_t)CV_W * CV_H, 1);
     rs = 20031103u;   // 0.9.12: the town plan too comes out the same every time (it used whatever the generator was left at)
     { static bool warm = false; bool haveBake = !getenv("KIRI_NOBAKE") && !getenv("KIRI_BAKE") && (FileExists(P("Data/world.bake")) || FileExists(P(TextFormat("Data/Userdata/world_%08x.bake", bakeKey())))); if (!warm && !haveBake) { warm = true; hfReady = false; layoutInit(); bakeHeightfield(); rs = 20031103u; } }   // 0.9.12: the plan reads masks its own first pass leaves behind: a first pass makes every build the same
@@ -2494,7 +2498,7 @@ static void settingsPanel(void) {   // tabs as in most PC games: video, audio, g
 #define TOG(X, LBL, V) do { V = setToggle(X, X == x0 ? y : yR, cw, LBL, V); if (X == x0) y += CH * s; else yR += CH * s; } while (0)
     if (setTab == 0) {
         int fs = cfg.fullscreen; TOG(x0, "Fullscreen (borderless)", fs);
-        if (fs != cfg.fullscreen) { cfg.fullscreen = fs; ToggleBorderlessWindowed(); }
+        if (fs != cfg.fullscreen) { cfg.fullscreen = fs; toggleBorderless(); }
         int vs = cfg.vsync; TOG(x0, "VSync", vs); if (vs != cfg.vsync) { cfg.vsync = vs; applyVideo(); }
         static const char *fl[8] = {"30", "60", "90", "120", "144", "165", "240", "Unlimited"};
         int fi = 4; for (int i = 0; i < 8; i++) if (fpsChoices[i] == gs.fpsCap) fi = i;
@@ -2801,7 +2805,7 @@ int main(int argc, char **argv) {
     SetExitKey(KEY_NULL);
     SetTargetFPS(fpsCap > 0 ? fpsCap : gs.fpsCap);
 #if !defined(PLATFORM_WEB)
-    if (cfg.fullscreen) ToggleBorderlessWindowed();
+    if (cfg.fullscreen) toggleBorderless();
 #endif
     InitAudioDevice(); SetMasterVolume(cfg.volume);
     genSounds(); musicInit(); textInit();
@@ -2825,7 +2829,18 @@ int main(int argc, char **argv) {
     resetPlayer();
     prewarmAssets();
     if (getenv("KIRI_EXPORT")) { CloseAudioDevice(); CloseWindow(); return 0; }   // asset export only
-    genWorld(12345);   // backdrop city for pause / death screens
+    {   // 0.9.23: the world is built when a game starts or loads (behind the loading screen), not before the main menu; the Mod Maker and
+        // the test harnesses (KIRI_* settings) still get one at once
+#ifdef _WIN32
+        char **envp = _environ;
+#else
+        extern char **environ; char **envp = environ;
+#endif
+        bool test = false; for (char **e = envp; e && *e && !test; e++) if (!strncmp(*e, "KIRI_", 5) && strncmp(*e, "KIRI_SNAP", 9) && strncmp(*e, "KIRI_MENUNEW", 12)) test = true;
+#ifdef ZK_MODMAKER
+        test = true;
+#endif
+        if (test) genWorld(12345); }
     saInit(P("Textures/ecoglass.png"), P("Textures/facade_a.png"));
 #ifdef ZK_MODMAKER
     return editorMain();
@@ -2921,6 +2936,8 @@ int main(int argc, char **argv) {
             if (frame > 40 && frame <= 160) { acc += GetFrameTime(); nf++; } if (frame == 161) { TraceLog(LOG_INFO, "PERF %.1f ms per frame over %d frames at the spawn | chunks per frame: %.1f culled by view, %.1f drawn (%.1f with detail, %.1f as blocks), fog %.4f", acc / nf * 1000, nf, perfCnt[0] / 161.0, perfCnt[1] / 161.0, perfCnt[2] / 161.0, perfCnt[3] / 161.0, gFogD); break; } }
         if (getenv("KIRI_SAVESHOT")) { if (frame == 8) { savesKind = 0; state = ST_SAVES; } if (frame == 30) TakeScreenshot("shot_saves.png"); if (frame == 31) { savesKind = 1; } if (frame == 50) TakeScreenshot("shot_mpsaves.png");
             if (frame == 51) { savesKind = 0; saveKind = 0; saveSlot = 2; pendTrS = 1; pendTrW = 1; pendingLoad = 2; } if (frame == 60) { saveGame(); state = ST_SAVES; } if (frame == 80) TakeScreenshot("shot_saves2.png"); if (frame == 81) break; }
+        if (getenv("KIRI_MENUNEW") && frame == 40) { TraceLog(LOG_INFO, "MENUNEW at the menu: world solids %d", worldSolids); saveKind = 0; saveSlot = 7; pendTrS = 0; pendTrW = 0; pendingLoad = 2; }   // 0.9.23 test: a new game from the menu with no world built before it
+        if (getenv("KIRI_MENUNEW") && frame == 120) TraceLog(LOG_INFO, "MENUNEW in game: world solids %d, state %d, player %.0f %.0f %.0f", worldSolids, state, pl.pos.x, pl.pos.y, pl.pos.z);
         if (pendingLoad) { int pk = pendingLoad; pendingLoad = 0;   // 0.9.14: a load or a new game, behind the loading screen
             if (pk == 1) { if (loadGame()) { state = ST_PLAY; DisableCursor(); } else say("The save could not be read."); }
             else if (pk == 2) { newGame(); pl.trS = pendTrS; pl.trW = pendTrW; applyTraits(); saveGame(); state = ST_PLAY; DisableCursor(); }
@@ -3274,7 +3291,7 @@ int main(int argc, char **argv) {
             if (mpRole < 0) mpRole = getenv("KIRI_MPHOST") ? 1 : getenv("KIRI_MPJOIN") ? 2 : 0;
             if (mpRole == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; netPvp = true; netHost(27015); state = ST_PLAY; TraceLog(LOG_INFO, "MPTEST host up: %s", netStatus); }
             if (mpRole == 2 && frame == 5) { netJoin(getenv("KIRI_MPJOIN"), 27015); TraceLog(LOG_INFO, "MPTEST joining: %s", netStatus); }
-            if (mpRole == 1 && frame > 6) { static bool joined = false; if (!joined) { for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on) joined = true; if (!joined && frame < 4000) frame = 7; } }   // the host waits for the client before running its steps
+            if (mpRole == 1 && frame > 6) { static bool joined = false; if (!joined) { for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on && Vector3LengthSqr(rps[k].pos) > 1) joined = true; if (!joined && frame < 4000) frame = 7; } }   // the host waits for the client before running its steps
             if (mpRole && frame > 5) {
                 if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].state == 0) { wi = i; break; }
                 if (ci < 0) for (int i = 0; i < nCont; i++) if (conts[i].kind == CK_FRIDGE || conts[i].kind == CK_SHELF) { ci = i; break; }
@@ -3360,7 +3377,7 @@ int main(int argc, char **argv) {
             if (frame == 41 || frame == 42) { for (int i = 0; i < nCr; i++) crs[i].state = CS_WANDER; }
         }
 #if !defined(PLATFORM_WEB)
-        if (KP(KEY_F11)) { cfg.fullscreen = !cfg.fullscreen; ToggleBorderlessWindowed(); }
+        if (KP(KEY_F11)) { cfg.fullscreen = !cfg.fullscreen; toggleBorderless(); }
 #endif
 
         // ---- update
@@ -3877,7 +3894,7 @@ int main(int argc, char **argv) {
                         bool side = false; for (int sg = -1; sg <= 1 && !side; sg += 2) for (float o = 0.6f; o <= 1.6f && !side; o += 0.2f) if (standFree(t.x - dv.y * sg * o, t.z + dv.x * sg * o, t.y) && standFree(t.x - dv.y * sg * (o - 0.3f), t.z + dv.x * sg * (o - 0.3f), t.y)) side = true;   // or off to one side of the landing
                         if (!standFree(t.x, t.z, t.y) || (okN < 3 && !side)) { tight++; if (strlen(tb) < 440) { char q[96]; snprintf(q, 96, " (%.1f,%.1f y%.1f from %.1f,%.1f ok%d)", t.x, t.z, t.y, b.x, b.z, okN); strcat(tb, q); } } }
                     curXf = keepF; TraceLog(LOG_INFO, "STAIRTOP %d flight tops: %d without room to step off%s", tops, tight, tb); }
-                TraceLog(LOG_INFO, "ROOMAUDIT %d rooms on planned floors: %d cannot be walked into%s", raRooms, raBad, raList); TraceLog(LOG_INFO, "ROOMAUDIT doorways added %d, leading nowhere removed %d, rooms with no wall to put one in %d", jpDoorsAdded, jpDoorsPruned, jpRoomsShut); for (int u = 0; u < 2; u++) { char hb[400] = ""; for (int p = 0; p < 20; p++) if (raHist[u][0][p] + raHist[u][1][p]) { char t[40]; snprintf(t, 40, " p%d:%d/%d", p, raHist[u][1][p], raHist[u][0][p] + raHist[u][1][p]); strcat(hb, t); } TraceLog(LOG_INFO, "ROOMAUDIT %s (plan: bad/all)%s", u ? "upstairs" : "ground", hb); } }
+                TraceLog(LOG_INFO, "ROOMAUDIT %d rooms on planned floors: %d cannot be walked into%s", raRooms, raBad, raList); TraceLog(LOG_INFO, "ROOMAUDIT toilets left as a way through (made halls) %d", jpToiletPass); TraceLog(LOG_INFO, "ROOMAUDIT doorways added %d, leading nowhere removed %d, rooms with no wall to put one in %d", jpDoorsAdded, jpDoorsPruned, jpRoomsShut); for (int u = 0; u < 2; u++) { char hb[400] = ""; for (int p = 0; p < 20; p++) if (raHist[u][0][p] + raHist[u][1][p]) { char t[40]; snprintf(t, 40, " p%d:%d/%d", p, raHist[u][1][p], raHist[u][0][p] + raHist[u][1][p]); strcat(hb, t); } TraceLog(LOG_INFO, "ROOMAUDIT %s (plan: bad/all)%s", u ? "upstairs" : "ground", hb); } }
             if (frame == 1149) TraceLog(LOG_INFO, "FEAT parks %d at %.1f %.1f mirror %.1f %.1f", nFeatPark, featPark.x, featPark.z, featMirror.x, featMirror.z);
             if (frame == 1191 || frame == 1197) { state = ST_PLAY; pl.hp = 100; cht.menu = false; pl.invOpen = pl.mapOpen = false; gameActive = true; }
             if (frame == 1191) { Vector3 c = Vector3Add(featPark, Vector3Scale(featParkFace, 13)); pl.pos = V3(c.x, SIDEH + 0.1f, c.z); pl.vy = 0; Vector3 d = Vector3Subtract(featPark, c); pl.tyaw = pl.yaw = atan2f(d.x, d.z); pl.tpitch = pl.pitch = -0.18f; pl.tod = 13; pl.flash = false; for (int i = 0; i < nCr; i++) crs[i].on = false; }
