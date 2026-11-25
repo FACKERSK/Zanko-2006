@@ -2148,9 +2148,9 @@ static void drawLampFx(Vector3 eye) {
 static const char *GR_FS =
 GLSL_HEAD
 "in vec2 fragTexCoord; in vec4 fragColor;\n"
-"uniform sampler2D texture0; uniform sampler2D depthTex; uniform vec2 sunUV; uniform float rayK; uniform vec3 sunCol; uniform float aspect;\n"
+"uniform sampler2D texture0; uniform sampler2D depthTex; uniform vec2 sunUV; uniform float rayK; uniform vec3 sunCol; uniform float aspect; uniform vec3 skyCol;\n"
 "out vec4 finalColor;\n"
-"float sky(vec2 p){ if(p.x<0.0||p.y<0.0||p.x>1.0||p.y>1.0) return 0.0; return texture(depthTex,p).r>0.9999995?1.0:0.0; }\n"   // only the cleared depth: open sky
+"float sky(vec2 p){ if(p.x<0.0||p.y<0.0||p.x>1.0||p.y>1.0) return 0.0; if(texture(depthTex,p).r<0.9999995) return 0.0; vec3 c=texture(texture0,p).rgb; return (abs(c.r-skyCol.r)+abs(c.g-skyCol.g)+abs(c.b-skyCol.b))<0.06?1.0:0.0; }\n"   // 0.9.20: open sky only: nothing drawn there (cleared depth) and the sky colour showing (walls never pass, whatever a GPU does with depth)
 "void main(){ vec3 col=texture(texture0,fragTexCoord).rgb;\n"
 " if(rayK>0.001){ vec2 dl=sunUV-fragTexCoord; float L=length(vec2(dl.x*aspect,dl.y));\n"
 "  float j=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);\n"
@@ -2159,10 +2159,11 @@ GLSL_HEAD
 "   for(int i=0;i<32;i++){ acc+=sky(p)*w; sw+=w; w*=0.97; p+=st; }\n"
 "   rays=acc/sw*reach*reach*0.5; }\n"
 "  float glow=sky(fragTexCoord)*(exp(-L*9.0)*0.7+exp(-L*3.5)*0.1);\n"
-"  col+=sunCol*rayK*(rays+glow);\n"
-"  col+=(j-0.5)/31.0; col=floor(clamp(col,0.0,1.0)*31.0+0.5)/31.0; }\n"   // dithered, so the falloff does not band into rings
+"  float open=sky(fragTexCoord); rays*=0.3+0.7*open;\n"   // a wall, tree or hill in front takes most of the shaft: only the air in front of it is lit
+"  vec3 add=sunCol*rayK*(rays+glow); col+=add;\n"
+"  if(add.r+add.g+add.b>0.004){ col+=(j-0.5)/31.0; col=floor(clamp(col,0.0,1.0)*31.0+0.5)/31.0; } }\n"   // (dithered only where light was added)   // dithered, so the falloff does not band into rings
 " finalColor=vec4(col,1.0); }\n";
-static Shader grSh; static bool grOk; static int grLocSun, grLocK, grLocCol, grLocAsp, grLocDepth;
+static Shader grSh; static bool grOk; static int grLocSun, grLocK, grLocCol, grLocAsp, grLocDepth, grLocSky;
 static RenderTexture2D loadRTDepth(int w, int h) {   // a render target whose depth can be read back (raylib's own keeps depth in a renderbuffer)
     RenderTexture2D t = {0}; t.id = rlLoadFramebuffer(); if (!t.id) return t;
     rlEnableFramebuffer(t.id);
@@ -2802,7 +2803,7 @@ int main(int argc, char **argv) {
     loadTextures();
     sh = LoadShaderFromMemory(VS, FS);
     grSh = LoadShaderFromMemory(NULL, GR_FS); grOk = grSh.id > 0 && grSh.id != rlGetShaderIdDefault();
-    if (grOk) { grLocSun = GetShaderLocation(grSh, "sunUV"); grLocK = GetShaderLocation(grSh, "rayK"); grLocCol = GetShaderLocation(grSh, "sunCol"); grLocAsp = GetShaderLocation(grSh, "aspect"); grLocDepth = GetShaderLocation(grSh, "depthTex"); }
+    if (grOk) { grLocSun = GetShaderLocation(grSh, "sunUV"); grLocK = GetShaderLocation(grSh, "rayK"); grLocCol = GetShaderLocation(grSh, "sunCol"); grLocAsp = GetShaderLocation(grSh, "aspect"); grLocDepth = GetShaderLocation(grSh, "depthTex"); grLocSky = GetShaderLocation(grSh, "skyCol"); }
     locView = GetShaderLocation(sh, "viewPos"); locFlashDir = GetShaderLocation(sh, "flashDir"); locFlashOn = GetShaderLocation(sh, "flashOn");
     locMuzzle = GetShaderLocation(sh, "muzzle"); locFog = GetShaderLocation(sh, "fogColor"); locFogD = GetShaderLocation(sh, "fogDensity");
     locEmis = GetShaderLocation(sh, "emissive"); locAmb = GetShaderLocation(sh, "ambient"); locLP = GetShaderLocation(sh, "lightPos");
@@ -3472,7 +3473,7 @@ int main(int argc, char **argv) {
         EndMode3D();
         EndTextureMode();
         rayOut = false;
-        if (rtDepth && rt2.id && gs.godrays && gameActive) {   // sun rays (and faint moon rays): from where the sun is, through the open sky in view
+        if (rtDepth && rt2.id && gs.godrays && gameActive && !getenv("KIRI_NORAYS")) {   // sun rays (and faint moon rays): from where the sun is, through the open sky in view
             float str; Vector3 sc, sd = sunDirAt(pl.tod, &str, &sc);
             Vector3 fwd = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); float facing = Vector3DotProduct(fwd, sd);
             float under = (cam.position.y < -40 || inBore(cam.position.x, cam.position.z, cam.position.y)) ? 0 : 1;
@@ -3482,7 +3483,7 @@ int main(int argc, char **argv) {
                 Vector2 uv = {sp.x / rtW, 1 - sp.y / rtH}; float asp = (float)rtW / rtH;
                 BeginTextureMode(rt2); BeginShaderMode(grSh);
                 SetShaderValue(grSh, grLocSun, &uv, SHADER_UNIFORM_VEC2); SetShaderValue(grSh, grLocK, &k, SHADER_UNIFORM_FLOAT); SetShaderValue(grSh, grLocCol, &sc, SHADER_UNIFORM_VEC3); SetShaderValue(grSh, grLocAsp, &asp, SHADER_UNIFORM_FLOAT);
-                SetShaderValueTexture(grSh, grLocDepth, rt.depth);
+                SetShaderValueTexture(grSh, grLocDepth, rt.depth); { Vector3 skc = V3(fogC.r / 255.0f, fogC.g / 255.0f, fogC.b / 255.0f); SetShaderValue(grSh, grLocSky, &skc, SHADER_UNIFORM_VEC3); }
                 DrawTextureRec(rt.texture, (Rectangle){0, 0, (float)rtW, -(float)rtH}, (Vector2){0, 0}, WHITE);
                 EndShaderMode(); EndTextureMode(); rayOut = true; } }
         }

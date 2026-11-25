@@ -1,4 +1,15 @@
-ZANKO 2006 - Afterglow  (v0.9.19, fixes)
+ZANKO 2006 - Afterglow  (v0.9.20, sun rays blocked)
+
+- 0.9.20: sun rays stop at whatever is in front of them.
+  * Walls, buildings, trees, terrain and everything else in the
+    world block the sun's glow and rays. They come only from open
+    sky: a pixel counts as sky only where nothing was drawn and
+    the sky colour shows, so no wall lets light through, on any
+    graphics card.
+  * Indoors and in basements there are no rays unless sky shows
+    through a window or doorway.
+  * A shaft passing in front of something keeps only 30% of its
+    strength there.
 
 - 0.9.19: fixes.
   * Sun rays: no more rings across the screen, and no wash over
