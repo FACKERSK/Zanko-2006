@@ -1,4 +1,17 @@
-ZANKO 2006 - Afterglow  (v0.9.21, drying rack)
+ZANKO 2006 - Afterglow  (v0.9.22, view distance and view culling)
+
+- 0.9.22: drawing less.
+  * View distance (Settings, 120-2000 m, default 600): nothing
+    further is drawn; the fog closes in to meet it so nothing pops.
+    Everything stays loaded and keeps running.
+  * Everything that was drawn whenever it was near now also has to
+    be in front of the camera and inside the view: doors, windows,
+    crates, built pieces, containers, debris, cars, vending
+    machines, signs, street lamps and their glow, screens, TVs,
+    fires, creatures, gibs, particles, salt circles, forage
+    patches and other players.
+  * Fires, gibs, particles and salt circles also stop being drawn
+    past 70-120 m; other players past 250 m.
 
 - 0.9.21: food that keeps.
   * Drying rack (build menu): 3 planks, 1 rag. Six hooks; open it

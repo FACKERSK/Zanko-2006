@@ -432,6 +432,7 @@ static void drawRemotePlayers(float dt) {
     if (netMode == NM_OFF && !gRigTest) return;
     for (int k = 0; k < MP_MAX; k++) { RPlayer *q = &rps[k]; if (k == mySlot || !q->on) { q->animInit = false; continue; }
         q->shown = Vector3Lerp(q->shown, q->pos, fminf(1, dt * 12)); q->shownYaw += wrapA(q->yaw - q->shownYaw) * fminf(1, dt * 12);
+        if (Vector3DistanceSqr(q->shown, pl.pos) > fminf(gs.viewDist, 250) * fminf(gs.viewDist, 250) || !sphInView(Vector3Add(q->shown, V3(0, 0.9f, 0)), 1.6f)) { q->prevShown = q->shown; continue; }   // 0.9.22: out of view or too far: not drawn
         RAng A[RB_N]; Vector3 ro; float rp; rpPose(q, dt, A, &ro, &rp);
         Matrix B[RB_N];
         B[RB_ROOT] = MatrixMultiply(MatrixMultiply(MatrixRotateX(rp), MatrixTranslate(ro.x, ro.y, ro.z)), TRS(q->shown, q->shownYaw, V3(1, 1, 1)));

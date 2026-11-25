@@ -362,6 +362,7 @@ static bool quadDetail;
 static Vector3 chMn[NCH * NCH], chMx[NCH * NCH]; static bool chAny[NCH * NCH];
 static Model chLod[NCH * NCH]; static bool chLodOk[NCH * NCH];
 static float gFogD = 0;   // the fog density in use: sets how far full detail and the block models reach
+static bool sphInView(Vector3 c, float r);   // (view culling, defined with boxInView)
 static float gFogSight = 1e9f;   // 0.9.8: how far the fog lets anything be seen (90% fogged), from the scene's fog without the player's fog setting: the creatures see no further than you
 static int chunkOf(float x, float z) { int i = (int)floorf((x - CH_X0) / CH_SZ), j = (int)floorf((z - CH_Z0) / CH_SZ); i = i < 0 ? 0 : i >= NCH ? NCH - 1 : i; j = j < 0 ? 0 : j >= NCH ? NCH - 1 : j; return j * NCH + i; }
 static void statSetTex(int t, Texture2D tx) { for (int c = 0; c < NCH * NCH; c++) for (int L = t; L < TL; L += T_COUNT) if (statOk[c][L]) stat[c][L].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tx; }
@@ -2129,7 +2130,7 @@ static void drawLampFx(Vector3 eye) {
     for (int i = 0; i < nLamp; i++) {
         Lamp *l = &lamps[i]; int li = l->light; if (li < 0 || li >= nLight) continue;
         float on = lights[li].cur; if (lights[li].mode == 2 || on < 0.5f) continue;
-        float d = Vector3Distance(l->pos, eye); if (d > 160) continue;
+        float d = Vector3Distance(l->pos, eye); if (d > fminf(160, gs.viewDist) || !sphInView(Vector3Add(l->pos, V3(0, -3, 0)), 4.5f)) continue;
         float fog = expf(-powf(d * fd * 0.55f, 2.0f)); if (fog < 0.02f) continue;   // a lamp shows through fog further than the street under it
         Vector3 c = lampColor(lampKind(i)), d0 = Vector3LengthSqr(l->dir) > 0.5f ? l->dir : V3(1, 0, 0), lens = Vector3Add(V3(l->pos.x, l->pos.y + (l->kind ? -0.03f : -0.06f), l->pos.z), Vector3Scale(d0, l->kind ? 0.37f : 0.2f));
         Vector3 toE = Vector3Normalize(Vector3Subtract(eye, lens)); float below = clampf(-toE.y * 1.4f + 0.25f, 0.15f, 1);   // the lens faces down: brightest seen from under it
@@ -2192,6 +2193,13 @@ static void viewCullSetup(void) {
     float tv = tanf(cam.fovy * DEG2RAD / 2) * 1.15f, asp = (float)GetScreenWidth() / fmaxf(1, (float)GetScreenHeight()), th = tv * asp * 1.1f;
     vcEye = cam.position; vcN[0] = Vector3Add(r, Vector3Scale(f, th)); vcN[1] = Vector3Add(Vector3Negate(r), Vector3Scale(f, th)); vcN[2] = Vector3Add(Vector3Negate(u), Vector3Scale(f, tv)); vcN[3] = Vector3Add(u, Vector3Scale(f, tv));
 }
+static int gOldDraw = -1;   // KIRI_OLDDRAW: the 0.9.21 drawing (no object view culling, no view distance), for comparisons
+static bool sphInView(Vector3 c, float r) {   // 0.9.22: a thing r metres across at c: in front of the camera and inside the view (otherwise not drawn; it stays loaded and simulated)
+    if (gOldDraw < 0) gOldDraw = getenv("KIRI_OLDDRAW") != NULL; if (!vcOn || gOldDraw) return true;
+    Vector3 d = Vector3Subtract(c, vcEye); if (Vector3LengthSqr(d) < (r + 1) * (r + 1)) return true;
+    for (int p = 0; p < 4; p++) if (Vector3DotProduct(d, vcN[p]) < -r) return false;
+    return true;
+}
 static bool boxInView(Vector3 mn, Vector3 mx) {
     if (!vcOn) return true;
     if (vcEye.x >= mn.x - 1 && vcEye.x <= mx.x + 1 && vcEye.y >= mn.y - 1 && vcEye.y <= mx.y + 1 && vcEye.z >= mn.z - 1 && vcEye.z <= mx.z + 1) return true;
@@ -2205,7 +2213,7 @@ static void drawWorld(Vector3 eye, float t) {
     viewCullSetup(); if (perfSkip < 0) perfSkip = getenv("KIRI_PERFSKIP") ? atoi(getenv("KIRI_PERFSKIP")) : 0;
     curEmis = -1; setEmis(0);
     if (terrainOk && !(perfSkip & 1)) {   // 0.9.14: the ground by tile: what is short of the fog's far edge and not behind you
-        float fd = gFogD > 1e-4f ? gFogD : 0, far = fd > 0 ? clampf(3.2f / fd, 160, 5000) : 1e9f;
+        float fd = gFogD > 1e-4f ? gFogD : 0, far = fd > 0 ? clampf(3.2f / fd, 160, 5000) : 1e9f; if (!getenv("KIRI_OLDDRAW")) far = fminf(far, gs.viewDist + 40);
         Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool bc = fd > 0 && Vector3Length(fw) > 0.25f; if (bc) fw = Vector3Normalize(fw);
         for (int k = 0; k < nTerT; k++) {
             float dx = fmaxf(fmaxf(terTMn[k].x - eye.x, eye.x - terTMx[k].x), 0), dz = fmaxf(fmaxf(terTMn[k].z - eye.z, eye.z - terTMx[k].z), 0), d = sqrtf(dx * dx + dz * dz);
@@ -2214,7 +2222,7 @@ static void drawWorld(Vector3 eye, float t) {
             if (!boxInView(terTMn[k], terTMx[k])) continue;
             terTiles[k].transform = MatrixIdentity(); DrawModel(terTiles[k], V3(0, 0, 0), 1, WHITE); } }
     {   // the static world by chunk: full detail near, a block model in the fog, nothing beyond it or behind you
-        float fd = gFogD > 1e-4f ? gFogD : 0, lodN = fd > 0 ? clampf(1.35f / fd, 70, 3000) : 1e9f, lodF = fd > 0 ? clampf(2.5f / fd, 110, 4000) : 1e9f;
+        float fd = gFogD > 1e-4f ? gFogD : 0, lodN = fd > 0 ? clampf(1.35f / fd, 70, 3000) : 1e9f, lodF = fd > 0 ? clampf(2.5f / fd, 110, 4000) : 1e9f; if (!getenv("KIRI_OLDDRAW")) { lodF = fminf(lodF, gs.viewDist); lodN = fminf(lodN, gs.viewDist); }
         Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position)); fw.y = 0; bool behindCull = fd > 0 && Vector3Length(fw) > 0.25f; if (behindCull) fw = Vector3Normalize(fw);
         for (int c = 0; c < NCH * NCH; c++) { if (!chAny[c] || (perfSkip & 2)) continue;
             float dx = fmaxf(fmaxf(chMn[c].x - eye.x, eye.x - chMx[c].x), 0), dz = fmaxf(fmaxf(chMn[c].z - eye.z, eye.z - chMx[c].z), 0), d = sqrtf(dx * dx + dz * dz);
@@ -2229,7 +2237,7 @@ static void drawWorld(Vector3 eye, float t) {
     float R2 = 62 * 62;
     for (int i = 0; i < nOps; i++) {
         Open *o = &ops[i];
-        if (Vector3DistanceSqr(opCenter(o), eye) > R2) continue;
+        if (Vector3DistanceSqr(opCenter(o), eye) > R2 || !sphInView(xfP(o->f, opCenter(o)), 2.5f)) continue;
         if (o->f) xfPush(o->f);
         if (o->type == OP_WINDOW && o->state == 0) drawBox(T_GLASS, o->mn, o->mx, rgb(150, 165, 185));
         else if (o->state == 2) drawPlanks(o->mn, o->mx, o->axis);
@@ -2243,17 +2251,17 @@ static void drawWorld(Vector3 eye, float t) {
             drawBox(T_METAL, k0, k1, rgb(200, 190, 150)); rlDrawRenderBatchActive(); rlPopMatrix(); }
         if (o->f) xfPop();
     }
-    for (int i = 0; i < nCrate; i++) if (crates[i].alive && Vector3DistanceSqr(crates[i].pos, eye) < R2) {
+    for (int i = 0; i < nCrate; i++) if (crates[i].alive && Vector3DistanceSqr(crates[i].pos, eye) < R2 && sphInView(crates[i].pos, crates[i].s + 0.5f)) {
         Crate *k = &crates[i]; ADRAW("props/crate", TRS(k->pos, 0, V3(k->s, k->s, k->s)), WHITE, BX(T_WOOD, 0, 0.5f, 0, 1, 1, 1, ((Color){200, 170, 130, 255}))); }
-    for (int i = 0; i < nBuild; i++) if (builds[i].alive && Vector3DistanceSqr(builds[i].mn, eye) < R2) {
+    for (int i = 0; i < nBuild; i++) if (builds[i].alive && Vector3DistanceSqr(builds[i].mn, eye) < R2 && boxInView(builds[i].mn, builds[i].mx)) {
         float yw = buildYaw(&builds[i]); if (yw == 0) { drawBuildPiece(&builds[i]); continue; }
         Vector3 c = buildC(&builds[i]); rlDrawRenderBatchActive(); rlPushMatrix(); rlTranslatef(c.x, 0, c.z); rlRotatef(yw * RAD2DEG, 0, 1, 0); rlTranslatef(-c.x, 0, -c.z);
         drawBuildPiece(&builds[i]); rlDrawRenderBatchActive(); rlPopMatrix(); }
     drawWater(eye, t);
-    for (int i = 0; i < nCont; i++) if (conts[i].on && Vector3DistanceSqr(conts[i].pos, eye) < 46 * 46) drawCont(&conts[i], t);
-    for (int i = 0; i < nDeb; i++) if (debs[i].alive && Vector3DistanceSqr(xfP(debs[i].f, debs[i].mn), eye) < R2) { if (debs[i].f) xfPush(debs[i].f); drawDebris(&debs[i]); if (debs[i].f) xfPop(); }
+    for (int i = 0; i < nCont; i++) if (conts[i].on && Vector3DistanceSqr(conts[i].pos, eye) < 46 * 46 && sphInView(conts[i].pos, 1.8f)) drawCont(&conts[i], t);
+    for (int i = 0; i < nDeb; i++) if (debs[i].alive && Vector3DistanceSqr(xfP(debs[i].f, debs[i].mn), eye) < R2 && sphInView(xfP(debs[i].f, debs[i].mn), 3)) { if (debs[i].f) xfPush(debs[i].f); drawDebris(&debs[i]); if (debs[i].f) xfPop(); }
     for (int i = 0; i < nCar; i++) {
-        Car *k = &cars[i]; if (Vector3DistanceSqr(k->pos, eye) > R2 * 1.3f) continue;
+        Car *k = &cars[i]; if (Vector3DistanceSqr(k->pos, eye) > R2 * 1.3f || !sphInView(k->pos, 3)) continue;
         Matrix M = TRS(k->pos, k->yaw, V3(1, 1, 1)); setEmis(0);
         if (k->kind == 0) {
             ADRAW("vehicles/kei_car/paint", M, k->paint, BX(T_METAL, 0, 0.62f, 0, 1.7f, 0.65f, 3.4f, CWH), BX(T_METAL, 0, 1.475f, -0.17f, 1.54f, 0.05f, 1.53f, CWH));
@@ -2268,7 +2276,7 @@ static void drawWorld(Vector3 eye, float t) {
         }
     }
     for (int i = 0; i < nVend; i++) {
-        Vend *v = &vends[i]; if (Vector3DistanceSqr(xfP(v->f, v->mn), eye) > R2) continue;
+        Vend *v = &vends[i]; if (Vector3DistanceSqr(xfP(v->f, v->mn), eye) > R2 || !sphInView(xfP(v->f, v->mn), 2.5f)) continue;
         if (v->f) xfPush(v->f);
         Vector3 vc = V3((v->mn.x + v->mx.x) / 2, v->mn.y, (v->mn.z + v->mx.z) / 2);
         float vy = v->face == 0 ? PI : v->face == 2 ? 0 : v->face == 1 ? PI / 2 : -PI / 2;
@@ -2280,7 +2288,7 @@ static void drawWorld(Vector3 eye, float t) {
         if (v->f) xfPop();
     }
     for (int i = 0; i < nSign; i++) {
-        Sign *s = &signs[i]; if (Vector3DistanceSqr(xfP(s->f, s->mn), eye) > 80 * 80) continue;
+        Sign *s = &signs[i]; if (Vector3DistanceSqr(xfP(s->f, s->mn), eye) > 80 * 80 || !sphInView(xfP(s->f, s->mn), 4)) continue;
         float on = s->light >= 0 ? lights[s->light].cur : 0;
         if (s->f) xfPush(s->f);
         if (s->plate) { setEmis(0); drawBox(T_PLAIN, s->mn, s->mx, s->tint); drawSignText(s, s->text == SGN_SEAL ? rgb(200, 30, 25) : rgb(235, 235, 230)); if (s->f) xfPop(); continue; }
@@ -2289,7 +2297,7 @@ static void drawWorld(Vector3 eye, float t) {
         setEmis(0); if (s->f) xfPop();
     }
     for (int i = 0; i < nLamp; i++) {
-        Lamp *l = &lamps[i]; if (Vector3DistanceSqr(l->pos, eye) > 90 * 90) continue;
+        Lamp *l = &lamps[i]; if (Vector3DistanceSqr(l->pos, eye) > 90 * 90 || !sphInView(l->pos, 2)) continue;
         float on = lights[l->light].cur; bool lit = lights[l->light].mode != 2 && on > 0.5f;
         // the bracket and head, turned along the arm and tipped up a little; the lens underneath glows the colour of its kind when lit
         Vector3 d = Vector3LengthSqr(l->dir) > 0.5f ? l->dir : V3(1, 0, 0); float yw = atan2f(d.x, d.z);
@@ -2310,7 +2318,7 @@ static void drawWorld(Vector3 eye, float t) {
     }
     // salt circles
     setEmis(1);
-    for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0) {
+    for (int w = 0; w < nWard; w++) if (wards[w].on && wards[w].kind == 0 && Vector3DistanceSqr(wards[w].pos, eye) < 90 * 90 && sphInView(wards[w].pos, wards[w].r + 1)) {
         Ward *wd = &wards[w]; float a = clampf(wd->life / 20, 0.3f, 1);
         for (int k = 0; k < 28; k++) { float an = k * 2 * PI / 28; Vector3 q = V3(wd->pos.x + cosf(an) * wd->r, wd->pos.y + 0.02f, wd->pos.z + sinf(an) * wd->r);
             drawBox(T_PLAIN, V3(q.x - 0.12f, q.y, q.z - 0.12f), V3(q.x + 0.12f, q.y + 0.03f, q.z + 0.12f), rgb(200 * a + 30, 200 * a + 30, 200 * a + 30)); }
@@ -2318,7 +2326,7 @@ static void drawWorld(Vector3 eye, float t) {
     setEmis(0);
     // public-information screens + kiosks (shared broadcast feed)
     for (int i = 0; i < nScreen; i++) {
-        Screen *sc = &screens[i]; if (Vector3DistanceSqr(sc->c, eye) > 85 * 85) continue;
+        Screen *sc = &screens[i]; if (Vector3DistanceSqr(sc->c, eye) > 85 * 85 || !sphInView(sc->c, 5)) continue;
         float on = sc->light >= 0 ? lights[sc->light].cur : 0.0f;
         bool dead = sc->light < 0;
         setEmis(dead ? 0 : 1);
@@ -2329,10 +2337,10 @@ static void drawWorld(Vector3 eye, float t) {
         Matrix F = MatrixMultiply(MatrixMultiply(MatrixScale(sc->w + 0.25f, sc->h + 0.25f, 0.12f), MatrixRotateY(sc->ang)), MatrixTranslate(back.x, back.y, back.z));
         drawM(&cube[T_PLAIN], F, rgb(215, 228, 232));
     }
-    for (int i = 0; i < nTV; i++) { TV *tv = &tvs[i]; if (Vector3DistanceSqr(tv->pos, eye) > 40 * 40) continue;
+    for (int i = 0; i < nTV; i++) { TV *tv = &tvs[i]; if (Vector3DistanceSqr(tv->pos, eye) > 40 * 40 || !sphInView(tv->pos, 1)) continue;
         setEmis(0); ADRAW("props/crt_tv", TRS(V3(tv->pos.x - sinf(tv->ang) * 0.26f, tv->pos.y - 0.3f, tv->pos.z - cosf(tv->ang) * 0.26f), tv->ang, V3(1, 1, 1)), WHITE, BX(T_PLAIN, 0, 0.3f, 0, 0.8f, 0.6f, 0.5f, ((Color){60, 58, 55, 255})), BX(T_PLAIN, 0.3f, 0.12f, 0.252f, 0.08f, 0.06f, 0.01f, ((Color){150, 150, 150, 255})));
         setEmis(1); drawM(&scrQuad, MatrixMultiply(MatrixMultiply(MatrixScale(0.62f, 0.44f, 1), MatrixRotateY(tv->ang)), MatrixTranslate(tv->pos.x, tv->pos.y, tv->pos.z)), rgb(200, 210, 210)); }
-    for (int i = 0; i < nFire; i++) if (fires[i].on) {
+    for (int i = 0; i < nFire; i++) if (fires[i].on && Vector3DistanceSqr(fires[i].pos, eye) < 120 * 120 && sphInView(fires[i].pos, 2)) {
         Fire *f = &fires[i]; Vector3 c = f->pos;
         setEmis(0);
         ADRAW("props/campfire", TRS(c, 0, V3(1, 1, 1)), WHITE, BX(T_WOOD, 0, 0.07f, 0, 0.9f, 0.14f, 0.16f, ((Color){120, 80, 60, 255})), BX(T_WOOD, 0, 0.07f, 0, 0.16f, 0.14f, 0.9f, ((Color){120, 80, 60, 255})),
@@ -2343,17 +2351,17 @@ static void drawWorld(Vector3 eye, float t) {
     }
     setEmis(0);
     setEmis(0);
-    for (int i = 0; i < nCr; i++) if (crs[i].on && Vector3DistanceSqr(crs[i].pos, eye) < 70 * 70) {
+    for (int i = 0; i < nCr; i++) if (crs[i].on && Vector3DistanceSqr(crs[i].pos, eye) < 70 * 70 && sphInView(crs[i].pos, 3)) {
         Cr *c = &crs[i];
         if (state == ST_PLAY && pl.stage == 3 && !c->phantom && c->state != CS_DEAD && c->revealT <= 0) {   // insanity: real monsters unseen until they strike
             if (pl.corrupt > 30 || hash2((int)(t * 6), i, 21) > 0.5f) continue;
         }
         drawCreature(c);
     }
-    for (int i = 0; i < MAX_GIB; i++) { Gib *g = &gibs[i]; if (g->life <= 0) continue; Matrix M = MatrixMultiply(MatrixMultiply(g->R, MatrixRotate(g->axis, g->ang)), MatrixTranslate(g->pos.x, g->pos.y, g->pos.z)); assetDraw(g->a, M, g->tint); }
+    for (int i = 0; i < MAX_GIB; i++) { Gib *g = &gibs[i]; if (g->life <= 0 || Vector3DistanceSqr(g->pos, eye) > 70 * 70 || !sphInView(g->pos, 1)) continue; Matrix M = MatrixMultiply(MatrixMultiply(g->R, MatrixRotate(g->axis, g->ang)), MatrixTranslate(g->pos.x, g->pos.y, g->pos.z)); assetDraw(g->a, M, g->tint); }
     drawRemotePlayers(GetFrameTime());
     drawExtras(eye, t);
-    for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0) { Part *p = &parts[i]; float s = p->size;
+    for (int i = 0; i < MAX_PART; i++) if (parts[i].life > 0 && Vector3DistanceSqr(parts[i].pos, eye) < 80 * 80 && sphInView(parts[i].pos, 0.5f)) { Part *p = &parts[i]; float s = p->size;
         drawBox(p->t, V3(p->pos.x - s, p->pos.y - s, p->pos.z - s), V3(p->pos.x + s, p->pos.y + s, p->pos.z + s), p->tint); }
     setEmis(1);
     for (int i = 0; i < MAX_ASH; i++) { Vector3 a = ash[i]; drawBox(T_PLAIN, V3(a.x - 0.025f, a.y - 0.025f, a.z - 0.025f), V3(a.x + 0.025f, a.y + 0.025f, a.z + 0.025f), rgb(150, 150, 150)); }
@@ -2499,6 +2507,7 @@ static void settingsPanel(void) {   // tabs as in most PC games: video, audio, g
         SLIDE(x1, "Brightness", gs.bright, 0.5f, 1.8f, "%.2f");
         SLIDE(x1, "Fog", gs.fog, 0.3f, 1.6f, "%.2f");
         SLIDE(x0, "Sun rays", gs.godrays, 0, 1.5f, "%.2f");
+        SLIDE(x0, "View distance", gs.viewDist, 120, 2000, "%.0f m");
         SLIDE(x1, "Field of view", cfg.fov, 55, 95, "%.0f");
     } else if (setTab == 1) {
         SLIDE(x0, "Master volume", cfg.volume, 0, 1, "%.2f"); SetMasterVolume(cfg.volume);
@@ -2900,6 +2909,14 @@ int main(int argc, char **argv) {
                 else { q->pos = at; if (first) { q->shown = at; q->shownYaw = yw; } } }
             int shots[] = {30, 33, 36, 60, 63, 66}; for (int i = 0; i < 6; i++) if (frame == shots[i]) { char b[48]; snprintf(b, sizeof b, "rig%d_%d.png", set, i); TakeScreenshot(b); }
             if (frame == 67) break; } }
+        if (getenv("KIRI_PERF2")) {   // 0.9.22: frame time over 6 places x 4 directions (60 frames each, the first 15 not counted)
+            static const float P[6][3] = {{228, -999, 114}, {263, -999, 149}, {150, -999, 60}, {400, -999, 300}, {654, -999, 406}, {100, -999, 500}};
+            static double acc[6], all = 0; static int nf[6], na = 0;
+            if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; cht.avail = true; cht.on[CH_GOD] = cht.on[CH_PEACE] = true; pl.tod = cht.frozenTod = 13; }
+            int f = frame - 10; if (f >= 0 && f < 6 * 4 * 60) { int sp = f / 240, dr = (f / 60) % 4, fi = f % 60;
+                if (fi == 0) { float y = baseGroundY(P[sp][0], P[sp][2], 400); pl.pos = V3(P[sp][0], y + 0.05f, P[sp][2]); pl.yaw = pl.tyaw = dr * PI / 2; pl.pitch = pl.tpitch = 0; pl.vy = 0; }
+                if (fi > 15) { acc[sp] += GetFrameTime(); nf[sp]++; all += GetFrameTime(); na++; } }
+            if (f == 6 * 4 * 60) { for (int k = 0; k < 6; k++) TraceLog(LOG_INFO, "PERF2 place %d (%.0f, %.0f): %.1f ms", k, P[k][0], P[k][2], 1000 * acc[k] / nf[k]); TraceLog(LOG_INFO, "PERF2 all: %.1f ms per frame (%.1f fps) over %d frames%s", 1000 * all / na, na / all, na, getenv("KIRI_OLDDRAW") ? " [0.9.21 drawing]" : ""); break; } }
         if (getenv("KIRI_PERF")) { static double acc = 0; static int nf = 0; if (frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; state = ST_PLAY; }
             if (frame > 40 && frame <= 160) { acc += GetFrameTime(); nf++; } if (frame == 161) { TraceLog(LOG_INFO, "PERF %.1f ms per frame over %d frames at the spawn | chunks per frame: %.1f culled by view, %.1f drawn (%.1f with detail, %.1f as blocks), fog %.4f", acc / nf * 1000, nf, perfCnt[0] / 161.0, perfCnt[1] / 161.0, perfCnt[2] / 161.0, perfCnt[3] / 161.0, gFogD); break; } }
         if (getenv("KIRI_SAVESHOT")) { if (frame == 8) { savesKind = 0; state = ST_SAVES; } if (frame == 30) TakeScreenshot("shot_saves.png"); if (frame == 31) { savesKind = 1; } if (frame == 50) TakeScreenshot("shot_mpsaves.png");
@@ -3440,7 +3457,9 @@ int main(int argc, char **argv) {
         SetShaderValue(sh, locMuzzle, &muzzle, SHADER_UNIFORM_FLOAT);
         { static int clr = -1; if (clr < 0) clr = getenv("KIRI_CLEAR") != NULL; if (clr) { amb = 1.0f; fogD = 0.002f; } }   // test shots: clear daylight
         SetShaderValue(sh, locAmb, &amb, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT); gFogD = fogD; if (gameActive) gFogSight = fogD > 1e-4f ? 1.52f / (fogD / fmaxf(gs.fog, 0.1f)) : 1e9f;
+        if (gameActive) gFogSight = fogD > 1e-4f ? 1.52f / (fogD / fmaxf(gs.fog, 0.1f)) : 1e9f;   // (what creatures and the player see by: the weather's fog, not the view distance)
+        if (!getenv("KIRI_CLEAR") && !getenv("KIRI_OLDDRAW")) fogD = fmaxf(fogD, 2.3f / gs.viewDist);   // 0.9.22: the fog is fully closed at the view distance, so nothing pops where drawing stops
+        SetShaderValue(sh, locFogD, &fogD, SHADER_UNIFORM_FLOAT); gFogD = fogD;
         if (!gs.wobble) { snap[0] = snap[1] = 16384; }
         SetShaderValue(sh, locSnap, snap, SHADER_UNIFORM_VEC2);
         float desat = (state == ST_PLAY || gameActive) ? (pl.stage == 1 ? 0.35f : pl.stage >= 2 ? 0.65f : 0) + (pl.sanity < 30 ? (30 - pl.sanity) / 60.0f : 0) : 0;

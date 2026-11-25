@@ -526,7 +526,7 @@ static void drawBuildPiece(Build *b) {
 }
 static void drawForage(Vector3 eye) {
     forageEnsure(); float gh = gameHours(); bool night = dayK() < 0.3f;
-    for (int i = 0; i < nForage; i++) { Forage *F = &forage[i]; if (Vector3DistanceSqr(F->pos, eye) > 55 * 55 || gh < forageReady[i]) continue;
+    for (int i = 0; i < nForage; i++) { Forage *F = &forage[i]; if (Vector3DistanceSqr(F->pos, eye) > 55 * 55 || gh < forageReady[i] || !sphInView(F->pos, 3.5f)) continue;
         float sc = F->kind < 3 ? 1.8f : 1.2f; Matrix M = TRS(F->pos, F->yaw, V3(sc, sc, sc));
         switch (F->kind) {
         case 0: ADRAW("forage/shiitake", M, WHITE, BX(T_PLAIN, 0, 0.03f, 0, 0.025f, 0.06f, 0.025f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0, 0.065f, 0, 0.11f, 0.03f, 0.11f, ((Color){120, 80, 50, 255})),
