@@ -1,4 +1,18 @@
-ZANKO 2006 - Afterglow  (v0.9.20, sun rays blocked)
+ZANKO 2006 - Afterglow  (v0.9.21, drying rack)
+
+- 0.9.21: food that keeps.
+  * Drying rack (build menu): 3 planks, 1 rag. Six hooks; open it
+    with [E] and hang raw fish, shiitake or daikon on it.
+  * A day of dry weather (16 h in daylight, half speed at night)
+    dries everything on it at once. Rain falling on it stops the
+    drying until it passes; under a roof it keeps going.
+  * Himono (dried fish): Food +30, keeps ten days, a little
+    thirsty. Grill it at a fire for grilled fish.
+  * Dried shiitake: Food +8, keeps fifteen days.
+  * Kiriboshi daikon: Food +20, keeps fifteen days.
+  * Winter nabe at a fire: water + 2 dried shiitake + kiriboshi
+    daikon. Same as a mountain nabe, from stores that keep.
+  * The rack shows what hangs on it, raw or dried.
 
 - 0.9.20: sun rays stop at whatever is in front of them.
   * Walls, buildings, trees, terrain and everything else in the

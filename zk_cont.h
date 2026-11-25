@@ -1,12 +1,12 @@
 // zk_cont.h — searchable containers (furniture, lockers, car trunks, dropped piles) and their loot tables
 
-enum { CK_PILE, CK_CABINET, CK_FRIDGE, CK_WARDROBE, CK_DESK, CK_SHELF, CK_LOCKER, CK_BOX, CK_TOOLBOX, CK_TRUNK, CK_OFFERING, CK_COUNTER, CK_CHEST, CK_GUNLOCKER, CK_FIRECAB, CK_BODY, CK_N };
+enum { CK_PILE, CK_CABINET, CK_FRIDGE, CK_WARDROBE, CK_DESK, CK_SHELF, CK_LOCKER, CK_BOX, CK_TOOLBOX, CK_TRUNK, CK_OFFERING, CK_COUNTER, CK_CHEST, CK_GUNLOCKER, CK_FIRECAB, CK_BODY, CK_RACK, CK_N };
 static const char *ckName[CK_N] = {"Dropped items", "Kitchen cabinet", "Refrigerator", "Wardrobe", "Desk", "Store shelf", "Locker", "Cardboard boxes", "Toolbox", "Car trunk",
-                                   "Offering box", "Counter", "Storage chest", "Police locker", "Fire cabinet", "Body"};
-static const int ckSlots[CK_N] = {16, 6, 6, 8, 4, 8, 6, 4, 4, 8, 4, 6, 16, 6, 3, 16};
+                                   "Offering box", "Counter", "Storage chest", "Police locker", "Fire cabinet", "Body", "Drying rack"};
+static const int ckSlots[CK_N] = {16, 6, 6, 8, 4, 8, 6, 4, 4, 8, 4, 6, 16, 6, 3, 16, 6};
 // footprint (w along the facing wall, h, d into the room)
 static const Vector3 ckSize[CK_N] = {{0.5f, 0.2f, 0.5f}, {1.0f, 0.9f, 0.5f}, {0.7f, 1.7f, 0.65f}, {1.2f, 1.9f, 0.55f}, {1.2f, 0.75f, 0.6f}, {1.6f, 1.6f, 0.45f}, {0.5f, 1.8f, 0.5f},
-                                      {0.7f, 0.5f, 0.5f}, {0.5f, 0.25f, 0.3f}, {1.2f, 0.4f, 0.6f}, {0.6f, 0.55f, 0.4f}, {1.4f, 1.0f, 0.6f}, {1.0f, 0.6f, 0.6f}, {0.6f, 1.8f, 0.5f}, {0.6f, 0.8f, 0.25f}, {0.6f, 0.3f, 1.7f}};
+                                      {0.7f, 0.5f, 0.5f}, {0.5f, 0.25f, 0.3f}, {1.2f, 0.4f, 0.6f}, {0.6f, 0.55f, 0.4f}, {1.4f, 1.0f, 0.6f}, {1.0f, 0.6f, 0.6f}, {0.6f, 1.8f, 0.5f}, {0.6f, 0.8f, 0.25f}, {0.6f, 0.3f, 1.7f}, {1.4f, 1.4f, 0.6f}};
 #define MAX_CONT 12000
 #define CSLOTS 16
 typedef struct { Vector3 pos; float yaw; int kind, region, sid; bool on, filled, searched; short var; Slot s[CSLOTS]; } Cont;   // var (bodies): 1 victim, 2 police, 3 doctor, 4 player, 100+n creature n (its type in region)
@@ -31,7 +31,7 @@ static int addCont(int kind, Vector3 p, float yaw, int region, bool solid) {
     if (furnDump) { Vector3 sz = ckSize[kind]; bool rot = fabsf(sinf(yaw)) > 0.5f; float hx = (rot ? sz.z : sz.x) / 2, hz = (rot ? sz.x : sz.z) / 2; furnDumpBox("C", kind, V3(p.x - hx, p.y, p.z - hz), V3(p.x + hx, p.y + sz.y, p.z + hz), yaw); }
     c->pos = xfP(curXf, p); c->yaw = yaw + xfYaw(curXf); c->kind = kind; c->region = region; c->on = true; c->sid = -1;   // stored in the world; the solid stays in the building's frame
     slotsClear(c->s, CSLOTS);
-    if (kind == CK_PILE || kind == CK_CHEST) c->filled = true;
+    if (kind == CK_PILE || kind == CK_CHEST || kind == CK_RACK) c->filled = true;
     if (solid) {
         Vector3 sz = ckSize[kind]; bool rot = fabsf(sinf(yaw)) > 0.5f;
         float hx = (rot ? sz.z : sz.x) / 2, hz = (rot ? sz.x : sz.z) / 2;

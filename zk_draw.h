@@ -277,6 +277,9 @@ static void drawItemType(int type, Matrix F) {
     case IT_ROD: ADRAW("items/rod", F, WHITE, BX(T_WOOD, 0, 0.02f, 0.0f, 0.02f, 0.02f, 0.9f, ((Color){150, 120, 80, 255})), BX(T_METAL, 0.03f, 0.03f, -0.3f, 0.05f, 0.05f, 0.05f, ((Color){60, 60, 64, 255}))); break;
     case IT_FISH: ADRAW("items/fish", F, WHITE, BX(T_PLAIN, 0, 0.04f, 0, 0.07f, 0.05f, 0.24f, ((Color){170, 180, 190, 255})), BX(T_PLAIN, 0, 0.04f, 0.15f, 0.02f, 0.06f, 0.06f, ((Color){130, 140, 150, 255}))); break;
     case IT_GRILLFISH: ADRAW("items/grillfish", F, WHITE, BX(T_PLAIN, 0, 0.04f, 0, 0.07f, 0.05f, 0.24f, ((Color){150, 100, 55, 255})), BX(T_WOOD, 0, 0.04f, -0.05f, 0.012f, 0.012f, 0.38f, ((Color){200, 180, 140, 255}))); break;
+    case IT_HIMONO: ADRAW("items/himono", F, WHITE, BX(T_PLAIN, 0, 0.012f, 0, 0.13f, 0.02f, 0.3f, ((Color){150, 110, 70, 255})), BX(T_PLAIN, 0, 0.024f, 0, 0.06f, 0.006f, 0.24f, ((Color){190, 140, 90, 255})), BX(T_PLAIN, 0, 0.012f, -0.17f, 0.1f, 0.016f, 0.06f, ((Color){120, 90, 60, 255}))); break;
+    case IT_DRYSHIITAKE: ADRAW("items/dry_shiitake", F, WHITE, BX(T_PLAIN, 0, 0.02f, 0, 0.1f, 0.025f, 0.1f, ((Color){90, 62, 40, 255})), BX(T_PLAIN, 0.08f, 0.015f, 0.05f, 0.08f, 0.02f, 0.08f, ((Color){84, 58, 38, 255})), BX(T_PLAIN, -0.06f, 0.015f, 0.07f, 0.07f, 0.02f, 0.07f, ((Color){96, 66, 42, 255}))); break;
+    case IT_KIRIBOSHI: ADRAW("items/kiriboshi", F, WHITE, BX(T_PLAIN, 0, 0.03f, 0, 0.16f, 0.06f, 0.2f, ((Color){200, 180, 130, 255})), BX(T_PLAIN, 0.02f, 0.065f, 0.01f, 0.12f, 0.02f, 0.16f, ((Color){190, 170, 120, 255}))); break;
     case IT_MUSHROOM: ADRAW("items/shiitake", F, WHITE, BX(T_PLAIN, 0, 0.03f, 0, 0.03f, 0.06f, 0.03f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0, 0.065f, 0, 0.12f, 0.03f, 0.12f, ((Color){120, 80, 50, 255})),
                         BX(T_PLAIN, 0.09f, 0.025f, 0.04f, 0.025f, 0.05f, 0.025f, ((Color){220, 210, 190, 255})), BX(T_PLAIN, 0.09f, 0.055f, 0.04f, 0.09f, 0.025f, 0.09f, ((Color){130, 88, 54, 255}))); break;
     case IT_PALEMUSH: ADRAW("items/pale_mushroom", F, WHITE, BX(T_PLAIN, 0, 0.035f, 0, 0.03f, 0.07f, 0.03f, ((Color){225, 225, 205, 255})), BX(T_PLAIN, 0, 0.075f, 0, 0.13f, 0.03f, 0.11f, ((Color){205, 200, 175, 255})),
@@ -429,6 +432,16 @@ static void drawCont(Cont *c, float t) {
     case CK_OFFERING: ADRAW("furniture/offering_box", M, dim, BX(T_WOOD, 0, 0.27f, 0, 0.6f, 0.55f, 0.4f, ((Color){120, 80, 50, 255})), BX(T_PLAIN, 0, 0.56f, 0, 0.62f, 0.03f, 0.42f, ((Color){60, 40, 30, 255}))); break;
     case CK_COUNTER: ADRAW("furniture/counter", M, dim, BX(T_PLAIN, 0, 0.5f, 0, 1.4f, 1.0f, 0.6f, ((Color){215, 220, 225, 255})), BX(T_PLAIN, 0, 1.01f, 0, 1.44f, 0.04f, 0.64f, ((Color){90, 150, 170, 255})),
                            BX(T_PLAIN, 0.4f, 1.15f, -0.1f, 0.3f, 0.24f, 0.24f, ((Color){50, 50, 55, 255}))); break;
+    case CK_RACK: { Color wd = {130, 104, 76, 255};   // two A-frames, three poles, what hangs on them
+        ADRAW("base/drying_rack", M, dim, BX(T_WOOD, -0.65f, 0.68f, -0.15f, 0.05f, 1.4f, 0.05f, wd), BX(T_WOOD, -0.65f, 0.68f, 0.15f, 0.05f, 1.4f, 0.05f, wd), BX(T_WOOD, 0.65f, 0.68f, -0.15f, 0.05f, 1.4f, 0.05f, wd), BX(T_WOOD, 0.65f, 0.68f, 0.15f, 0.05f, 1.4f, 0.05f, wd),
+              BX(T_WOOD, 0, 1.34f, 0, 1.4f, 0.04f, 0.04f, wd), BX(T_WOOD, 0, 1.0f, -0.15f, 1.4f, 0.04f, 0.04f, wd), BX(T_WOOD, 0, 1.0f, 0.15f, 1.4f, 0.04f, 0.04f, wd), BX(T_WOOD, -0.65f, 0.3f, 0, 0.05f, 0.05f, 0.36f, wd), BX(T_WOOD, 0.65f, 0.3f, 0, 0.05f, 0.05f, 0.36f, wd));
+        for (int k = 0; k < ckSlots[CK_RACK] && k < CSLOTS; k++) { int t = c->s[k].t; if (t < 0) continue; float x = -0.5f + (k % 3) * 0.5f, z = k < 3 ? -0.15f : 0.15f;
+            Matrix H = MatrixMultiply(MatrixTranslate(x, 0, z), M); bool dry = t == IT_HIMONO || t == IT_DRYSHIITAKE || t == IT_KIRIBOSHI;
+            if (t == IT_FISH || t == IT_HIMONO) ADRAW(dry ? "base/rack_himono" : "base/rack_fish", H, dim, BX(T_PLAIN, 0, 0.82f, 0, 0.12f, 0.34f, 0.02f, (dry ? (Color){150, 110, 70, 255} : (Color){150, 160, 170, 255})), BX(T_PLAIN, 0, 0.96f, 0, 0.01f, 0.08f, 0.01f, ((Color){200, 190, 160, 255})));
+            else if (t == IT_MUSHROOM || t == IT_DRYSHIITAKE) ADRAW(dry ? "base/rack_dryshiitake" : "base/rack_shiitake", H, dim, BX(T_PLAIN, 0, 0.88f, 0, 0.01f, 0.24f, 0.01f, ((Color){200, 190, 160, 255})), BX(T_PLAIN, 0, 0.84f, 0, 0.08f, 0.03f, 0.08f, (dry ? (Color){90, 62, 40, 255} : (Color){120, 80, 50, 255})), BX(T_PLAIN, 0, 0.92f, 0, 0.08f, 0.03f, 0.08f, (dry ? (Color){90, 62, 40, 255} : (Color){120, 80, 50, 255})));
+            else if (t == IT_DAIKON || t == IT_KIRIBOSHI) ADRAW(dry ? "base/rack_kiriboshi" : "base/rack_daikon", H, dim, BX(T_PLAIN, -0.04f, 0.8f, 0, 0.02f, 0.38f, 0.02f, (dry ? (Color){200, 180, 130, 255} : (Color){235, 235, 225, 255})), BX(T_PLAIN, 0.0f, 0.8f, 0, 0.02f, 0.38f, 0.02f, (dry ? (Color){190, 170, 120, 255} : (Color){235, 235, 225, 255})), BX(T_PLAIN, 0.04f, 0.8f, 0, 0.02f, 0.38f, 0.02f, (dry ? (Color){200, 180, 130, 255} : (Color){235, 235, 225, 255})));
+            else ADRAW("base/rack_other", H, dim, BX(T_CLOTH, 0, 0.85f, 0, 0.16f, 0.24f, 0.02f, ((Color){150, 140, 120, 255}))); }
+        break; }
     case CK_CHEST: ADRAW("furniture/storage_chest", M, dim, BX(T_WOOD, 0, 0.28f, 0, 1.0f, 0.56f, 0.6f, ((Color){180, 150, 110, 255})), BX(T_METAL, 0, 0.3f, 0.301f, 0.1f, 0.12f, 0.01f, ((Color){70, 70, 70, 255}))); break;
     case CK_GUNLOCKER: ADRAW("furniture/police_locker", M, dim, BX(T_METAL, 0, 0.9f, 0, 0.6f, 1.8f, 0.5f, ((Color){60, 70, 90, 255})), BX(T_PLAIN, 0, 1.4f, 0.251f, 0.4f, 0.1f, 0.01f, ((Color){230, 230, 230, 255}))); break;
     case CK_FIRECAB: setEmis(0); ADRAW("furniture/fire_cabinet", M, dim, BX(T_METAL, 0, 0.4f, 0, 0.6f, 0.8f, 0.25f, ((Color){200, 30, 30, 255})), BX(T_GLASS, 0, 0.45f, 0.126f, 0.5f, 0.6f, 0.01f, ((Color){180, 200, 210, 255}))); break;
@@ -463,7 +476,7 @@ static void drawBuildPiece(Build *b) {
     case BK_CRATE: ADRAW("props/crate", TRS(bc, 0, Vector3Subtract(b->mx, b->mn)), c, BX(T_WOOD, 0, 0.5f, 0, 1, 1, 1, ((Color){200, 170, 130, 255}))); break;
     case BK_FLOOR: ADRAW("base/floor_platform", TRS(V3(bc.x, b->mn.y, bc.z), 0, V3(1, 1, 1)), c, BX(T_WOOD, 0, 0.075f, 0, 2.0f, 0.15f, 2.0f, CWH), BX(T_WOOD, -0.9f, -0.5f, -0.9f, 0.12f, 1.0f, 0.12f, ((Color){150, 120, 90, 255})),
                          BX(T_WOOD, 0.9f, -0.5f, 0.9f, 0.12f, 1.0f, 0.12f, ((Color){150, 120, 90, 255}))); break;
-    case BK_CHEST: break;   // drawn as its container
+    case BK_CHEST: case BK_RACK: break;   // drawn as its container
     case BK_BED: ADRAW("base/bed", TRS(bc, ax ? 0 : PI / 2, V3(1, 1, 1)), c, BX(T_WOOD, 0, 0.15f, 0, 1.0f, 0.3f, 2.0f, CWH), BX(T_CLOTH, 0, 0.34f, 0.1f, 0.9f, 0.1f, 1.7f, ((Color){90, 110, 150, 255})),
                        BX(T_CLOTH, 0, 0.38f, -0.78f, 0.6f, 0.1f, 0.3f, ((Color){230, 225, 215, 255}))); break;
     case BK_SHRINE: setEmis(0); ADRAW("base/kamidana", TRS(bc, ax ? PI / 2 : 0, V3(1, 1, 1)), WHITE, BX(T_WOOD, 0, 0.5f, 0, 0.12f, 1.0f, 0.12f, ((Color){150, 110, 80, 255})), BX(T_WOOD, 0, 1.02f, 0, 0.9f, 0.06f, 0.5f, ((Color){200, 170, 120, 255})),

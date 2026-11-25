@@ -2853,7 +2853,21 @@ int main(int argc, char **argv) {
                 pl.yaw = pl.tyaw = PI / 2; pl.pitch = pl.tpitch = -0.3f; giveBack(IT_BOTTLE, 1); int wb = invCount(IT_WATER);
                 bool cp = catchPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), V3(1, -0.3f, 0), false); TraceLog(LOG_INFO, "T_FORAGE catcher after 1 h of rain: %.2f bottles; prompt %d '%s'", lv, cp, prompt);
                 catchPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), V3(1, -0.3f, 0), true); TraceLog(LOG_INFO, "T_FORAGE catcher filled a bottle: water %d -> %d, left %.2f", wb, invCount(IT_WATER), builds[bi].fuel); }
+            if (frame == 140) {   // 0.9.21: the drying rack: 16 h of dry daylight turns fish, shiitake and daikon into food that keeps; rain stops it
+                int bi = nBuild++; Vector3 c = V3(pl.pos.x + 1.6f, pl.pos.y, pl.pos.z - 1.5f);
+                builds[bi] = (Build){V3(c.x - 0.7f, c.y, c.z - 0.3f), V3(c.x + 0.7f, c.y + 1.4f, c.z + 0.3f), -1, BK_RACK, 6, 6, true, false, 0, -1, 0, -1};
+                builds[bi].cont = addCont(CK_RACK, V3(c.x, c.y, c.z), 0, 0, false); Cont *C = &conts[builds[bi].cont];
+                C->s[0] = (Slot){IT_FISH, 2, 0}; C->s[1] = (Slot){IT_MUSHROOM, 3, 0}; C->s[2] = (Slot){IT_DAIKON, 1, 0}; C->s[3] = (Slot){IT_RAG, 1, 0};
+                rainK = 1; rackTick(10); float wet = builds[bi].fuel; rainK = 0; pl.tod = 12; rackTick(8); float half = builds[bi].fuel; int t0 = C->s[0].t;
+                rackTick(8.5f);
+                TraceLog(LOG_INFO, "T_RACK rain 10 h: %.1f h dried; dry 8 h: %.1f (fish still raw %d); after 16.5 h: slots %s x%d, %s x%d, %s x%d, %s x%d; timer %.1f", wet, half, t0 == IT_FISH,
+                         idef[C->s[0].t].name, C->s[0].n, idef[C->s[1].t].name, C->s[1].n, idef[C->s[2].t].name, C->s[2].n, idef[C->s[3].t].name, C->s[3].n, builds[bi].fuel);
+                for (int i = 0; i < invNSlots(); i++) { pl.sl[i].t = -1; pl.sl[i].n = 0; } giveBack(IT_WATER, 1); giveBack(IT_DRYSHIITAKE, 2); giveBack(IT_KIRIBOSHI, 1); giveBack(IT_HIMONO, 1); pl.nearFire = true;
+                int rw = -1, rg = -1; for (int i = 0; i < N_RECIPE; i++) { if (!strcmp(recipes[i].name, "Winter nabe")) rw = i; if (!strcmp(recipes[i].name, "Grill himono")) rg = i; }
+                craft(rw); craft(rg); TraceLog(LOG_INFO, "T_RACK winter nabe %d, grilled himono %d", invCount(IT_NABE), invCount(IT_GRILLFISH));
+                pl.yaw = pl.tyaw = 2.3f; pl.pitch = pl.tpitch = -0.2f; }
             if (frame == 150) TakeScreenshot("forage_catcher.png");
+            if (frame == 152) { pl.yaw = pl.tyaw = 2.6f; } if (frame == 158) TakeScreenshot("forage_rack.png");
             if (frame == 160) { float r0 = forageReady[fk[0]]; saveGame(); forageReady[fk[0]] = 0; bool ld = loadGame(); TraceLog(LOG_INFO, "T_FORAGE save/load %d: patch ready %.1f vs %.1f", ld, forageReady[fk[0]], r0); }
             if (frame == 175) { pl.tod = cht.frozenTod = 23; if (fk[1] >= 0) { forageReady[fk[1]] = 0; Forage *F = &forage[fk[1]]; pl.pos = V3(F->pos.x - 1.5f, F->pos.y + 0.05f, F->pos.z); pl.yaw = pl.tyaw = PI / 2; pl.pitch = pl.tpitch = -0.55f; } }
             if (frame == 195) TakeScreenshot("forage_pale_night.png");

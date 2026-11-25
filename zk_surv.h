@@ -99,6 +99,8 @@ static const Recipe recipes[] = {
     {"Yomogi tea", {{IT_WATER, 1}, {IT_YOMOGI, 2}, {-1, 0}}, IT_TEA, 1, RQ_FIRE},   // 0.9.18
     {"Mountain nabe", {{IT_WATER, 1}, {IT_MUSHROOM, 2}, {IT_TAKENOKO, 1}}, IT_NABE, 1, RQ_FIRE},
     {"Daikon nabe", {{IT_WATER, 1}, {IT_MUSHROOM, 2}, {IT_DAIKON, 1}}, IT_NABE, 1, RQ_FIRE},
+    {"Winter nabe", {{IT_WATER, 1}, {IT_DRYSHIITAKE, 2}, {IT_KIRIBOSHI, 1}}, IT_NABE, 1, RQ_FIRE},   // 0.9.21: from the drying rack
+    {"Grill himono", {{IT_HIMONO, 1}, {-1, 0}, {-1, 0}}, IT_GRILLFISH, 1, RQ_FIRE},
 };
 #define N_RECIPE ((int)(sizeof recipes / sizeof recipes[0]))
 static bool nearShrine(void) { return baseShrine >= 0 && builds[baseShrine].alive && Vector3Distance(builds[baseShrine].mn, pl.pos) < 4.5f; }
@@ -206,6 +208,19 @@ static void catchTick(float hours) {
         Vector3 c = Vector3Scale(Vector3Add(b->mn, b->mx), 0.5f); if (ceilAt(V3(c.x, b->mx.y + 0.1f, c.z), 0.3f) < b->mx.y + 9) continue;   // under a roof: nothing falls in
         b->fuel = fminf(CATCH_MAX, b->fuel + hours * rainK * 1.6f); }
 }
+// ============================================================ 0.9.21: the drying rack: a frame of poles with a container of 6 slots. Raw fish, shiitake and daikon hung on it
+// dry together in a day (16 h in daylight; half speed at night; nothing while rain falls on it), into himono, dried shiitake and kiriboshi daikon
+static int rackDryOut(int t) { return t == IT_FISH ? IT_HIMONO : t == IT_MUSHROOM ? IT_DRYSHIITAKE : t == IT_DAIKON ? IT_KIRIBOSHI : -1; }
+static void rackTick(float hours) {
+    for (int i = 0; i < nBuild; i++) { Build *b = &builds[i]; if (!b->alive || b->kind != BK_RACK || b->cont < 0) continue;
+        Cont *c = &conts[b->cont]; int n = 0; for (int k = 0; k < ckSlots[CK_RACK]; k++) if (c->s[k].t >= 0 && rackDryOut(c->s[k].t) >= 0) n++;
+        if (!n) { b->fuel = 0; continue; }
+        Vector3 m = Vector3Scale(Vector3Add(b->mn, b->mx), 0.5f); bool roofed = ceilAt(V3(m.x, b->mx.y + 0.1f, m.z), 0.3f) < b->mx.y + 9;
+        if (rainK > 0.05f && !roofed) continue;   // wet: it waits
+        b->fuel += hours * (dayK() > 0.3f ? 1.0f : 0.5f);
+        if (b->fuel >= RACK_H) { b->fuel = 0; for (int k = 0; k < ckSlots[CK_RACK]; k++) { int o = c->s[k].t >= 0 ? rackDryOut(c->s[k].t) : -1; if (o >= 0) { c->s[k].t = (short)o; c->s[k].w = 0; } } } }
+}
+static int rackOfCont(int ci) { for (int i = 0; i < nBuild; i++) if (builds[i].alive && builds[i].kind == BK_RACK && builds[i].cont == ci) return i; return -1; }
 static bool catchPrompt(Vector3 eye, Vector3 aim, bool act) {
     int g = facingBuild(eye, aim, 2.4f, BK_RAINCATCH); if (g < 0) return false;
     Build *b = &builds[g]; int n = (int)b->fuel;
@@ -624,7 +639,7 @@ static float trapCd[MAX_BUILD];
 static void restock(void) {   // each midnight: some far-away searched places have something in them again
     int n = 0;
     for (int i = 0; i < nCont; i++) { Cont *c = &conts[i];
-        if (!c->on || !c->searched || c->kind == CK_PILE || c->kind == CK_CHEST || c->kind == CK_GUNLOCKER) continue;
+        if (!c->on || !c->searched || c->kind == CK_PILE || c->kind == CK_CHEST || c->kind == CK_GUNLOCKER || c->kind == CK_RACK) continue;
         if (Vector3Distance(c->pos, pl.pos) < 60 || fr(0, 1) > 0.12f) continue;
         c->filled = false; c->searched = false; n++; }
     TraceLog(LOG_INFO, "RESTOCK: %d containers", n);
@@ -658,8 +673,8 @@ static void survivalTick(float dt) {
     }
     // ---- broken leg heals only once splinted (12 in-game hours)
     if (pl.fracture == 2) { pl.fracT += hours; if (pl.fracT >= 12) { pl.fracture = 0; say("Your leg has healed."); } }
-    // ---- gardens, traps, rain catchers
-    catchTick(hours);
+    // ---- gardens, traps, rain catchers, drying racks
+    catchTick(hours); rackTick(hours);
     for (int i = 0; i < nBuild; i++) { Build *b = &builds[i]; if (!b->alive) continue;
         if (b->kind == BK_GARDEN && b->open && b->hp < b->maxhp) { b->hp = fminf(b->maxhp, b->hp + hours * (dayK() > 0.3f ? 1.2f : 0.6f)); }
         if (b->kind == BK_SPIKES || b->kind == BK_ALARM) {

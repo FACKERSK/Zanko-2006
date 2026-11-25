@@ -297,16 +297,18 @@ static void shootGun(int t, Vector3 eye, Vector3 aim) {   // the pistol and the 
 }
 
 // ============================================================ building
-enum { BK_WALL, BK_DOOR, BK_CRATE, BK_FLOOR, BK_FIRE, BK_CHEST, BK_BED, BK_SHRINE, BK_WARD, BK_GARDEN, BK_SPIKES, BK_ALARM, BK_GENERATOR, BK_LAMP, BK_RAINCATCH, BK_N };
+enum { BK_WALL, BK_DOOR, BK_CRATE, BK_FLOOR, BK_FIRE, BK_CHEST, BK_BED, BK_SHRINE, BK_WARD, BK_GARDEN, BK_SPIKES, BK_ALARM, BK_GENERATOR, BK_LAMP, BK_RAINCATCH, BK_RACK, BK_N };
+#define RACK_H 16.0f   // hours on a drying rack (zk_surv.h)
+static int rackDryOut(int t); static int rackOfCont(int ci);
 static const char *bkName[BK_N] = {"Plank Wall", "Door Wall", "Step Crate", "Floor Platform", "Campfire", "Storage Chest", "Bed", "Kamidana (base shrine)", "Spirit Ward",
-                                   "Garden Bed", "Spike Trap", "Can Alarm", "Generator", "Work Lamp", "Rain Catcher"};
+                                   "Garden Bed", "Spike Trap", "Can Alarm", "Generator", "Work Lamp", "Rain Catcher", "Drying Rack"};
 typedef struct { int t, n; } Cost;
 static const Cost bkCost[BK_N][3] = {
     {{IT_PLANKS, 3}, {IT_NAILS, 4}, {-1, 0}}, {{IT_PLANKS, 4}, {IT_NAILS, 6}, {-1, 0}}, {{IT_PLANKS, 2}, {-1, 0}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 4}, {-1, 0}},
     {{IT_PLANKS, 2}, {-1, 0}, {-1, 0}}, {{IT_PLANKS, 4}, {IT_NAILS, 4}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_RAG, 2}, {-1, 0}},
     {{IT_PLANKS, 2}, {IT_OFUDA, 1}, {IT_ROPE, 1}}, {{IT_PLANKS, 2}, {IT_ROPE, 1}, {IT_OFUDA, 1}},
-    {{IT_PLANKS, 3}, {IT_SEEDS, 1}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 12}, {-1, 0}}, {{IT_SCRAP, 1}, {IT_NAILS, 2}, {IT_BOTTLE, 1}}, {{IT_SCRAP, 5}, {IT_NAILS, 8}, {IT_BATTERY, 2}}, {{IT_SCRAP, 1}, {IT_PLANKS, 1}, {IT_BATTERY, 1}}, {{IT_PLANKS, 2}, {IT_RAG, 3}, {IT_SCRAP, 1}}};
-static const bool bkHammer[BK_N] = {true, true, false, true, false, true, true, false, false, true, true, false, true, true, false};
+    {{IT_PLANKS, 3}, {IT_SEEDS, 1}, {-1, 0}}, {{IT_PLANKS, 3}, {IT_NAILS, 12}, {-1, 0}}, {{IT_SCRAP, 1}, {IT_NAILS, 2}, {IT_BOTTLE, 1}}, {{IT_SCRAP, 5}, {IT_NAILS, 8}, {IT_BATTERY, 2}}, {{IT_SCRAP, 1}, {IT_PLANKS, 1}, {IT_BATTERY, 1}}, {{IT_PLANKS, 2}, {IT_RAG, 3}, {IT_SCRAP, 1}}, {{IT_PLANKS, 3}, {IT_RAG, 1}, {-1, 0}}};
+static const bool bkHammer[BK_N] = {true, true, false, true, false, true, true, false, false, true, true, false, true, true, false, false};
 #define BASE_R 22.0f
 #define WARD_R 7.0f
 static bool bkAfford(int k) { for (int i = 0; i < 3; i++) if (bkCost[k][i].t >= 0 && invCount(bkCost[k][i].t) < bkCost[k][i].n) return false; return true; }
@@ -350,6 +352,7 @@ static bool buildGhost(Vector3 *mn, Vector3 *mx) {
     case BK_ALARM: *mn = V3(c.x - 0.2f, g, c.z - 0.2f); *mx = V3(c.x + 0.2f, g + 0.5f, c.z + 0.2f); break;
     case BK_GENERATOR: *mn = V3(c.x - 0.45f, g, c.z - 0.35f); *mx = V3(c.x + 0.45f, g + 0.6f, c.z + 0.35f); break;
     case BK_LAMP: *mn = V3(c.x - 0.25f, g, c.z - 0.25f); *mx = V3(c.x + 0.25f, g + 1.7f, c.z + 0.25f); break;
+    case BK_RACK: *mn = V3(c.x - 0.7f, g, c.z - 0.3f); *mx = V3(c.x + 0.7f, g + 1.4f, c.z + 0.3f); break;
     case BK_RAINCATCH: *mn = V3(c.x - 0.6f, g, c.z - 0.6f); *mx = V3(c.x + 0.6f, g + 1.3f, c.z + 0.6f); break;
     default: *mn = V3(c.x - 0.4f, g, c.z - 0.4f); *mx = V3(c.x + 0.4f, g + 0.4f, c.z + 0.4f); break;
     }
@@ -413,6 +416,7 @@ static void placeBuild(void) {
     if (K == BK_SPIKES) { b->hp = b->maxhp = 6; say("Spike trap set. Six bites before it needs rebuilding."); }
     if (K == BK_ALARM) { b->hp = b->maxhp = 1; say("Can alarm strung. It rattles when something walks into it."); }
     if (K != BK_SHRINE && K != BK_WARD && K != BK_GARDEN && K != BK_SPIKES && K != BK_ALARM) buildAddSolid(b);
+    if (K == BK_RACK) { b->cont = addCont(CK_RACK, V3(c.x, mn.y, c.z), b->axis >= 1000 ? buildYaw(b) : b->axis ? PI / 2 : 0, 0, false); b->fuel = 0; say("Drying rack up. Hang raw fish, shiitake or daikon on it; a day of dry weather turns them into food that keeps."); }
     if (K == BK_CHEST) { b->cont = addCont(CK_CHEST, V3(c.x, mn.y, c.z), b->axis >= 1000 ? buildYaw(b) : b->axis ? PI / 2 : 0, 0, false); }
     if (K == BK_SHRINE) { baseShrine = bi; addWard(V3(c.x, mn.y, c.z), 11.0f, 0, 1); say("Kamidana raised. Spirits cannot come within 11 m of it; spirit wards extend the base (22 m)."); }
     if (K == BK_WARD) { addWard(V3(c.x, mn.y, c.z), WARD_R, 0, 1); say("Spirit ward hung. Spirits cannot enter its circle."); }
@@ -473,7 +477,7 @@ static int facingCont(Vector3 eye, Vector3 aim, float maxD) {
     }
     return best;
 }
-static float searchTime(int k) { return k == CK_PILE || k == CK_CHEST ? 0 : (k == CK_TRUNK || k == CK_BODY ? 2.0f : 1.4f) * (1 - 0.12f * skLvl(SK_SCAV)); }
+static float searchTime(int k) { return k == CK_PILE || k == CK_CHEST || k == CK_RACK ? 0 : (k == CK_TRUNK || k == CK_BODY ? 2.0f : 1.4f) * (1 - 0.12f * skLvl(SK_SCAV)); }
 static void openInventory(int contIdx) {
     pl.invOpen = true; pl.openC = contIdx; pl.dragFrom = -1; pl.drag.t = -1;
     EnableCursor();
@@ -657,7 +661,9 @@ static void updatePlayer(float dt) {
         if (cont < 0 && extraPrompt(eye, aim)) {}
         else if (cont < 0 && survPrompt(eye, aim, false)) {}
         else if (nearTV >= 0 && cont < 0) snprintf(prompt, sizeof prompt, invHas(IT_VHS) ? "[E] Watch anime (VHS)" : "[E] Watch TV");
-        else if (cont >= 0) { Cont *c = &conts[cont]; snprintf(prompt, sizeof prompt, c->kind == CK_PILE || c->kind == CK_CHEST ? "[E] Open %s" : c->searched ? "[hold E] %s (searched)" : "[hold E] Search %s", ckName[c->kind]); }
+        else if (cont >= 0) { Cont *c = &conts[cont]; if (c->kind == CK_RACK) { int bi = rackOfCont(cont); float left = bi >= 0 ? RACK_H - builds[bi].fuel : RACK_H; int n = 0; for (int k = 0; k < ckSlots[CK_RACK]; k++) if (c->s[k].t >= 0 && rackDryOut(c->s[k].t) >= 0) n++;
+            snprintf(prompt, sizeof prompt, n ? "[E] Drying rack (dry in about %d h%s)" : "[E] Drying rack (hang raw fish, shiitake or daikon)", (int)ceilf(left), rainK > 0.05f ? ", waiting out the rain" : ""); }
+        else snprintf(prompt, sizeof prompt, c->kind == CK_PILE || c->kind == CK_CHEST ? "[E] Open %s" : c->searched ? "[hold E] %s (searched)" : "[hold E] Search %s", ckName[c->kind]); }
         else if (door >= 0) snprintf(prompt, sizeof prompt, builds[door].open ? "[E] Close door" : "[E] Open door");
         else if (bed >= 0 || wbed >= 0) snprintf(prompt, sizeof prompt, "[%s] Sleep in bed", actKey(A_SLEEP));
         else if (vaultOp >= 0) snprintf(prompt, sizeof prompt, "[SPACE] Vault through window%s", barrOp >= 0 ? "   [G] Barricade (2 planks)" : "");

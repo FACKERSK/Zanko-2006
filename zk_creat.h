@@ -69,7 +69,7 @@ static void attackStructureNear(Cr *c) {
         Vector3 cc = Vector3Scale(Vector3Add(b->mn, b->mx), 0.5f);
         if (Vector3Distance(V3(cc.x, 0, cc.z), V3(c->pos.x, 0, c->pos.z)) > r + 0.8f || fabsf(cc.y - c->pos.y) > 2.5f) continue;
         b->hp -= dmg; playAt(sWood, cc, 30, 0.8f); spawnParts(cc, 4, T_WOOD, WHITE, 1.4f, 0.07f);
-        if (b->hp <= 0) { b->alive = false; if (b->sid >= 0) sol[b->sid].off = true; if (b->kind == BK_CHEST && b->cont >= 0) conts[b->cont].kind = CK_PILE; }
+        if (b->hp <= 0) { b->alive = false; if (b->sid >= 0) sol[b->sid].off = true; if ((b->kind == BK_CHEST || b->kind == BK_RACK) && b->cont >= 0) conts[b->cont].kind = CK_PILE; }
         return;
     }
     for (int i = 0; i < nDeb; i++) {
