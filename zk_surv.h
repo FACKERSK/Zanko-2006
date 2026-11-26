@@ -99,6 +99,9 @@ static const Recipe recipes[] = {
     {"Yomogi tea", {{IT_WATER, 1}, {IT_YOMOGI, 2}, {-1, 0}}, IT_TEA, 1, RQ_FIRE},   // 0.9.18
     {"Mountain nabe", {{IT_WATER, 1}, {IT_MUSHROOM, 2}, {IT_TAKENOKO, 1}}, IT_NABE, 1, RQ_FIRE},
     {"Daikon nabe", {{IT_WATER, 1}, {IT_MUSHROOM, 2}, {IT_DAIKON, 1}}, IT_NABE, 1, RQ_FIRE},
+    {"Boil down seawater", {{IT_SEAWATER, 2}, {-1, 0}, {-1, 0}}, IT_SALT, 1, RQ_FIRE},   // 0.9.25: salt (the bottles come back)
+    {"Pickle daikon (takuan)", {{IT_DAIKON, 1}, {IT_SALT, 1}, {-1, 0}}, IT_TAKUAN, 3, 0},
+    {"Salt fish", {{IT_FISH, 1}, {IT_SALT, 1}, {-1, 0}}, IT_SALTFISH, 1, 0},
     {"Winter nabe", {{IT_WATER, 1}, {IT_DRYSHIITAKE, 2}, {IT_KIRIBOSHI, 1}}, IT_NABE, 1, RQ_FIRE},   // 0.9.21: from the drying rack
     {"Grill himono", {{IT_HIMONO, 1}, {-1, 0}, {-1, 0}}, IT_GRILLFISH, 1, RQ_FIRE},
 };
@@ -127,6 +130,7 @@ static void craft(int i) {
     if (r->out >= 0) giveBack(r->out, r->outN);
     else { pl.hands.w = (short)(pl.hands.w > 600 ? pl.hands.w - 600 : 0); }
     if (r->in[0][0] == IT_DIRTYWATER) { /* the bottle comes back full */ }
+    if (r->in[0][0] == IT_SEAWATER) giveBack(IT_BOTTLE, r->in[0][1]);   // (the salt stays, the bottles come back empty)
     play((r->need & RQ_HAMMER) ? sPlace : sPick, 0.6f);
     say(TextFormat("Crafted: %s.", r->name));
     skGain(r->out == IT_BANDAGE || r->out == IT_SPLINT ? SK_MED : SK_CARP, 2);
@@ -245,6 +249,12 @@ static bool survPrompt(Vector3 eye, Vector3 aim, bool act) {
         }
         return true;
     }
+    {   // 0.9.25: the sea within reach (not a river): a bottle of seawater, for salt
+        Vector2 f = {aim.x, aim.z}; float L = sqrtf(f.x * f.x + f.y * f.y); bool sea = false;
+        if (L > 0.01f && invHas(IT_BOTTLE) && pl.hands.t != IT_ROD) for (float d = 1.0f; d <= 3.6f && !sea; d += 0.5f) { float x = pl.pos.x + f.x / L * d, z = pl.pos.z + f.y / L * d;
+            if (!inRiverRaw(x, z) && !cityLand(x, z) && terrainH(x, z) < SEA_Y - 0.2f && pl.pos.y - SEA_Y < 2.5f && pl.pos.y - SEA_Y > -0.5f) sea = true; }
+        if (sea) { if (!act) { snprintf(prompt, sizeof prompt, "[E] Fill a bottle with seawater"); return true; }
+            invTake(IT_BOTTLE, 1); giveBack(IT_SEAWATER, 1); play(sPick, 0.5f); say("A bottle of seawater. Not for drinking: boiled down at a fire, two make salt."); return true; } }
     int g = facingBuild(eye, aim, 2.4f, BK_GARDEN);
     if (g >= 0) {
         Build *b = &builds[g];

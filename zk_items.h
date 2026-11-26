@@ -7,7 +7,8 @@ enum { IT_FOOD, IT_DRINK, IT_BANDAGE, IT_BATTERY, IT_AMMO, IT_PLANKS, IT_OFUDA, 
        IT_HARDHAT, IT_RIOTHELM, IT_BEANIE, IT_COAT, IT_LEATHER, IT_STABVEST, IT_GAKURAN, IT_HANTEN, IT_WORKPANTS, IT_BIKEPANTS, IT_BOOTS, IT_RUBBERBOOTS,
        IT_PISTOL, IT_SHOTGUN, IT_ACP, IT_SHELLS, IT_ROCK, IT_FIRECRACKER, IT_MOLOTOV, IT_KEY, IT_FUEL, IT_RAINCOAT, IT_ROD, IT_FISH, IT_GRILLFISH,
        IT_MUSHROOM, IT_PALEMUSH, IT_YOMOGI, IT_TAKENOKO, IT_TEA, IT_NABE,
-       IT_HIMONO, IT_DRYSHIITAKE, IT_KIRIBOSHI, IT_N };   // 0.9.21: dried on a rack   // 0.9.18: foraged in the hills
+       IT_HIMONO, IT_DRYSHIITAKE, IT_KIRIBOSHI,
+       IT_SEAWATER, IT_TAKUAN, IT_SALTFISH, IT_N };   // 0.9.25: salt from the sea, and what it keeps   // 0.9.21: dried on a rack   // 0.9.18: foraged in the hills
 enum { CAT_FOOD, CAT_DRINK, CAT_MED, CAT_TOOL, CAT_MELEE, CAT_GUN, CAT_AMMO, CAT_MAT, CAT_SPIRIT, CAT_COMFORT, CAT_BAG, CAT_CLOTHES, CAT_THROW };
 enum { WS_HEAD, WS_BODY, WS_LEGS, WS_FEET, WS_N };
 static const char *wsName[WS_N] = {"Head", "Body", "Legs", "Feet"};
@@ -100,6 +101,9 @@ static ItemDef idef[IT_N] = {   // mutable: Data/items.ini (or a mod's) changes 
     [IT_HIMONO]    = {"Himono", 0.3f, 6, CAT_FOOD, .desc = "Fish split and dried on a rack. Food +30. Keeps ten days."},
     [IT_DRYSHIITAKE] = {"Dried Shiitake", 0.05f, 12, CAT_FOOD, .desc = "Shiitake dried on a rack. Food +8 as it is; goes into a nabe like fresh. Keeps fifteen days."},
     [IT_KIRIBOSHI] = {"Kiriboshi Daikon", 0.2f, 6, CAT_FOOD, .desc = "Daikon cut in strips and dried on a rack. Food +20; goes into a nabe. Keeps fifteen days."},
+    [IT_SEAWATER]  = {"Seawater", 1.0f, 2, CAT_DRINK, .desc = "A bottle of the sea. Drinking it makes you thirstier. Two of them boil down to salt at a fire."},
+    [IT_TAKUAN]    = {"Takuan", 0.1f, 9, CAT_FOOD, .desc = "Daikon pickled in salt. Food +10, a little thirsty. Keeps a month."},
+    [IT_SALTFISH]  = {"Salted Fish", 0.35f, 4, CAT_FOOD, .desc = "Fish packed in salt. Food +25, thirsty. Keeps three weeks."},
     [IT_NABE]      = {"Mountain Nabe", 1.0f, 2, CAT_FOOD, .desc = "Hot pot of wild mushrooms and bamboo shoots. Food +55, water +15, warmth and sanity. Keeps two days."},
     [IT_ACP]       = {".32 Rounds", 0.015f, 40, CAT_AMMO, .desc = "Pistol ammunition."},
     [IT_SHELLS]    = {"12ga Shells", 0.04f, 20, CAT_AMMO, .desc = "Buckshot for the shotgun."},

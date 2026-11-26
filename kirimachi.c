@@ -2890,6 +2890,22 @@ int main(int argc, char **argv) {
                 int rw = -1, rg = -1; for (int i = 0; i < N_RECIPE; i++) { if (!strcmp(recipes[i].name, "Winter nabe")) rw = i; if (!strcmp(recipes[i].name, "Grill himono")) rg = i; }
                 craft(rw); craft(rg); TraceLog(LOG_INFO, "T_RACK winter nabe %d, grilled himono %d", invCount(IT_NABE), invCount(IT_GRILLFISH));
                 pl.yaw = pl.tyaw = 2.3f; pl.pitch = pl.tpitch = -0.2f; }
+            if (frame == 145) {   // 0.9.25: seawater from the shore, salt at a fire, takuan and salted fish
+                int shore = 0; Vector3 at = {0}, wdir = {0};
+                for (float x = -WEST + 10; x < CITY + WILD - 10; x += 3) for (float z = -WILD + 10; z < CITY + WILD - 10; z += 3) {
+                    float h = terrainH(x, z); if (cityLand(x, z) || inRiverRaw(x, z) || h < SEA_Y + 0.1f || h > SEA_Y + 2.2f) continue;
+                    for (int k = 0; k < 4; k++) { float dx = k == 0 ? 2.5f : k == 1 ? -2.5f : 0, dz = k == 2 ? 2.5f : k == 3 ? -2.5f : 0;
+                        if (!cityLand(x + dx, z + dz) && terrainH(x + dx, z + dz) < SEA_Y - 0.4f) { if (!shore) { at = V3(x, h, z); wdir = V3(dx, 0, dz); } shore++; break; } } }
+                TraceLog(LOG_INFO, "T_SALT shore spots within reach of the sea: %d (first %.0f %.1f %.0f)", shore, at.x, at.y, at.z);
+                for (int i = 0; i < invNSlots(); i++) { pl.sl[i].t = -1; pl.sl[i].n = 0; }
+                if (shore) { pl.pos = V3(at.x, at.y + 0.05f, at.z); giveBack(IT_BOTTLE, 2); Vector3 aim = Vector3Normalize(V3(wdir.x, -0.4f, wdir.z));
+                    bool p0 = survPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), aim, false); TraceLog(LOG_INFO, "T_SALT prompt %d '%s'", p0, prompt);
+                    survPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), aim, true); survPrompt(V3(pl.pos.x, pl.pos.y + 1.6f, pl.pos.z), aim, true); TraceLog(LOG_INFO, "T_SALT seawater %d, bottles %d", invCount(IT_SEAWATER), invCount(IT_BOTTLE)); }
+                for (int i = 0; i < invNSlots(); i++) { pl.sl[i].t = -1; pl.sl[i].n = 0; } giveBack(IT_SEAWATER, 2); giveBack(IT_DAIKON, 1); giveBack(IT_FISH, 1); pl.nearFire = true;
+                int rs = -1, rp = -1, rf = -1; for (int i = 0; i < N_RECIPE; i++) { if (recipes[i].out == IT_SALT && recipes[i].in[0][0] == IT_SEAWATER) rs = i; if (recipes[i].out == IT_TAKUAN) rp = i; if (recipes[i].out == IT_SALTFISH) rf = i; }
+                craft(rs); int salt = invCount(IT_SALT), bt = invCount(IT_BOTTLE); giveBack(IT_SALT, 1); craft(rp); craft(rf);
+                TraceLog(LOG_INFO, "T_SALT boiled: salt %d, bottles back %d; takuan %d, salted fish %d, salt left %d", salt, bt, invCount(IT_TAKUAN), invCount(IT_SALTFISH), invCount(IT_SALT));
+                pl.water = 50; consumeItem(IT_SALTFISH); TraceLog(LOG_INFO, "T_SALT ate salted fish: water 50 -> %.0f", pl.water); }
             if (frame == 150) TakeScreenshot("forage_catcher.png");
             if (frame == 152) { pl.yaw = pl.tyaw = 2.6f; } if (frame == 158) TakeScreenshot("forage_rack.png");
             if (frame == 160) { float r0 = forageReady[fk[0]]; saveGame(); forageReady[fk[0]] = 0; bool ld = loadGame(); TraceLog(LOG_INFO, "T_FORAGE save/load %d: patch ready %.1f vs %.1f", ld, forageReady[fk[0]], r0); }
@@ -3291,7 +3307,7 @@ int main(int argc, char **argv) {
             if (mpRole < 0) mpRole = getenv("KIRI_MPHOST") ? 1 : getenv("KIRI_MPJOIN") ? 2 : 0;
             if (mpRole == 1 && frame == 5) { gSeedArg = 4242; newGame(); gSeedArg = 0; netPvp = true; netHost(27015); state = ST_PLAY; TraceLog(LOG_INFO, "MPTEST host up: %s", netStatus); }
             if (mpRole == 2 && frame == 5) { netJoin(getenv("KIRI_MPJOIN"), 27015); TraceLog(LOG_INFO, "MPTEST joining: %s", netStatus); }
-            if (mpRole == 1 && frame > 6) { static bool joined = false; if (!joined) { for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on && Vector3LengthSqr(rps[k].pos) > 1) joined = true; if (!joined && frame < 4000) frame = 7; } }   // the host waits for the client before running its steps
+            if (mpRole == 1 && frame > 6) { static bool joined = false; static double jt = 0; if (!joined) { for (int k = 0; k < MP_MAX; k++) if (k != mySlot && rps[k].on && Vector3LengthSqr(rps[k].pos) > 1) { joined = true; jt = GetTime(); } } if ((!joined || GetTime() - jt < 30) && frame < 4000) frame = 7; }   // (30 s more: the client finishes building its world)   // the host waits for the client before running its steps
             if (mpRole && frame > 5) {
                 if (wi < 0) for (int i = 0; i < nOps; i++) if (ops[i].type == OP_WINDOW && ops[i].state == 0) { wi = i; break; }
                 if (ci < 0) for (int i = 0; i < nCont; i++) if (conts[i].kind == CK_FRIDGE || conts[i].kind == CK_SHELF) { ci = i; break; }

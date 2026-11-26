@@ -1,4 +1,16 @@
-ZANKO 2006 - Afterglow  (v0.9.24, toilets in house corners)
+ZANKO 2006 - Afterglow  (v0.9.25, salt from the sea)
+
+- 0.9.25: salt.
+  * Seawater: stand on the shore (not the seawall, it is too high)
+    with an empty bottle and [E] fills it from the sea. Drinking it
+    makes you thirstier (Water -12).
+  * Boil down seawater at a fire: two bottles make one salt; the
+    bottles come back. Salt still pours a circle spirits cannot
+    cross.
+  * Pickle daikon (no fire needed): a daikon and salt make three
+    takuan. Food +10 each, keeps a month.
+  * Salt fish: a raw fish and salt. Food +25, thirsty (Water -8),
+    keeps three weeks.
 
 - 0.9.24: toilets back, in the corners.
   * Each house floor's toilet is now a 1.0 x 1.6 m room walled off
