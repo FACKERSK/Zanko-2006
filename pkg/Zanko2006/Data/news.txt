@@ -1,4 +1,15 @@
-ZANKO 2006 - Afterglow  (v0.9.23, launcher update screen, fixes)
+ZANKO 2006 - Afterglow  (v0.9.24, toilets in house corners)
+
+- 0.9.24: toilets back, in the corners.
+  * Each house floor's toilet is now a 1.0 x 1.6 m room walled off
+    in a corner of the house (two outside walls), with one doorway,
+    away from the front door and the stairs. 512 toilets moved.
+  * The plan's old toilet strip becomes a store cupboard.
+  * The room the toilet is cut from keeps a clear way from its
+    doorway to the toilet door; its furniture stays out of it.
+  * Offices and shops keep their toilets where the plan put them
+    (146, one doorway each). 23 that would still have been a way
+    through to another room are small halls.
 
 - 0.9.23: launcher.
   * With automatic updates on, the start screen waits for the
